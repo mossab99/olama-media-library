@@ -73,6 +73,7 @@ class Olama_Media_DB
             file_size BIGINT UNSIGNED NULL,
             total_chunks INT UNSIGNED NULL,
             uploaded_chunks INT UNSIGNED NOT NULL DEFAULT 0,
+            drive_file_id VARCHAR(255) NULL,
             drive_upload_uri TEXT NULL,
             status VARCHAR(50) NOT NULL DEFAULT 'created',
             error_message TEXT NULL,
@@ -83,6 +84,7 @@ class Olama_Media_DB
             PRIMARY KEY  (id),
             UNIQUE KEY job_uuid (job_uuid),
             KEY asset_id (asset_id),
+            KEY drive_file_id (drive_file_id),
             KEY status (status)
         ) $charset_collate;");
 
@@ -133,9 +135,13 @@ class Olama_Media_DB
                     a.id AS media_record_id, a.upload_status, a.preview_status, a.approval_status,
                     a.notes AS comments, a.uploaded_by AS uploader_id, a.uploaded_at,
                     a.drive_file_id, a.web_view_link AS drive_file_url, a.web_content_link, a.thumbnail_link,
-                    a.original_filename, a.file_size, u.display_name AS uploader_name
+                    a.original_filename, a.file_size, j.job_uuid, j.status AS job_status,
+                    u.display_name AS uploader_name
              FROM {$lessons_table} l
              LEFT JOIN {$this->assets_table} a ON a.lesson_id = l.id
+             LEFT JOIN {$this->jobs_table} j ON j.asset_id = a.id AND j.id = (
+                 SELECT MAX(j2.id) FROM {$this->jobs_table} j2 WHERE j2.asset_id = a.id
+             )
              LEFT JOIN {$users_table} u ON a.uploaded_by = u.ID
              WHERE l.unit_id IN ({$placeholders})
              ORDER BY l.unit_id ASC, CAST(l.lesson_number AS UNSIGNED) ASC, l.lesson_number ASC, a.id ASC",

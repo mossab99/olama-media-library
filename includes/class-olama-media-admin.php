@@ -16,6 +16,7 @@ class Olama_Media_Admin
         add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
         add_action('admin_init', array($this, 'handle_oauth_callback'));
         add_action('admin_notices', array($this, 'dependency_notice'));
+        add_filter('heartbeat_settings', array($this, 'heartbeat_settings'));
     }
 
     public static function can_manage()
@@ -64,6 +65,7 @@ class Olama_Media_Admin
 
         wp_enqueue_style('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/css/media-library-admin.css', array(), OLAMA_MEDIA_LIBRARY_VERSION);
         wp_enqueue_script('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/js/media-library-admin.js', array('jquery'), OLAMA_MEDIA_LIBRARY_VERSION, true);
+        wp_enqueue_script('heartbeat');
 
         $settings = get_option('academy_media_library_settings', array());
         $max_size_mb = max(1, absint($settings['max_file_size'] ?? 2048));
@@ -193,6 +195,9 @@ class Olama_Media_Admin
             'invalid_file' => __('يسمح حاليا برفع ملفات MP4 فقط.', 'olama-media-library'),
             'retrying_chunk' => __('إعادة محاولة رفع الجزء %1$s من %2$s - المحاولة %3$s من 3', 'olama-media-library'),
             'chunk_failed_final' => __('فشل رفع هذا الجزء بعد 3 محاولات. يرجى التحقق من الاتصال والمحاولة مرة أخرى.', 'olama-media-library'),
+            'finalizing_upload' => __('تم رفع الملف، جاري تثبيت بيانات الفيديو...', 'olama-media-library'),
+            'finalize_failed' => __('فشل تثبيت بيانات الفيديو، يمكنك إعادة المحاولة بدون رفع الملف من جديد.', 'olama-media-library'),
+            'retry_finalize' => __('إعادة تثبيت بيانات الفيديو', 'olama-media-library'),
             'processing_note' => __('تم رفع الفيديو بنجاح، لكن Google Drive ما زال يعالج المعاينة. يمكن تحميل الملف الآن وستتوفر المشاهدة لاحقا.', 'olama-media-library'),
             'status_none' => __('لا يوجد فيديو', 'olama-media-library'),
             'status_uploading' => __('جاري الرفع', 'olama-media-library'),
@@ -205,5 +210,14 @@ class Olama_Media_Admin
             'status_approved' => __('معتمد', 'olama-media-library'),
             'status_rejected' => __('مرفوض', 'olama-media-library'),
         );
+    }
+
+    public function heartbeat_settings($settings)
+    {
+        if (is_admin() && isset($_GET['page']) && $_GET['page'] === 'academy-media-library') {
+            $settings['interval'] = 120;
+        }
+
+        return $settings;
     }
 }

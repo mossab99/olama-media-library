@@ -8,6 +8,7 @@ class Olama_Media_Ajax
     private $db;
     private $curriculum;
     private $logger;
+    private $settings_cache = null;
 
     public function __construct($db, $curriculum, $logger)
     {
@@ -90,9 +91,12 @@ class Olama_Media_Ajax
 
     public function upload_chunk()
     {
+        $handler_start = microtime(true);
+        $timings = array();
         set_time_limit(0);
         ignore_user_abort(true);
 
+        $stage_start = microtime(true);
         $this->verify_nonce();
         $this->require_upload();
 
@@ -122,6 +126,7 @@ class Olama_Media_Ajax
                 'expected_chunk_size' => $expected_chunk_size,
             ));
         }
+        $timings['request_validation_ms'] = $this->elapsed_ms($stage_start);
 
         $upload_dir = wp_upload_dir();
         $temp_dir = trailingslashit($upload_dir['basedir']) . 'olama-media-temp/' . $file_uuid;
@@ -132,6 +137,7 @@ class Olama_Media_Ajax
         $asset_id = 0;
 
         try {
+            $stage_start = microtime(true);
             $drive = new Olama_Media_Drive();
 
             if (file_exists($meta_path)) {
@@ -139,7 +145,13 @@ class Olama_Media_Ajax
                 if (!is_array($meta) || empty($meta['resume_uri'])) {
                     throw new Exception(__('Upload metadata is corrupted. Please restart the upload.', 'olama-media-library'));
                 }
-            } elseif (($existing_job = $this->db->get_job($file_uuid)) && !empty($existing_job->drive_upload_uri)) {
+            } else {
+                $db_lookup_start = microtime(true);
+                $existing_job = $this->db->get_job($file_uuid);
+                $timings['db_job_lookup_ms'] = $this->elapsed_ms($db_lookup_start);
+            }
+
+            if (!isset($meta) && !empty($existing_job) && !empty($existing_job->drive_upload_uri)) {
                 $meta = $this->recover_upload_meta_from_db($file_uuid, $filename, $total_size, $total_chunks);
                 if (is_wp_error($meta)) {
                     throw new Exception($meta->get_error_message());
@@ -152,7 +164,7 @@ class Olama_Media_Ajax
                     'chunk_index' => $chunk_index,
                     'file_uuid' => $file_uuid,
                 ), $job_id, $asset_id);
-            } else {
+            } elseif (!isset($meta)) {
                 if ($chunk_index > 0) {
                     throw new Exception(__('Upload session was lost. Please restart the upload.', 'olama-media-library'));
                 }
@@ -208,11 +220,16 @@ class Olama_Media_Ajax
                 file_put_contents($meta_path, wp_json_encode($meta));
                 $this->logger->log('upload_started', 'Upload started.', array('filename' => $filename), $job_id, $asset_id);
             }
+            if (!isset($timings['db_job_lookup_ms'])) {
+                $timings['db_job_lookup_ms'] = 0;
+            }
+            $timings['meta_load_or_recovery_ms'] = $this->elapsed_ms($stage_start);
 
             $asset_id = absint($meta['asset_id'] ?? 0);
             $job_id = absint($meta['job_id'] ?? 0);
             $chunk_file = $_FILES['video_chunk'];
 
+            $stage_start = microtime(true);
             $file_validation = $this->validate_uploaded_chunk_file($chunk_file);
             if (is_wp_error($file_validation)) {
                 throw new Exception($file_validation->get_error_message());
@@ -222,51 +239,66 @@ class Olama_Media_Ajax
             if ($chunk_data === false || strlen($chunk_data) < 1) {
                 throw new Exception(__('Uploaded chunk is empty.', 'olama-media-library'));
             }
+            $timings['temp_file_validation_ms'] = $this->elapsed_ms($stage_start);
 
+            $stage_start = microtime(true);
             $result = $drive->put_upload_chunk($meta['resume_uri'], $chunk_data, $start_byte, $total_size);
             @unlink($chunk_file['tmp_name']);
+            $timings['drive_chunk_upload_ms'] = $this->elapsed_ms($stage_start);
 
             if (is_wp_error($result)) {
                 throw new Exception($result->get_error_message());
             }
 
+            $stage_start = microtime(true);
             $this->db->update_job($job_id, array('uploaded_chunks' => $chunk_index + 1));
+            $timings['db_progress_update_ms'] = $this->elapsed_ms($stage_start);
             $this->logger->log('chunk_uploaded_to_drive', 'Chunk uploaded to Drive.', array('chunk' => $chunk_index + 1, 'total' => $total_chunks), $job_id, $asset_id);
 
             if ($result['status'] === 'completed') {
-                $permission = $drive->ensure_file_permissions($result['file_id']);
-                if (is_wp_error($permission)) {
-                    $this->logger->log('permission_update_failed', $permission->get_error_message(), array(), $job_id, $asset_id);
-                } elseif (is_array($permission) && !empty($permission['already_exists'])) {
-                    $this->logger->log('permission_already_exists', 'Drive file permission already exists.', array(), $job_id, $asset_id);
-                } else {
-                    $this->logger->log('permission_updated', 'Drive file permission updated.', array(), $job_id, $asset_id);
-                }
-
-                $download_link = $result['web_content_link'] ?: 'https://drive.google.com/uc?export=download&id=' . rawurlencode($result['file_id']);
+                $stage_start = microtime(true);
                 $this->db->update_asset($asset_id, array(
                     'drive_file_id' => $result['file_id'],
-                    'web_view_link' => $result['web_view_link'],
-                    'web_content_link' => $download_link,
-                    'thumbnail_link' => $result['thumbnail_link'],
-                    'upload_status' => 'uploaded_to_drive',
-                    'preview_status' => 'processing',
-                    'uploaded_at' => current_time('mysql'),
                 ));
-                $this->db->update_job($job_id, array('status' => 'completed', 'completed_at' => current_time('mysql')));
-                $this->logger->log('upload_finalized', 'Upload completed on Google Drive.', array('file_id' => $result['file_id']), $job_id, $asset_id);
+                $this->db->update_job($job_id, array(
+                    'drive_file_id' => $result['file_id'],
+                    'uploaded_chunks' => $total_chunks,
+                    'status' => 'uploading',
+                ));
+                $timings['finalization_ms'] = 0;
+                $timings['asset_update_ms'] = $this->elapsed_ms($stage_start);
+                $timings['drive_metadata_fetch_ms'] = 0;
+                $timings['drive_permission_update_ms'] = 0;
+                $timings['total_handler_ms'] = $this->elapsed_ms($handler_start);
+                $this->logger->log('upload_chunk_timing', 'Upload chunk timing.', $this->timing_context($timings, $chunk_index, $total_chunks), $job_id, $asset_id);
+                $this->logger->log('upload_chunk_drive_timing', 'Upload chunk Drive timing.', array(
+                    'drive_chunk_upload_ms' => $timings['drive_chunk_upload_ms'],
+                    'chunk_index' => $chunk_index,
+                    'total_chunks' => $total_chunks,
+                ), $job_id, $asset_id);
                 $this->recursive_rmdir($temp_dir);
 
                 wp_send_json_success(array(
                     'completed' => true,
+                    'needs_finalize' => true,
                     'asset_id' => $asset_id,
-                    'url' => $result['web_view_link'],
-                    'download_url' => $download_link,
-                    'preview_status' => 'processing',
+                    'job_uuid' => $file_uuid,
                 ));
             }
 
-            wp_send_json_success(array('completed' => false, 'asset_id' => $asset_id));
+            $timings['finalization_ms'] = 0;
+            $timings['drive_metadata_fetch_ms'] = 0;
+            $timings['drive_permission_update_ms'] = 0;
+            $timings['asset_update_ms'] = 0;
+            $timings['total_handler_ms'] = $this->elapsed_ms($handler_start);
+            $this->logger->log('upload_chunk_timing', 'Upload chunk timing.', $this->timing_context($timings, $chunk_index, $total_chunks), $job_id, $asset_id);
+            $this->logger->log('upload_chunk_drive_timing', 'Upload chunk Drive timing.', array(
+                'drive_chunk_upload_ms' => $timings['drive_chunk_upload_ms'],
+                'chunk_index' => $chunk_index,
+                'total_chunks' => $total_chunks,
+            ), $job_id, $asset_id);
+
+            wp_send_json_success(array('completed' => false, 'needs_finalize' => false, 'asset_id' => $asset_id));
         } catch (Exception $e) {
             if ($asset_id) {
                 $this->db->update_asset($asset_id, array('upload_status' => 'failed'));
@@ -278,6 +310,7 @@ class Olama_Media_Ajax
                 'file_uuid' => $file_uuid,
                 'failed_chunk_index' => $chunk_index,
                 'total_chunks' => $total_chunks,
+                'total_handler_ms' => $this->elapsed_ms($handler_start),
             ), $job_id, $asset_id);
             wp_send_json_error(array(
                 'failed_chunk_index' => $chunk_index,
@@ -289,9 +322,121 @@ class Olama_Media_Ajax
 
     public function finalize_upload()
     {
+        $handler_start = microtime(true);
+        $timings = array();
+
         $this->verify_nonce();
         $this->require_upload();
-        wp_send_json_success(array('message' => __('Chunk upload finalizes automatically when Google Drive accepts the last chunk.', 'olama-media-library')));
+
+        $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
+        $asset_id = absint($_POST['asset_id'] ?? 0);
+        $job = $job_uuid ? $this->db->get_job($job_uuid) : null;
+        $asset = $asset_id ? $this->db->get_asset($asset_id) : null;
+
+        if (!$asset && $job && $job->asset_id) {
+            $asset_id = absint($job->asset_id);
+            $asset = $this->db->get_asset($asset_id);
+        }
+
+        if (!$asset) {
+            wp_send_json_error(array(
+                'retryable' => false,
+                'message' => __('Media asset not found.', 'olama-media-library'),
+            ));
+        }
+
+        $job_id = $job ? absint($job->id) : 0;
+        $drive_file_id = sanitize_text_field($_POST['drive_file_id'] ?? '');
+        if (!$drive_file_id && $job && !empty($job->drive_file_id)) {
+            $drive_file_id = $job->drive_file_id;
+        }
+        if (!$drive_file_id && !empty($asset->drive_file_id)) {
+            $drive_file_id = $asset->drive_file_id;
+        }
+
+        if (!$drive_file_id) {
+            wp_send_json_error(array(
+                'retryable' => false,
+                'message' => __('Drive file id is missing. Please retry the upload.', 'olama-media-library'),
+            ));
+        }
+
+        try {
+            $finalization_start = microtime(true);
+            $drive = new Olama_Media_Drive();
+
+            $stage_start = microtime(true);
+            $metadata = $drive->get_file_metadata($drive_file_id);
+            $timings['drive_metadata_fetch_ms'] = $this->elapsed_ms($stage_start);
+            if (is_wp_error($metadata)) {
+                throw new Exception($metadata->get_error_message());
+            }
+
+            $stage_start = microtime(true);
+            $permission = $drive->ensure_file_permissions($drive_file_id);
+            $timings['drive_permission_update_ms'] = $this->elapsed_ms($stage_start);
+            if (is_wp_error($permission)) {
+                throw new Exception($permission->get_error_message());
+            }
+
+            $stage_start = microtime(true);
+            $download_link = $metadata['web_content_link'] ?: 'https://drive.google.com/uc?export=download&id=' . rawurlencode($drive_file_id);
+            $this->db->update_asset($asset_id, array(
+                'drive_file_id' => $drive_file_id,
+                'web_view_link' => esc_url_raw($metadata['web_view_link']),
+                'web_content_link' => esc_url_raw($download_link),
+                'thumbnail_link' => esc_url_raw($metadata['thumbnail_link']),
+                'upload_status' => 'uploaded_to_drive',
+                'preview_status' => 'processing',
+                'uploaded_at' => current_time('mysql'),
+            ));
+
+            if ($job_id) {
+                $this->db->update_job($job_id, array(
+                    'drive_file_id' => $drive_file_id,
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                ));
+            }
+            $timings['asset_update_ms'] = $this->elapsed_ms($stage_start);
+            $timings['finalization_ms'] = $this->elapsed_ms($finalization_start);
+            $timings['total_handler_ms'] = $this->elapsed_ms($handler_start);
+            $this->logger->log('upload_finalize_timing', 'Upload finalize timing.', $this->timing_context($timings, null, null), $job_id, $asset_id);
+            $this->logger->log('upload_finalized', 'Upload finalized after Drive metadata registration.', array(
+                'drive_file_id' => $drive_file_id,
+                'permission_already_exists' => is_array($permission) && !empty($permission['already_exists']),
+            ), $job_id, $asset_id);
+
+            wp_send_json_success(array(
+                'asset_id' => $asset_id,
+                'job_uuid' => $job_uuid,
+                'url' => esc_url_raw($metadata['web_view_link']),
+                'download_url' => esc_url_raw($download_link),
+                'upload_status' => 'uploaded_to_drive',
+                'preview_status' => 'processing',
+            ));
+        } catch (Exception $e) {
+            if ($job_id) {
+                $this->db->update_job($job_id, array('status' => 'finalize_failed', 'error_message' => $e->getMessage()));
+            }
+
+            $this->db->update_asset($asset_id, array(
+                'drive_file_id' => $drive_file_id,
+                'upload_status' => 'uploaded_to_drive',
+                'preview_status' => $asset->preview_status && $asset->preview_status !== 'not_checked' ? $asset->preview_status : 'not_checked',
+            ));
+
+            $timings['total_handler_ms'] = $this->elapsed_ms($handler_start);
+            $this->logger->log('upload_finalize_timing', 'Upload finalize timing after failure.', $this->timing_context($timings, null, null), $job_id, $asset_id);
+            $this->logger->log('upload_finalize_failed', $e->getMessage(), array('drive_file_id' => $drive_file_id), $job_id, $asset_id);
+
+            wp_send_json_error(array(
+                'retryable' => true,
+                'asset_id' => $asset_id,
+                'job_uuid' => $job_uuid,
+                'message' => __('تم رفع الملف، لكن فشل تثبيت بيانات الفيديو. يمكنك إعادة المحاولة بدون رفع الملف من جديد.', 'olama-media-library'),
+            ));
+        }
     }
 
     public function check_preview_status()
@@ -574,12 +719,56 @@ class Olama_Media_Ajax
         if ($ext !== 'mp4') {
             return new WP_Error('invalid_file_type', __('Only MP4 video files are allowed in Phase 1.', 'olama-media-library'));
         }
-        $settings = get_option('academy_media_library_settings', array());
+        $settings = $this->get_settings();
         $max = max(1, absint($settings['max_file_size'] ?? 2048)) * 1024 * 1024;
         if ($size > $max) {
             return new WP_Error('file_too_large', sprintf(__('File is too large. Max size allowed: %s MB', 'olama-media-library'), absint($settings['max_file_size'] ?? 2048)));
         }
         return true;
+    }
+
+    private function get_settings()
+    {
+        if ($this->settings_cache === null) {
+            $this->settings_cache = get_option('academy_media_library_settings', array());
+        }
+        return $this->settings_cache;
+    }
+
+    private function elapsed_ms($start)
+    {
+        return round((microtime(true) - $start) * 1000, 2);
+    }
+
+    private function timing_context($timings, $chunk_index = null, $total_chunks = null)
+    {
+        $keys = array(
+            'request_validation_ms',
+            'temp_file_validation_ms',
+            'meta_load_or_recovery_ms',
+            'db_job_lookup_ms',
+            'drive_chunk_upload_ms',
+            'db_progress_update_ms',
+            'finalization_ms',
+            'drive_metadata_fetch_ms',
+            'drive_permission_update_ms',
+            'asset_update_ms',
+            'total_handler_ms',
+        );
+
+        $context = array();
+        foreach ($keys as $key) {
+            $context[$key] = isset($timings[$key]) ? (float) $timings[$key] : 0;
+        }
+
+        if ($chunk_index !== null) {
+            $context['chunk_index'] = absint($chunk_index);
+        }
+        if ($total_chunks !== null) {
+            $context['total_chunks'] = absint($total_chunks);
+        }
+
+        return $context;
     }
 
     private function verify_nonce()

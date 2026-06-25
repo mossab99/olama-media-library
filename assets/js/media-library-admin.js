@@ -12,6 +12,10 @@ jQuery(function ($) {
         $('.olama-media-library-wrap').prepend(`<div class="notice ${klass} is-dismissible"><p>${esc(message)}</p></div>`);
     };
 
+    if (window.wp && wp.heartbeat && typeof wp.heartbeat.interval === 'function') {
+        wp.heartbeat.interval(120);
+    }
+
     $('.nav-tab').on('click', function (event) {
         event.preventDefault();
         const tab = $(this).data('tab');
@@ -107,6 +111,9 @@ jQuery(function ($) {
                 const previewStatus = lesson.preview_status || 'not_checked';
                 const approvalStatus = lesson.approval_status || 'pending';
                 const hasVideo = uploadStatus === 'uploaded_to_drive';
+                const needsFinalize = lesson.job_status === 'finalize_failed'
+                    || (uploadStatus === 'uploading' && lesson.drive_file_id)
+                    || (lesson.drive_file_id && !lesson.drive_file_url);
                 const downloadUrl = lesson.web_content_link || (lesson.drive_file_id ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(lesson.drive_file_id)}` : '');
                 const processingNote = hasVideo && previewStatus === 'processing' ? `<div class="olama-processing-note">${esc(cfg.i18n.processing_note)}</div>` : '';
 
@@ -120,6 +127,7 @@ jQuery(function ($) {
                         <div class="olama-actions">
                             ${hasVideo && previewStatus === 'ready' && lesson.drive_file_url ? `<button type="button" class="button btn-preview" data-url="${esc(lesson.drive_file_url)}" data-title="${esc(lesson.lesson_title)}">${esc(cfg.i18n.preview)}</button>` : ''}
                             ${downloadUrl ? `<a class="button" target="_blank" href="${esc(downloadUrl)}">${esc(cfg.i18n.download)}</a>` : ''}
+                            ${needsFinalize ? `<button type="button" class="button btn-finalize-upload" data-job-uuid="${esc(lesson.job_uuid || '')}">${esc(cfg.i18n.retry_finalize)}</button>` : ''}
                             ${lesson.media_record_id ? `<button type="button" class="button btn-check-status">${esc(cfg.i18n.check_status)}</button>` : ''}
                             ${cfg.canApprove && lesson.media_record_id ? `<button type="button" class="button btn-approval" data-status="approved">${esc(cfg.i18n.approve)}</button><button type="button" class="button btn-approval" data-status="rejected">${esc(cfg.i18n.reject)}</button>` : ''}
                             <button type="button" class="button btn-upload" data-lesson-id="${esc(lesson.id)}" data-unit-id="${esc(unit.id)}" data-lesson-number="${esc(lesson.lesson_number)}" data-lesson-name="${esc(lesson.lesson_title)}" data-unit-name="${esc(unit.unit_name)}" data-record-id="${esc(lesson.media_record_id || '')}">${esc(hasVideo ? cfg.i18n.replace : cfg.i18n.upload)}</button>
@@ -254,10 +262,14 @@ jQuery(function ($) {
                     return;
                 }
                 if (response.data.completed) {
-                    $bar.css('width', '100%');
-                    $text.text(cfg.i18n.status_uploaded_to_drive);
-                    notify(cfg.i18n.processing_note, 'success');
-                    loadCurriculum();
+                    if (response.data.needs_finalize) {
+                        finalizeUpload(response.data.asset_id, response.data.job_uuid, $text, $bar);
+                    } else {
+                        $bar.css('width', '100%');
+                        $text.text(cfg.i18n.status_uploaded_to_drive);
+                        notify(cfg.i18n.processing_note, 'success');
+                        loadCurriculum();
+                    }
                     return;
                 }
                 index++;
@@ -271,6 +283,68 @@ jQuery(function ($) {
 
         next();
     }
+
+    function finalizeUpload(assetId, jobUuid, $text, $bar, retryAttempt = 0) {
+        const retryDelays = [2000, 5000, 10000];
+        if ($text && $text.length) {
+            $text.text(cfg.i18n.finalizing_upload);
+        }
+
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_finalize_upload',
+            nonce: cfg.nonce,
+            asset_id: assetId,
+            job_uuid: jobUuid || ''
+        }).done(function (response) {
+            if (response.success) {
+                if ($bar && $bar.length) {
+                    $bar.css('width', '100%').css('background', '#2271b1');
+                }
+                if ($text && $text.length) {
+                    $text.text(cfg.i18n.status_uploaded_to_drive);
+                }
+                notify(cfg.i18n.processing_note, 'success');
+                loadCurriculum();
+                return;
+            }
+
+            const retryable = !(response.data && response.data.retryable === false);
+            if (retryable && retryAttempt < retryDelays.length) {
+                window.setTimeout(() => finalizeUpload(assetId, jobUuid, $text, $bar, retryAttempt + 1), retryDelays[retryAttempt]);
+                return;
+            }
+
+            if ($bar && $bar.length) {
+                $bar.css('width', '100%').css('background', '#dba617');
+            }
+            if ($text && $text.length) {
+                $text.text(cfg.i18n.finalize_failed);
+            }
+            notify(cfg.i18n.finalize_failed, 'error');
+            loadCurriculum();
+        }).fail(function () {
+            if (retryAttempt < retryDelays.length) {
+                window.setTimeout(() => finalizeUpload(assetId, jobUuid, $text, $bar, retryAttempt + 1), retryDelays[retryAttempt]);
+                return;
+            }
+            if ($text && $text.length) {
+                $text.text(cfg.i18n.finalize_failed);
+            }
+            notify(cfg.i18n.finalize_failed, 'error');
+            loadCurriculum();
+        });
+    }
+
+    $(document).on('click', '.btn-finalize-upload', function () {
+        const $row = $(this).closest('tr');
+        const assetId = $row.data('asset-id');
+        const jobUuid = $(this).data('job-uuid') || '';
+        const $btn = $(this).prop('disabled', true).text(cfg.i18n.loading);
+        $row.find('.olama-progress').show();
+
+        finalizeUpload(assetId, jobUuid, $row.find('.olama-progress-text'), $row.find('.olama-progress-bar'));
+        window.setTimeout(() => $btn.prop('disabled', false).text(cfg.i18n.retry_finalize), 1500);
+    });
 
     $(document).on('change', '.olama-note', function () {
         const assetId = $(this).closest('tr').data('asset-id');

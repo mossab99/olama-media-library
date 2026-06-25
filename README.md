@@ -23,9 +23,12 @@ The old `wp_academy_media_uploads` table is not deleted.
 ## Status Lifecycle
 
 - Upload starts: `upload_status = uploading`, `preview_status = not_checked`
-- Google Drive accepts the final chunk: `upload_status = uploaded_to_drive`, `preview_status = processing`
+- Chunk upload sends file parts to Google Drive while the job remains `uploading`.
+- Google Drive accepts the final chunk and the browser calls `olama_media_finalize_upload`.
+- Finalize fetches Drive metadata, stores preview/download links, sets permissions, then sets `upload_status = uploaded_to_drive` and `preview_status = processing`.
 - Manual Drive status check confirms metadata: `preview_status = ready`
 - Upload failure: `upload_status = failed`
+- Finalize failure: job status becomes `finalize_failed`; the uploaded Drive file id is preserved so admins can retry finalization without re-uploading.
 - Review state is separate: `approval_status = pending|approved|rejected`
 
 Uploaded to Drive does not mean ready for preview or approved for students.
@@ -38,11 +41,21 @@ Drive API calls happen during:
 
 - upload session creation
 - chunk upload
-- permission update after upload completion
+- finalize upload metadata registration
+- permission update during finalize
 - manual Check Status
 - settings authentication/test
 
 Drive preview can take time after a successful upload. While processing, users can use the download link if Drive exposes one.
+
+## Upload Lifecycle
+
+1. Browser sends chunks through WordPress AJAX to Google Drive resumable upload.
+2. The final chunk returns `needs_finalize = true`.
+3. Browser calls `olama_media_finalize_upload`.
+4. Finalize stores Drive metadata and marks the asset as uploaded to Drive.
+5. Preview remains `processing` until a manual Check Status confirms Drive video metadata.
+6. If finalization fails, use the admin action `إعادة تثبيت بيانات الفيديو` to retry without uploading the file again.
 
 ## Migration
 
