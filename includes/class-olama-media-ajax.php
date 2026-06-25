@@ -235,19 +235,35 @@ class Olama_Media_Ajax
                 throw new Exception($file_validation->get_error_message());
             }
 
-            $chunk_data = file_get_contents($chunk_file['tmp_name']);
-            if ($chunk_data === false || strlen($chunk_data) < 1) {
-                throw new Exception(__('Uploaded chunk is empty.', 'olama-media-library'));
-            }
+            $chunk_size_bytes = absint($chunk_file['size']);
+            $chunk_end_byte = $start_byte + $chunk_size_bytes - 1;
             $timings['temp_file_validation_ms'] = $this->elapsed_ms($stage_start);
 
             $stage_start = microtime(true);
-            $result = $drive->put_upload_chunk($meta['resume_uri'], $chunk_data, $start_byte, $total_size);
+            $memory_before = $this->memory_mb(memory_get_usage(true));
+            $result = $drive->put_upload_chunk_streamed($meta['resume_uri'], $chunk_file['tmp_name'], $start_byte, $chunk_end_byte, $total_size, 'application/octet-stream');
+            $memory_after = $this->memory_mb(memory_get_usage(true));
             @unlink($chunk_file['tmp_name']);
             $timings['drive_chunk_upload_ms'] = $this->elapsed_ms($stage_start);
+            $timings['chunk_size_bytes'] = $chunk_size_bytes;
+            $timings['memory_before_mb'] = $memory_before;
+            $timings['memory_after_mb'] = $memory_after;
+            $timings['memory_peak_mb'] = $this->memory_mb(memory_get_peak_usage(true));
+            $timings['transfer_method'] = is_wp_error($result) ? 'unknown' : sanitize_key($result['transfer_method'] ?? 'unknown');
+            $timings['http_status'] = is_wp_error($result) ? 0 : absint($result['http_status'] ?? 0);
 
             if (is_wp_error($result)) {
                 throw new Exception($result->get_error_message());
+            }
+
+            if (($result['transfer_method'] ?? '') === 'fallback_wp_http') {
+                $this->logger->log('drive_streaming_unavailable_fallback_used', 'cURL streaming unavailable; fallback WP HTTP transfer used.', array(
+                    'chunk_index' => $chunk_index,
+                    'total_chunks' => $total_chunks,
+                    'chunk_size_bytes' => $chunk_size_bytes,
+                    'transfer_method' => 'fallback_wp_http',
+                    'http_status' => absint($result['http_status'] ?? 0),
+                ), $job_id, $asset_id);
             }
 
             $stage_start = microtime(true);
@@ -273,6 +289,12 @@ class Olama_Media_Ajax
                 $this->logger->log('upload_chunk_timing', 'Upload chunk timing.', $this->timing_context($timings, $chunk_index, $total_chunks), $job_id, $asset_id);
                 $this->logger->log('upload_chunk_drive_timing', 'Upload chunk Drive timing.', array(
                     'drive_chunk_upload_ms' => $timings['drive_chunk_upload_ms'],
+                    'chunk_size_bytes' => $timings['chunk_size_bytes'],
+                    'memory_before_mb' => $timings['memory_before_mb'],
+                    'memory_after_mb' => $timings['memory_after_mb'],
+                    'memory_peak_mb' => $timings['memory_peak_mb'],
+                    'transfer_method' => $timings['transfer_method'],
+                    'http_status' => $timings['http_status'],
                     'chunk_index' => $chunk_index,
                     'total_chunks' => $total_chunks,
                 ), $job_id, $asset_id);
@@ -294,6 +316,12 @@ class Olama_Media_Ajax
             $this->logger->log('upload_chunk_timing', 'Upload chunk timing.', $this->timing_context($timings, $chunk_index, $total_chunks), $job_id, $asset_id);
             $this->logger->log('upload_chunk_drive_timing', 'Upload chunk Drive timing.', array(
                 'drive_chunk_upload_ms' => $timings['drive_chunk_upload_ms'],
+                'chunk_size_bytes' => $timings['chunk_size_bytes'],
+                'memory_before_mb' => $timings['memory_before_mb'],
+                'memory_after_mb' => $timings['memory_after_mb'],
+                'memory_peak_mb' => $timings['memory_peak_mb'],
+                'transfer_method' => $timings['transfer_method'],
+                'http_status' => $timings['http_status'],
                 'chunk_index' => $chunk_index,
                 'total_chunks' => $total_chunks,
             ), $job_id, $asset_id);
@@ -754,11 +782,23 @@ class Olama_Media_Ajax
             'drive_permission_update_ms',
             'asset_update_ms',
             'total_handler_ms',
+            'chunk_size_bytes',
+            'memory_before_mb',
+            'memory_after_mb',
+            'memory_peak_mb',
+            'transfer_method',
+            'http_status',
         );
 
         $context = array();
         foreach ($keys as $key) {
-            $context[$key] = isset($timings[$key]) ? (float) $timings[$key] : 0;
+            if ($key === 'transfer_method') {
+                $context[$key] = isset($timings[$key]) ? sanitize_key($timings[$key]) : 'unknown';
+            } elseif ($key === 'chunk_size_bytes' || $key === 'http_status') {
+                $context[$key] = isset($timings[$key]) ? absint($timings[$key]) : 0;
+            } else {
+                $context[$key] = isset($timings[$key]) ? (float) $timings[$key] : 0;
+            }
         }
 
         if ($chunk_index !== null) {
@@ -769,6 +809,11 @@ class Olama_Media_Ajax
         }
 
         return $context;
+    }
+
+    private function memory_mb($bytes)
+    {
+        return round($bytes / 1048576, 2);
     }
 
     private function verify_nonce()

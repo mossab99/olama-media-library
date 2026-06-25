@@ -191,7 +191,11 @@ class Olama_Media_Drive
 
         $code = wp_remote_retrieve_response_code($response);
         if ($code === 308) {
-            return array('status' => 'incomplete');
+            return array(
+                'status' => 'incomplete',
+                'transfer_method' => 'fallback_wp_http',
+                'http_status' => $code,
+            );
         }
         if ($code === 200 || $code === 201) {
             $data = json_decode(wp_remote_retrieve_body($response), true);
@@ -202,10 +206,104 @@ class Olama_Media_Drive
                 'web_content_link' => esc_url_raw($data['webContentLink'] ?? ''),
                 'thumbnail_link' => esc_url_raw($data['thumbnailLink'] ?? ''),
                 'video_media_metadata' => $data['videoMediaMetadata'] ?? array(),
+                'transfer_method' => 'fallback_wp_http',
+                'http_status' => $code,
             );
         }
 
         return new WP_Error('drive_chunk_error', sprintf('Google Drive API error: %d %s', $code, wp_remote_retrieve_body($response)));
+    }
+
+    public function put_upload_chunk_streamed($resume_uri, $chunk_path, $start_byte, $end_byte, $total_size, $mime_type = 'application/octet-stream')
+    {
+        $chunk_size = ($end_byte - absint($start_byte)) + 1;
+        if ($chunk_size < 1) {
+            return new WP_Error('invalid_chunk_size', __('Chunk size is invalid.', 'olama-media-library'));
+        }
+
+        if (!function_exists('curl_init')) {
+            $chunk_data = file_get_contents($chunk_path);
+            if ($chunk_data === false) {
+                return new WP_Error('chunk_read_failed', __('Unable to read uploaded chunk for fallback transfer.', 'olama-media-library'));
+            }
+
+            $result = $this->put_upload_chunk($resume_uri, $chunk_data, $start_byte, $total_size);
+            unset($chunk_data);
+
+            if (is_wp_error($result)) {
+                return $result;
+            }
+
+            $result['transfer_method'] = 'fallback_wp_http';
+            $result['http_status'] = isset($result['http_status']) ? $result['http_status'] : 0;
+            return $result;
+        }
+
+        $handle = fopen($chunk_path, 'rb');
+        if (!$handle) {
+            return new WP_Error('chunk_open_failed', __('Unable to open uploaded chunk for streaming.', 'olama-media-library'));
+        }
+
+        $curl = curl_init(esc_url_raw($resume_uri));
+        if (!$curl) {
+            fclose($handle);
+            return new WP_Error('curl_init_failed', __('Unable to initialize cURL for Drive upload.', 'olama-media-library'));
+        }
+
+        curl_setopt_array($curl, array(
+            CURLOPT_UPLOAD => true,
+            CURLOPT_INFILE => $handle,
+            CURLOPT_INFILESIZE => $chunk_size,
+            CURLOPT_CUSTOMREQUEST => 'PUT',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 120,
+            CURLOPT_HTTPHEADER => array(
+                'Content-Type: ' . sanitize_text_field($mime_type),
+                'Content-Length: ' . $chunk_size,
+                'Content-Range: bytes ' . absint($start_byte) . '-' . absint($end_byte) . '/' . absint($total_size),
+            ),
+        ));
+
+        $raw_response = curl_exec($curl);
+        $curl_error = curl_error($curl);
+        $curl_errno = curl_errno($curl);
+        $http_status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $header_size = (int) curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+
+        curl_close($curl);
+        fclose($handle);
+
+        if ($raw_response === false) {
+            return new WP_Error('drive_streaming_curl_error', sprintf('cURL error %d: %s', $curl_errno, sanitize_text_field($curl_error)));
+        }
+
+        $body = substr($raw_response, $header_size);
+
+        if ($http_status === 308) {
+            return array(
+                'status' => 'incomplete',
+                'transfer_method' => 'streamed_curl',
+                'http_status' => $http_status,
+            );
+        }
+
+        if ($http_status === 200 || $http_status === 201) {
+            $data = json_decode($body, true);
+            return array(
+                'status' => 'completed',
+                'file_id' => sanitize_text_field($data['id'] ?? ''),
+                'web_view_link' => esc_url_raw($data['webViewLink'] ?? ''),
+                'web_content_link' => esc_url_raw($data['webContentLink'] ?? ''),
+                'thumbnail_link' => esc_url_raw($data['thumbnailLink'] ?? ''),
+                'video_media_metadata' => $data['videoMediaMetadata'] ?? array(),
+                'transfer_method' => 'streamed_curl',
+                'http_status' => $http_status,
+            );
+        }
+
+        return new WP_Error('drive_streaming_chunk_error', sprintf('Google Drive API error: %d %s', $http_status, sanitize_textarea_field($body)));
     }
 
     public function get_file_metadata($file_id)

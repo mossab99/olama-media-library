@@ -57,6 +57,12 @@ Drive preview can take time after a successful upload. While processing, users c
 5. Preview remains `processing` until a manual Check Status confirms Drive video metadata.
 6. If finalization fails, use the admin action `إعادة تثبيت بيانات الفيديو` to retry without uploading the file again.
 
+## Phase 1.3 Streaming Uploads
+
+Chunk upload still passes through WordPress AJAX, but the Drive transfer now streams the temporary chunk file to Google Drive with native cURL. This avoids reading the chunk into a large PHP string before sending it to Drive and should reduce PHP memory pressure compared with the previous `wp_remote_request()` string-body transfer.
+
+If the cURL extension is unavailable, the plugin falls back to the older WP HTTP transfer and logs `drive_streaming_unavailable_fallback_used`.
+
 ## Migration
 
 Open the Media Library admin page, then the Migration tab.
