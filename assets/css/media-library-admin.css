@@ -1,0 +1,159 @@
+.olama-media-library-wrap {
+    direction: rtl;
+}
+
+.olama-media-tab {
+    display: none;
+    padding: 16px 0;
+}
+
+.olama-media-tab.active {
+    display: block;
+}
+
+.olama-media-toolbar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr)) auto;
+    gap: 12px;
+    align-items: end;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    padding: 14px;
+    margin-bottom: 16px;
+}
+
+.olama-media-toolbar label span {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.olama-media-toolbar select {
+    width: 100%;
+}
+
+.olama-media-panel,
+.olama-media-unit {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    padding: 14px;
+    margin-bottom: 14px;
+}
+
+.olama-media-unit h2 {
+    margin-top: 0;
+    font-size: 17px;
+}
+
+.olama-status {
+    display: inline-block;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin: 2px;
+    font-size: 12px;
+    background: #f6f7f7;
+}
+
+.status-uploaded_to_drive,
+.status-ready,
+.status-approved {
+    color: #0a6b2b;
+    border-color: #8fd19e;
+    background: #edfaef;
+}
+
+.status-processing,
+.status-pending,
+.status-uploading {
+    color: #7a4b00;
+    border-color: #f0c36d;
+    background: #fff8e5;
+}
+
+.status-failed,
+.status-rejected {
+    color: #8a1f11;
+    border-color: #f0a49a;
+    background: #fff0ee;
+}
+
+.olama-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.olama-progress {
+    min-width: 180px;
+    margin-top: 8px;
+    display: none;
+}
+
+.olama-progress-bar {
+    height: 7px;
+    background: #2271b1;
+    width: 0;
+    transition: width .2s ease;
+}
+
+.olama-progress-track {
+    background: #dcdcde;
+}
+
+.olama-processing-note {
+    color: #7a4b00;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+.olama-media-result {
+    background: #1d2327;
+    color: #f0f0f1;
+    padding: 12px;
+    min-height: 44px;
+}
+
+.olama-media-ok {
+    color: #0a6b2b;
+    margin-right: 8px;
+}
+
+.olama-media-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.72);
+    z-index: 100000;
+    display: grid;
+    place-items: center;
+}
+
+.olama-media-modal[hidden] {
+    display: none;
+}
+
+.olama-media-modal-box {
+    width: min(920px, 94vw);
+    background: #fff;
+}
+
+.olama-media-modal-box header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+}
+
+.olama-media-modal iframe {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 0;
+    background: #000;
+}
+
+@media (max-width: 900px) {
+    .olama-media-toolbar {
+        grid-template-columns: 1fr;
+    }
+}

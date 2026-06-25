@@ -1,0 +1,209 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class Olama_Media_Admin
+{
+    private $db;
+    private $curriculum;
+
+    public function __construct($db, $curriculum)
+    {
+        $this->db = $db;
+        $this->curriculum = $curriculum;
+        add_action('admin_menu', array($this, 'register_menu'), 30);
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_assets'));
+        add_action('admin_init', array($this, 'handle_oauth_callback'));
+        add_action('admin_notices', array($this, 'dependency_notice'));
+    }
+
+    public static function can_manage()
+    {
+        if (class_exists('Olama_School_Permissions') && method_exists('Olama_School_Permissions', 'can')) {
+            return Olama_School_Permissions::can('olama_access_media_library') || current_user_can('manage_options');
+        }
+        return current_user_can('manage_options');
+    }
+
+    public static function can_upload()
+    {
+        if (class_exists('Olama_School_Permissions') && method_exists('Olama_School_Permissions', 'can')) {
+            return Olama_School_Permissions::can('olama_media_upload_video') || current_user_can('manage_options');
+        }
+        return current_user_can('manage_options');
+    }
+
+    public static function can_approve()
+    {
+        if (class_exists('Olama_School_Permissions') && method_exists('Olama_School_Permissions', 'can')) {
+            return Olama_School_Permissions::can('olama_media_approve_video') || current_user_can('manage_options');
+        }
+        return current_user_can('manage_options');
+    }
+
+    public function register_menu()
+    {
+        $title = __('مكتبة الوسائط', 'olama-media-library');
+        add_menu_page(
+            __('Olama Media Library', 'olama-media-library'),
+            $title,
+            'manage_options',
+            'academy-media-library',
+            array($this, 'render_page'),
+            'dashicons-format-video',
+            58
+        );
+    }
+
+    public function enqueue_assets($hook)
+    {
+        if (strpos($hook, 'academy-media-library') === false) {
+            return;
+        }
+
+        wp_enqueue_style('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/css/media-library-admin.css', array(), OLAMA_MEDIA_LIBRARY_VERSION);
+        wp_enqueue_script('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/js/media-library-admin.js', array('jquery'), OLAMA_MEDIA_LIBRARY_VERSION, true);
+
+        $settings = get_option('academy_media_library_settings', array());
+        $max_size_mb = max(1, absint($settings['max_file_size'] ?? 2048));
+        $server_limit = $this->server_upload_limit();
+        $max_size = min($max_size_mb * 1024 * 1024, $server_limit);
+
+        wp_localize_script('olama-media-library-admin', 'olamaMediaLibrary', array(
+            'ajaxurl' => admin_url('admin-ajax.php', 'relative'),
+            'nonce' => wp_create_nonce('olama_media_library_nonce'),
+            'legacyNonce' => wp_create_nonce('olama_admin_nonce'),
+            'canApprove' => self::can_approve(),
+            'maxFileSize' => $max_size,
+            'maxFileSizeHuman' => size_format($max_size),
+            // Phase 1 still proxies chunks through PHP before sending them to Drive.
+            // Keep chunks smaller for reliability until uploads move to a background/direct flow.
+            'chunkSize' => min(5 * 1024 * 1024, max(1024 * 1024, (int) floor($server_limit * 0.7))),
+            'i18n' => $this->i18n(),
+        ));
+    }
+
+    public function handle_oauth_callback()
+    {
+        if (empty($_GET['page']) || $_GET['page'] !== 'academy-media-library' || empty($_GET['code'])) {
+            return;
+        }
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        $drive = new Olama_Media_Drive();
+        $result = $drive->authenticate(wp_unslash($_GET['code']));
+        set_transient('olama_media_auth_message', array(
+            'type' => is_wp_error($result) ? 'error' : 'success',
+            'message' => is_wp_error($result) ? $result->get_error_message() : __('Google Drive authenticated successfully.', 'olama-media-library'),
+        ), 45);
+
+        wp_safe_redirect(remove_query_arg('code'));
+        exit;
+    }
+
+    public function dependency_notice()
+    {
+        if (!$this->curriculum->is_available() && !empty($_GET['page']) && $_GET['page'] === 'academy-media-library') {
+            echo '<div class="notice notice-warning"><p>' . esc_html__('Olama School curriculum tables are not available. Media Library can load, but curriculum filters will be empty until Olama School is active.', 'olama-media-library') . '</p></div>';
+        }
+    }
+
+    public function render_page()
+    {
+        if (!self::can_manage()) {
+            wp_die(esc_html__('You are not allowed to access this page.', 'olama-media-library'));
+        }
+
+        $message = get_transient('olama_media_auth_message');
+        if ($message) {
+            add_settings_error('olama_media_library', 'auth', $message['message'], $message['type']);
+            delete_transient('olama_media_auth_message');
+        }
+
+        $active_year = $this->curriculum->get_active_year();
+        $active_semester = $this->curriculum->get_active_semester($active_year->id ?? null);
+        $years = $this->curriculum->get_academic_years();
+        $semesters = $active_year ? $this->curriculum->get_semesters($active_year->id) : array();
+        $grades = $this->curriculum->get_grades();
+        $settings = get_option('academy_media_library_settings', array());
+
+        settings_errors('olama_media_library');
+        include OLAMA_MEDIA_LIBRARY_PATH . 'views/media-library-page.php';
+    }
+
+    private function has_parent_menu($slug)
+    {
+        global $menu;
+        foreach ((array) $menu as $item) {
+            if (!empty($item[2]) && $item[2] === $slug) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function server_upload_limit()
+    {
+        $limits = array($this->to_bytes(ini_get('upload_max_filesize')), $this->to_bytes(ini_get('post_max_size')));
+        $limits = array_filter($limits);
+        return $limits ? min($limits) : 1024 * 1024 * 1024;
+    }
+
+    private function to_bytes($value)
+    {
+        $value = trim((string) $value);
+        $unit = strtolower(substr($value, -1));
+        $number = (int) $value;
+        if ($unit === 'g') {
+            return $number * 1024 * 1024 * 1024;
+        }
+        if ($unit === 'm') {
+            return $number * 1024 * 1024;
+        }
+        if ($unit === 'k') {
+            return $number * 1024;
+        }
+        return $number;
+    }
+
+    private function i18n()
+    {
+        return array(
+            'select' => __('-- اختر --', 'olama-media-library'),
+            'select_all' => __('يرجى اختيار الصف والمادة أولا.', 'olama-media-library'),
+            'load_curriculum' => __('تحميل المنهاج', 'olama-media-library'),
+            'loading' => __('جاري التحميل...', 'olama-media-library'),
+            'uploading' => __('جاري الرفع...', 'olama-media-library'),
+            'upload' => __('رفع', 'olama-media-library'),
+            'replace' => __('استبدال', 'olama-media-library'),
+            'preview' => __('معاينة', 'olama-media-library'),
+            'download' => __('تحميل', 'olama-media-library'),
+            'check_status' => __('فحص الحالة', 'olama-media-library'),
+            'approve' => __('اعتماد', 'olama-media-library'),
+            'reject' => __('رفض', 'olama-media-library'),
+            'save' => __('حفظ', 'olama-media-library'),
+            'notes' => __('ملاحظات', 'olama-media-library'),
+            'error' => __('حدث خطأ.', 'olama-media-library'),
+            'no_curriculum' => __('لا توجد دروس لهذه الاختيارات.', 'olama-media-library'),
+            'no_logs' => __('لا توجد سجلات بعد.', 'olama-media-library'),
+            'file_too_large' => __('حجم الملف أكبر من المسموح: %s', 'olama-media-library'),
+            'invalid_file' => __('يسمح حاليا برفع ملفات MP4 فقط.', 'olama-media-library'),
+            'retrying_chunk' => __('إعادة محاولة رفع الجزء %1$s من %2$s - المحاولة %3$s من 3', 'olama-media-library'),
+            'chunk_failed_final' => __('فشل رفع هذا الجزء بعد 3 محاولات. يرجى التحقق من الاتصال والمحاولة مرة أخرى.', 'olama-media-library'),
+            'processing_note' => __('تم رفع الفيديو بنجاح، لكن Google Drive ما زال يعالج المعاينة. يمكن تحميل الملف الآن وستتوفر المشاهدة لاحقا.', 'olama-media-library'),
+            'status_none' => __('لا يوجد فيديو', 'olama-media-library'),
+            'status_uploading' => __('جاري الرفع', 'olama-media-library'),
+            'status_uploaded_to_drive' => __('تم الرفع', 'olama-media-library'),
+            'status_failed' => __('فشل الرفع', 'olama-media-library'),
+            'status_not_checked' => __('لم يتم الفحص', 'olama-media-library'),
+            'status_processing' => __('المعاينة قيد المعالجة', 'olama-media-library'),
+            'status_ready' => __('جاهز للمشاهدة', 'olama-media-library'),
+            'status_pending' => __('بانتظار الاعتماد', 'olama-media-library'),
+            'status_approved' => __('معتمد', 'olama-media-library'),
+            'status_rejected' => __('مرفوض', 'olama-media-library'),
+        );
+    }
+}

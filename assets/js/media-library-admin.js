@@ -1,0 +1,379 @@
+jQuery(function ($) {
+    'use strict';
+
+    const cfg = window.olamaMediaLibrary;
+    const state = { currentLesson: null, logPage: 1 };
+
+    const esc = (value) => $('<div>').text(value == null ? '' : value).html();
+    const statusLabel = (status) => cfg.i18n['status_' + status] || status || cfg.i18n.status_none;
+    const badge = (status) => `<span class="olama-status status-${esc(status || 'none')}">${esc(statusLabel(status || 'none'))}</span>`;
+    const notify = (message, type = 'info') => {
+        const klass = type === 'error' ? 'notice-error' : type === 'success' ? 'notice-success' : 'notice-info';
+        $('.olama-media-library-wrap').prepend(`<div class="notice ${klass} is-dismissible"><p>${esc(message)}</p></div>`);
+    };
+
+    $('.nav-tab').on('click', function (event) {
+        event.preventDefault();
+        const tab = $(this).data('tab');
+        $('.nav-tab').removeClass('nav-tab-active');
+        $(this).addClass('nav-tab-active');
+        $('.olama-media-tab').removeClass('active');
+        $('#tab-' + tab).addClass('active');
+        if (tab === 'logs') {
+            loadLogs(1);
+        }
+    });
+
+    $('#filter-grade').on('change', function () {
+        const gradeId = $(this).val();
+        const $subject = $('#filter-subject');
+        if (!gradeId) {
+            $subject.prop('disabled', true).html(`<option value="">${esc(cfg.i18n.select)}</option>`);
+            return;
+        }
+
+        $subject.prop('disabled', true).html(`<option value="">${esc(cfg.i18n.loading)}</option>`);
+        $.get(cfg.ajaxurl, {
+            action: 'olama_get_subjects',
+            nonce: cfg.nonce,
+            grade_id: gradeId
+        }).done(function (response) {
+            if (!response.success) {
+                notify(response.data || cfg.i18n.error, 'error');
+                return;
+            }
+            let html = `<option value="">${esc(cfg.i18n.select)}</option>`;
+            response.data.forEach((subject) => {
+                html += `<option value="${esc(subject.id)}">${esc(subject.subject_name)}</option>`;
+            });
+            $subject.html(html).prop('disabled', false);
+        });
+    });
+
+    $('#btn-load-curriculum').on('click', loadCurriculum);
+
+    function filters() {
+        return {
+            academic_year_id: $('#filter-year-id').val(),
+            semester_id: $('#filter-semester').val(),
+            grade_id: $('#filter-grade').val(),
+            subject_id: $('#filter-subject').val()
+        };
+    }
+
+    function loadCurriculum() {
+        const data = filters();
+        if (!data.grade_id || !data.subject_id || !data.semester_id) {
+            notify(cfg.i18n.select_all, 'error');
+            return;
+        }
+
+        const $btn = $('#btn-load-curriculum');
+        $btn.prop('disabled', true).text(cfg.i18n.loading);
+        $.get(cfg.ajaxurl, {
+            action: 'academy_load_media_curriculum',
+            nonce: cfg.nonce,
+            ...data
+        }).done(function (response) {
+            response.success ? renderCurriculum(response.data) : notify(response.data || cfg.i18n.error, 'error');
+        }).always(function () {
+            $btn.prop('disabled', false).text(cfg.i18n.load_curriculum);
+        });
+    }
+
+    function renderCurriculum(units) {
+        const $container = $('#curriculum-container');
+        if (!units || !units.length) {
+            $container.html(`<div class="notice notice-warning inline"><p>${esc(cfg.i18n.no_curriculum)}</p></div>`);
+            return;
+        }
+
+        let html = '';
+        units.forEach((unit) => {
+            html += `<div class="olama-media-unit">
+                <h2>${esc(unit.unit_number)}. ${esc(unit.unit_name)}</h2>
+                <table class="wp-list-table widefat striped">
+                    <thead><tr>
+                        <th style="width:60px">#</th>
+                        <th>${esc('الدرس')}</th>
+                        <th>${esc('الحالة')}</th>
+                        <th>${esc('الملاحظات')}</th>
+                        <th>${esc('تاريخ الرفع')}</th>
+                        <th style="width:260px">${esc('الإجراءات')}</th>
+                    </tr></thead><tbody>`;
+
+            (unit.lessons || []).forEach((lesson) => {
+                const uploadStatus = lesson.upload_status || 'none';
+                const previewStatus = lesson.preview_status || 'not_checked';
+                const approvalStatus = lesson.approval_status || 'pending';
+                const hasVideo = uploadStatus === 'uploaded_to_drive';
+                const downloadUrl = lesson.web_content_link || (lesson.drive_file_id ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(lesson.drive_file_id)}` : '');
+                const processingNote = hasVideo && previewStatus === 'processing' ? `<div class="olama-processing-note">${esc(cfg.i18n.processing_note)}</div>` : '';
+
+                html += `<tr data-asset-id="${esc(lesson.media_record_id || '')}">
+                    <td>${esc(lesson.lesson_number)}</td>
+                    <td>${esc(lesson.lesson_title)}</td>
+                    <td>${badge(uploadStatus)} ${badge(previewStatus)} ${badge(approvalStatus)}${processingNote}</td>
+                    <td><textarea class="olama-note" rows="2" ${lesson.media_record_id ? '' : 'disabled'}>${esc(lesson.comments || '')}</textarea></td>
+                    <td>${lesson.uploaded_at ? esc(lesson.uploaded_at) : '-'}</td>
+                    <td>
+                        <div class="olama-actions">
+                            ${hasVideo && previewStatus === 'ready' && lesson.drive_file_url ? `<button type="button" class="button btn-preview" data-url="${esc(lesson.drive_file_url)}" data-title="${esc(lesson.lesson_title)}">${esc(cfg.i18n.preview)}</button>` : ''}
+                            ${downloadUrl ? `<a class="button" target="_blank" href="${esc(downloadUrl)}">${esc(cfg.i18n.download)}</a>` : ''}
+                            ${lesson.media_record_id ? `<button type="button" class="button btn-check-status">${esc(cfg.i18n.check_status)}</button>` : ''}
+                            ${cfg.canApprove && lesson.media_record_id ? `<button type="button" class="button btn-approval" data-status="approved">${esc(cfg.i18n.approve)}</button><button type="button" class="button btn-approval" data-status="rejected">${esc(cfg.i18n.reject)}</button>` : ''}
+                            <button type="button" class="button btn-upload" data-lesson-id="${esc(lesson.id)}" data-unit-id="${esc(unit.id)}" data-lesson-number="${esc(lesson.lesson_number)}" data-lesson-name="${esc(lesson.lesson_title)}" data-unit-name="${esc(unit.unit_name)}" data-record-id="${esc(lesson.media_record_id || '')}">${esc(hasVideo ? cfg.i18n.replace : cfg.i18n.upload)}</button>
+                        </div>
+                        <div class="olama-progress" id="progress-${esc(lesson.id)}">
+                            <div class="olama-progress-track"><div class="olama-progress-bar"></div></div>
+                            <small class="olama-progress-text"></small>
+                        </div>
+                    </td>
+                </tr>`;
+            });
+
+            html += '</tbody></table></div>';
+        });
+
+        $container.html(html);
+    }
+
+    $(document).on('click', '.btn-upload', function () {
+        state.currentLesson = $(this).data();
+        $('#media-video-input').trigger('click');
+    });
+
+    $('#media-video-input').on('change', function () {
+        const file = this.files[0];
+        this.value = '';
+        if (!file || !state.currentLesson) {
+            return;
+        }
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext !== 'mp4' || file.type && file.type !== 'video/mp4') {
+            notify(cfg.i18n.invalid_file, 'error');
+            return;
+        }
+        if (file.size > cfg.maxFileSize) {
+            notify(cfg.i18n.file_too_large.replace('%s', cfg.maxFileSizeHuman), 'error');
+            return;
+        }
+        uploadFile(file, state.currentLesson);
+    });
+
+    function uploadFile(file, lesson) {
+        const chunkSize = cfg.chunkSize || (5 * 1024 * 1024);
+        const totalChunks = Math.ceil(file.size / chunkSize);
+        const uuid = Date.now() + '-' + Math.random().toString(36).slice(2);
+        const $progress = $('#progress-' + lesson.lessonId);
+        const $bar = $progress.find('.olama-progress-bar');
+        const $text = $progress.find('.olama-progress-text');
+        let index = 0;
+
+        $progress.show();
+        $bar.css('width', '0%');
+
+        const retryDelays = [2000, 5000, 10000];
+        const next = (retryAttempt = 0) => {
+            const start = index * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const formData = new FormData();
+            const f = filters();
+            formData.append('action', 'academy_upload_media_video_chunk');
+            formData.append('nonce', cfg.nonce);
+            formData.append('file_uuid', uuid);
+            formData.append('chunk_index', index);
+            formData.append('total_chunks', totalChunks);
+            formData.append('filename', file.name);
+            formData.append('total_size', file.size);
+            formData.append('start_byte', start);
+            formData.append('chunk_size', chunkSize);
+            formData.append('video_chunk', file.slice(start, end), file.name);
+            formData.append('id', lesson.recordId || '');
+            formData.append('lesson_id', lesson.lessonId);
+            formData.append('unit_id', lesson.unitId);
+            formData.append('lesson_name', lesson.lessonName);
+            formData.append('lesson_number', lesson.lessonNumber);
+            formData.append('unit_name', lesson.unitName);
+            formData.append('academic_year_id', f.academic_year_id);
+            formData.append('semester_id', f.semester_id);
+            formData.append('grade_id', f.grade_id);
+            formData.append('subject_id', f.subject_id);
+
+            if (retryAttempt > 0) {
+                $text.text(cfg.i18n.retrying_chunk
+                    .replace('%1$s', index + 1)
+                    .replace('%2$s', totalChunks)
+                    .replace('%3$s', retryAttempt));
+            } else {
+                $text.text(`${cfg.i18n.uploading} ${index + 1}/${totalChunks}`);
+            }
+            $bar.css('background', '#2271b1');
+
+            const failOrRetry = (responseData, xhrFailed = false) => {
+                const responseMessage = typeof responseData === 'object' && responseData !== null
+                    ? (responseData.message || cfg.i18n.error)
+                    : (responseData || cfg.i18n.error);
+                const retryable = xhrFailed || !(typeof responseData === 'object' && responseData !== null && responseData.retryable === false);
+
+                if (retryable && retryAttempt < retryDelays.length) {
+                    const nextAttempt = retryAttempt + 1;
+                    $text.text(cfg.i18n.retrying_chunk
+                        .replace('%1$s', index + 1)
+                        .replace('%2$s', totalChunks)
+                        .replace('%3$s', nextAttempt));
+                    window.setTimeout(() => next(nextAttempt), retryDelays[retryAttempt]);
+                    return;
+                }
+
+                $bar.css('width', '100%').css('background', '#d63638');
+                $text.text(cfg.i18n.chunk_failed_final + ' ' + responseMessage);
+                notify(cfg.i18n.chunk_failed_final, 'error');
+            };
+
+            $.ajax({
+                url: cfg.ajaxurl,
+                method: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                xhr: function () {
+                    const xhr = new window.XMLHttpRequest();
+                    xhr.upload.addEventListener('progress', function (event) {
+                        if (event.lengthComputable) {
+                            const uploaded = start + event.loaded;
+                            const percent = Math.min(95, Math.round((uploaded / file.size) * 100));
+                            $bar.css('width', percent + '%');
+                        }
+                    });
+                    return xhr;
+                }
+            }).done(function (response) {
+                if (!response.success) {
+                    failOrRetry(response.data);
+                    return;
+                }
+                if (response.data.completed) {
+                    $bar.css('width', '100%');
+                    $text.text(cfg.i18n.status_uploaded_to_drive);
+                    notify(cfg.i18n.processing_note, 'success');
+                    loadCurriculum();
+                    return;
+                }
+                index++;
+                if (index < totalChunks) {
+                    next();
+                }
+            }).fail(function () {
+                failOrRetry(cfg.i18n.error, true);
+            });
+        };
+
+        next();
+    }
+
+    $(document).on('change', '.olama-note', function () {
+        const assetId = $(this).closest('tr').data('asset-id');
+        if (!assetId) {
+            return;
+        }
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_save_notes',
+            nonce: cfg.nonce,
+            asset_id: assetId,
+            notes: $(this).val()
+        }).done((response) => {
+            if (!response.success) {
+                notify(response.data || cfg.i18n.error, 'error');
+            }
+        });
+    });
+
+    $(document).on('click', '.btn-approval', function () {
+        const assetId = $(this).closest('tr').data('asset-id');
+        const status = $(this).data('status');
+        const comment = status === 'rejected' ? window.prompt(cfg.i18n.notes + ':', '') : '';
+        if (comment === null) {
+            return;
+        }
+        $.post(cfg.ajaxurl, {
+            action: 'academy_update_media_status',
+            nonce: cfg.nonce,
+            media_id: assetId,
+            status,
+            comment
+        }).done((response) => {
+            response.success ? loadCurriculum() : notify(response.data || cfg.i18n.error, 'error');
+        });
+    });
+
+    $(document).on('click', '.btn-check-status', function () {
+        const $row = $(this).closest('tr');
+        const assetId = $row.data('asset-id');
+        const $btn = $(this).prop('disabled', true).text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_check_preview_status',
+            nonce: cfg.nonce,
+            asset_id: assetId
+        }).done((response) => {
+            response.success ? loadCurriculum() : notify(response.data || cfg.i18n.error, 'error');
+        }).always(() => $btn.prop('disabled', false).text(cfg.i18n.check_status));
+    });
+
+    $(document).on('click', '.btn-preview', function () {
+        let url = $(this).data('url') || '';
+        if (url.includes('/view')) {
+            url = url.replace('/view', '/preview');
+        }
+        $('#modal-video-title').text($(this).data('title') || '');
+        $('#video-preview-iframe').attr('src', url);
+        $('#video-preview-modal').removeAttr('hidden');
+    });
+
+    $('.olama-media-modal-close, #video-preview-modal').on('click', function (event) {
+        if (event.target !== this) {
+            return;
+        }
+        $('#video-preview-modal').attr('hidden', 'hidden');
+        $('#video-preview-iframe').attr('src', '');
+    });
+
+    $('#drive-settings-form').on('submit', function (event) {
+        event.preventDefault();
+        $('#settings-status').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, $(this).serialize() + '&action=academy_save_drive_settings&nonce=' + encodeURIComponent(cfg.nonce))
+            .done((response) => $('#settings-status').text(response.success ? response.data : (response.data || cfg.i18n.error)));
+    });
+
+    $('#btn-test-connection').on('click', function () {
+        $('#settings-status').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, { action: 'academy_test_drive_connection', nonce: cfg.nonce })
+            .done((response) => $('#settings-status').text(response.success ? (response.data.name || 'OK') : (response.data || cfg.i18n.error)));
+    });
+
+    $('#btn-refresh-log').on('click', () => loadLogs(1));
+
+    function loadLogs(page) {
+        state.logPage = page;
+        $('#log-table-body').html(`<tr><td colspan="4">${esc(cfg.i18n.loading)}</td></tr>`);
+        $.get(cfg.ajaxurl, { action: 'olama_media_get_upload_log', nonce: cfg.nonce, paged: page })
+            .done(function (response) {
+                if (!response.success || !response.data.items.length) {
+                    $('#log-table-body').html(`<tr><td colspan="4">${esc(cfg.i18n.no_logs)}</td></tr>`);
+                    return;
+                }
+                let html = '';
+                response.data.items.forEach((item) => {
+                    html += `<tr><td>${esc(item.created_at)}</td><td>${esc(item.event_type)}</td><td>${esc(item.message)}</td><td>${esc(item.title || '-')}</td></tr>`;
+                });
+                $('#log-table-body').html(html);
+            });
+    }
+
+    $('#btn-migration-dry-run, #btn-migrate-legacy').on('click', function () {
+        const dryRun = this.id === 'btn-migration-dry-run' ? 1 : 0;
+        $('#migration-result').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, { action: 'olama_media_migrate_legacy', nonce: cfg.nonce, dry_run: dryRun })
+            .done((response) => $('#migration-result').text(JSON.stringify(response.data || response, null, 2)));
+    });
+});
