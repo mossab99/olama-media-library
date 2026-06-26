@@ -2,7 +2,7 @@ jQuery(function ($) {
     'use strict';
 
     const cfg = window.olamaMediaLibrary;
-    const state = { currentUploadRequest: null, logPage: 1 };
+    const state = { currentUploadRequest: null, logPage: 1, debugUploads: !!cfg.canManage };
     const activeUploads = new Map();
 
     const esc = (value) => $('<div>').text(value == null ? '' : value).html();
@@ -16,6 +16,11 @@ jQuery(function ($) {
     if (window.wp && wp.heartbeat && typeof wp.heartbeat.interval === 'function') {
         wp.heartbeat.interval(120);
     }
+
+    $('#olama-upload-debug-toggle').prop('checked', state.debugUploads).on('change', function () {
+        state.debugUploads = $(this).is(':checked');
+        renderAllUploads();
+    });
 
     $('.nav-tab').on('click', function (event) {
         event.preventDefault();
@@ -142,9 +147,13 @@ jQuery(function ($) {
                             ${cfg.canApprove && lesson.media_record_id ? `<button type="button" class="button btn-approval" data-status="approved">${esc(cfg.i18n.approve)}</button><button type="button" class="button btn-approval" data-status="rejected">${esc(cfg.i18n.reject)}</button>` : ''}
                             <button type="button" class="button btn-upload" data-lesson-id="${esc(lesson.id)}" data-unit-id="${esc(unit.id)}" data-lesson-number="${esc(lesson.lesson_number)}" data-lesson-name="${esc(lesson.lesson_title)}" data-unit-name="${esc(unit.unit_name)}" data-record-id="${esc(lesson.media_record_id || '')}">${esc(hasVideo ? cfg.i18n.replace : cfg.i18n.upload)}</button>
                         </div>
-                        <div class="olama-progress" id="progress-${esc(lesson.id)}">
-                            <div class="olama-progress-track"><div class="olama-progress-bar"></div></div>
-                            <small class="olama-progress-text"></small>
+                        <div class="olama-progress olama-upload-panel" id="progress-${esc(lesson.id)}" data-upload-panel>
+                            <div class="olama-upload-summary" data-upload-summary></div>
+                            <div class="olama-progress-track olama-upload-progress-wrap" data-upload-progress-wrap>
+                                <div class="olama-progress-bar olama-upload-progress-bar" data-upload-progress-bar></div>
+                            </div>
+                            <div class="olama-progress-text olama-upload-details" data-upload-details></div>
+                            <div class="olama-upload-debug" data-upload-debug></div>
                         </div>
                     </td>
                 </tr>`;
@@ -154,6 +163,8 @@ jQuery(function ($) {
         });
 
         $container.html(html);
+        rebindUploadRows();
+        renderAllUploads();
     }
 
     $(document).on('click', '.btn-upload', function () {
@@ -225,12 +236,249 @@ jQuery(function ($) {
             retry_count: 0,
             xhr: null,
             status: 'queued',
-            payload: null
+            payload: null,
+            percent: 0,
+            started_at: Date.now(),
+            completed_at: null,
+            last_message: cfg.i18n.uploading,
+            error_code: '',
+            xhr_status: '',
+            drive_http_status: '',
+            last_probe_status: '',
+            next_start: '',
+            events: []
         };
         activeUploads.set(uploadId, uploadState);
         uploadState.uploadButton.prop('disabled', true);
+        appendUploadEvent(uploadState, 'queued', 'تمت إضافة الرفع إلى قائمة الانتظار');
+        renderUploadState(uploadId);
         return uploadState;
     }
+
+    function setUploadState(uploadId, patch = {}, eventMessage = '') {
+        const uploadState = activeUploads.get(uploadId);
+        if (!uploadState) {
+            return null;
+        }
+        Object.assign(uploadState, patch);
+        if (eventMessage) {
+            appendUploadEvent(uploadState, patch.current_stage || patch.status || 'update', eventMessage);
+        }
+        renderUploadState(uploadId);
+        return uploadState;
+    }
+
+    function appendUploadEvent(uploadState, type, message) {
+        uploadState.events = uploadState.events || [];
+        uploadState.events.push({
+            type,
+            message,
+            at: new Date().toLocaleTimeString()
+        });
+        if (uploadState.events.length > 30) {
+            uploadState.events = uploadState.events.slice(-30);
+        }
+    }
+
+    function rebindUploadRows() {
+        activeUploads.forEach((uploadState) => {
+            const $row = $(`[data-lesson-id="${uploadState.lesson_id}"]`);
+            if ($row.length) {
+                uploadState.row = $row;
+                uploadState.progress = $row.find('[data-upload-panel]');
+                uploadState.statusElement = $row.find('[data-upload-details]');
+                uploadState.bar = $row.find('[data-upload-progress-bar]');
+                uploadState.uploadButton = $row.find('.btn-upload');
+            } else {
+                uploadState.row = $();
+                appendUploadEvent(uploadState, 'row_missing', 'تم فقدان صف الدرس أثناء الرفع');
+            }
+        });
+    }
+
+    function renderAllUploads() {
+        activeUploads.forEach((_, uploadId) => renderUploadState(uploadId));
+        renderUploadMonitor();
+    }
+
+    function renderUploadState(uploadId) {
+        const uploadState = activeUploads.get(uploadId);
+        if (!uploadState) {
+            renderUploadMonitor();
+            return;
+        }
+
+        if (!uploadState.progress || !uploadState.progress.length) {
+            rebindUploadRows();
+        }
+
+        const panel = uploadState.progress;
+        if (panel && panel.length) {
+            const percent = Math.max(0, Math.min(100, Math.round(uploadState.percent || 0)));
+            panel
+                .removeClass('is-active is-completed is-failed is-probing is-finalizing')
+                .addClass(uploadPanelClass(uploadState.status));
+            panel.find('[data-upload-summary]').text(uploadSummary(uploadState));
+            panel.find('[data-upload-progress-bar]').css('width', percent + '%');
+            panel.find('[data-upload-details]').html(uploadDetails(uploadState));
+            panel.find('[data-upload-debug]').html(state.debugUploads ? uploadDebug(uploadState) : '');
+        }
+
+        renderUploadMonitor();
+    }
+
+    function uploadPanelClass(status) {
+        if (status === 'completed') {
+            return 'is-completed';
+        }
+        if (status === 'failed') {
+            return 'is-failed';
+        }
+        if (status === 'probing') {
+            return 'is-probing is-active';
+        }
+        if (status === 'finalizing') {
+            return 'is-finalizing is-active';
+        }
+        return status && status !== 'queued' ? 'is-active' : '';
+    }
+
+    function uploadSummary(uploadState) {
+        if (uploadState.status === 'completed') {
+            return 'تم الرفع بنجاح. المعاينة قيد المعالجة.';
+        }
+        if (uploadState.status === 'failed') {
+            return 'فشل الرفع لهذا الدرس.';
+        }
+        if (uploadState.status === 'probing') {
+            return cfg.i18n.direct_probe_checking || 'يتم التحقق من حالة الرفع...';
+        }
+        if (uploadState.status === 'finalizing') {
+            return cfg.i18n.direct_completed_finalizing || cfg.i18n.finalizing_upload;
+        }
+        return uploadState.last_message || cfg.i18n.uploading;
+    }
+
+    function uploadDetails(uploadState) {
+        const uploaded = formatBytes(uploadState.uploaded_bytes || 0);
+        const total = formatBytes(uploadState.total_size || 0);
+        const duration = formatDuration(((uploadState.completed_at || Date.now()) - uploadState.started_at) / 1000);
+        const parts = [
+            `<strong>${esc(uploadState.lesson.lessonName || '')}</strong>`,
+            `${esc(uploadState.transport_mode || '')} | ${esc(uploadState.status || '')} | ${Math.round(uploadState.percent || 0)}%`,
+            `${uploaded} / ${total} | ${esc(uploadState.current_stage || '')}`,
+            uploadState.job_uuid ? `Job: ${esc(uploadState.job_uuid)}` : '',
+            uploadState.status === 'completed' ? `المدة: ${esc(duration)}` : ''
+        ].filter(Boolean);
+        return parts.map((line) => `<div>${line}</div>`).join('');
+    }
+
+    function uploadDebug(uploadState) {
+        const debugLines = [
+            `upload_id=${uploadState.upload_id}`,
+            `job_uuid=${uploadState.job_uuid || ''}`,
+            `asset_id=${uploadState.asset_id || ''}`,
+            `drive_file_id=${uploadState.drive_file_id || ''}`,
+            `transport=${uploadState.transport_mode || ''}`,
+            `chunk_index=${uploadState.current_chunk_index ?? ''}`,
+            `xhr_status=${uploadState.xhr_status || ''}`,
+            `drive_http_status=${uploadState.drive_http_status || ''}`,
+            `stage=${uploadState.current_stage || ''}`,
+            `retry_count=${uploadState.retry_count || 0}`,
+            `last_probe_status=${uploadState.last_probe_status || ''}`,
+            `next_start=${uploadState.next_start || ''}`,
+            `uploaded_bytes=${uploadState.uploaded_bytes || 0}`,
+            `total_bytes=${uploadState.total_size || 0}`,
+            uploadState.error_code ? `error_code=${uploadState.error_code}` : ''
+        ].filter(Boolean);
+        const eventLines = (uploadState.events || []).slice(-8).map((event) => `${event.at} - ${event.message}`);
+        const actions = uploadState.status === 'failed'
+            ? `<div class="olama-upload-debug-actions"><button type="button" class="button button-small btn-copy-upload-diagnostics" data-upload-id="${esc(uploadState.upload_id)}">نسخ تفاصيل الخطأ</button>${uploadState.job_uuid ? `<button type="button" class="button button-small btn-show-upload-logs" data-job-uuid="${esc(uploadState.job_uuid)}">عرض السجلات</button>` : ''}</div>`
+            : (uploadState.job_uuid ? `<div class="olama-upload-debug-actions"><button type="button" class="button button-small btn-show-upload-logs" data-job-uuid="${esc(uploadState.job_uuid)}">عرض السجلات</button></div>` : '');
+        return `<pre>${esc(debugLines.concat(eventLines).join('\n'))}</pre>${actions}`;
+    }
+
+    function renderUploadMonitor() {
+        const $list = $('#olama-upload-monitor-list');
+        if (!$list.length) {
+            return;
+        }
+        const uploads = Array.from(activeUploads.values());
+        if (!uploads.length) {
+            $list.html('<p class="description">لا توجد عمليات رفع نشطة حالياً.</p>');
+            return;
+        }
+        $list.html(uploads.map((uploadState) => {
+            const debug = state.debugUploads && uploadState.job_uuid ? `<div class="olama-upload-monitor-debug">job_uuid=${esc(uploadState.job_uuid)} | upload_id=${esc(uploadState.upload_id)}</div>` : '';
+            return `<div class="olama-upload-monitor-item status-${esc(uploadState.status || 'queued')}">
+                <strong>${esc(uploadState.lesson.lessonName || '')}</strong>
+                <span>${esc(uploadState.transport_mode || '')}</span>
+                <span>${esc(uploadState.status || '')}</span>
+                <span>${Math.round(uploadState.percent || 0)}%</span>
+                <span>${formatBytes(uploadState.uploaded_bytes || 0)} / ${formatBytes(uploadState.total_size || 0)}</span>
+                <span>${esc(uploadState.current_stage || '')}</span>
+                <span>${esc(uploadState.last_message || '')}</span>
+                ${debug}
+            </div>`;
+        }).join(''));
+    }
+
+    function formatBytes(bytes) {
+        const value = Number(bytes || 0);
+        if (value >= 1024 * 1024) {
+            return (value / 1024 / 1024).toFixed(1) + 'MB';
+        }
+        if (value >= 1024) {
+            return (value / 1024).toFixed(1) + 'KB';
+        }
+        return value + 'B';
+    }
+
+    function formatDuration(seconds) {
+        const total = Math.max(0, Math.round(seconds || 0));
+        const minutes = Math.floor(total / 60);
+        const remaining = total % 60;
+        return `${String(minutes).padStart(2, '0')}:${String(remaining).padStart(2, '0')}`;
+    }
+
+    function diagnosticText(uploadState) {
+        const events = (uploadState.events || []).slice(-5).map((event) => `${event.at} ${event.message}`).join('\n');
+        return [
+            `lesson=${uploadState.lesson.lessonName || ''}`,
+            `upload_id=${uploadState.upload_id}`,
+            `job_uuid=${uploadState.job_uuid || ''}`,
+            `asset_id=${uploadState.asset_id || ''}`,
+            `transport=${uploadState.transport_mode || ''}`,
+            `error_code=${uploadState.error_code || ''}`,
+            `stage=${uploadState.current_stage || ''}`,
+            `xhr_status=${uploadState.xhr_status || ''}`,
+            `drive_http_status=${uploadState.drive_http_status || ''}`,
+            `chunk_index=${uploadState.current_chunk_index ?? ''}`,
+            `uploaded=${formatBytes(uploadState.uploaded_bytes || 0)}/${formatBytes(uploadState.total_size || 0)}`,
+            'events:',
+            events
+        ].join('\n');
+    }
+
+    $(document).on('click', '.btn-copy-upload-diagnostics', function () {
+        const uploadState = activeUploads.get($(this).data('upload-id'));
+        if (!uploadState) {
+            return;
+        }
+        const text = diagnosticText(uploadState);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => notify('تم نسخ تفاصيل الخطأ', 'success'));
+        } else {
+            uploadState.progress.find('[data-upload-debug]').append(`<textarea class="large-text" rows="8">${esc(text)}</textarea>`);
+        }
+    });
+
+    $(document).on('click', '.btn-show-upload-logs', function () {
+        const jobUuid = $(this).data('job-uuid') || '';
+        $('#log-filter-job-uuid').val(jobUuid);
+        activateTab('logs');
+        loadLogs(1);
+    });
 
     function finishUpload(uploadState, status, refresh = true) {
         if (!uploadState) {
@@ -238,20 +486,28 @@ jQuery(function ($) {
         }
         uploadState.status = status;
         uploadState.current_stage = status;
+        if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+            uploadState.completed_at = Date.now();
+        }
         uploadState.uploadButton.prop('disabled', false);
-        const hasFallbackActions = uploadState.progress && uploadState.progress.find('.olama-direct-actions').length > 0;
-        if (status === 'completed' || status === 'cancelled' || (status === 'failed' && !hasFallbackActions)) {
+        if (status === 'cancelled') {
             activeUploads.delete(uploadState.upload_id);
         }
-        if (refresh && activeUploads.size === 0) {
+        if (refresh && !hasActiveUploadWork()) {
             loadCurriculum();
+        } else {
+            renderUploadState(uploadState.upload_id);
         }
     }
 
     function refreshCurriculumWhenIdle() {
-        if (activeUploads.size === 0) {
+        if (!hasActiveUploadWork()) {
             loadCurriculum();
         }
+    }
+
+    function hasActiveUploadWork() {
+        return Array.from(activeUploads.values()).some((upload) => ['queued', 'uploading', 'probing', 'retrying', 'finalizing'].includes(upload.status));
     }
 
     function shouldUseDirectUpload(file) {
@@ -330,8 +586,13 @@ jQuery(function ($) {
 
         uploadState.payload = payload;
         uploadState.transport_mode = 'direct_google';
-        uploadState.status = 'uploading';
-        uploadState.current_stage = 'direct_session_create';
+        setUploadState(uploadState.upload_id, {
+            status: 'queued',
+            current_stage: 'direct_session_create',
+            last_message: cfg.i18n.direct_session_creating,
+            percent: 0,
+            uploaded_bytes: 0
+        }, 'جاري إنشاء جلسة الرفع المباشر');
         $progress.show().find('.olama-direct-actions').remove();
         $bar.css('width', '0%').css('background', '#2271b1');
         $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_session_creating}`);
@@ -361,7 +622,14 @@ jQuery(function ($) {
                 uploadState.asset_id = session.asset_id || 0;
                 uploadState.drive_file_id = session.drive_file_id || '';
                 uploadState.session = session;
-                uploadState.current_stage = 'direct_google_put';
+                setUploadState(uploadState.upload_id, {
+                    status: 'uploading',
+                    current_stage: 'direct_google_put',
+                    last_message: cfg.i18n.direct_uploading,
+                    job_uuid: uploadState.job_uuid,
+                    asset_id: uploadState.asset_id,
+                    drive_file_id: uploadState.drive_file_id
+                }, 'بدأ الرفع المباشر');
                 $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_uploading}`);
                 logDirectEvent('direct_upload_started', payload, file.size, 0, '', 'Direct browser upload started.');
                 sendDirectToGoogle(uploadState);
@@ -391,8 +659,12 @@ jQuery(function ($) {
             const blob = file.slice(start, end + 1);
             const xhr = new XMLHttpRequest();
             uploadState.xhr = xhr;
-            uploadState.current_chunk_index = chunkIndex;
-            uploadState.current_stage = 'direct_google_put';
+            setUploadState(uploadState.upload_id, {
+                current_chunk_index: chunkIndex,
+                current_stage: 'direct_google_put',
+                status: 'uploading',
+                last_message: `جاري رفع الجزء ${chunkIndex + 1}`
+            }, `بدأ رفع الجزء ${chunkIndex + 1}`);
 
             xhr.upload.onprogress = function (event) {
                 if (!event.lengthComputable) {
@@ -400,6 +672,13 @@ jQuery(function ($) {
                 }
                 const uploaded = start + event.loaded;
                 const percent = Math.min(99, Math.round((uploaded / file.size) * 100));
+                setUploadState(uploadState.upload_id, {
+                    uploaded_bytes: uploaded,
+                    percent,
+                    current_chunk_index: chunkIndex,
+                    current_stage: 'direct_google_put',
+                    last_message: `${cfg.i18n.direct_uploading} ${percent}%`
+                });
                 $bar.css('width', percent + '%');
                 $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_uploading} ${percent}%`);
                 [25, 50, 75].forEach(function (point) {
@@ -430,6 +709,11 @@ jQuery(function ($) {
                         return;
                     }
                     if (nextStart < file.size) {
+                        setUploadState(uploadState.upload_id, {
+                            uploaded_bytes: nextStart,
+                            percent: Math.min(99, Math.round((nextStart / file.size) * 100)),
+                            last_message: `تم رفع الجزء ${chunkIndex + 1}`
+                        }, `تم رفع الجزء ${chunkIndex + 1}`);
                         uploadChunk();
                         return;
                     }
@@ -442,8 +726,13 @@ jQuery(function ($) {
                     checkpoints[100] = true;
                     logDirectEvent('direct_upload_completed_browser', payload, file.size, file.size, '', 'Direct browser upload completed.', 100, diagnostics);
                     $text.text(cfg.i18n.direct_completed_finalizing);
-                    uploadState.status = 'finalizing';
-                    uploadState.current_stage = 'direct_finalize';
+                    setUploadState(uploadState.upload_id, {
+                        status: 'finalizing',
+                        current_stage: 'direct_finalize',
+                        uploaded_bytes: file.size,
+                        percent: 100,
+                        last_message: cfg.i18n.direct_completed_finalizing
+                    }, 'جاري إنهاء الرفع');
                     refreshUploadNonce().always(function () {
                         finalizeDirectUpload(uploadState, '', 0);
                     });
@@ -451,6 +740,11 @@ jQuery(function ($) {
                 }
 
                 if (xhr.status >= 500 && retryAttempt < 3) {
+                    setUploadState(uploadState.upload_id, {
+                        status: 'retrying',
+                        retry_count: retryAttempt + 1,
+                        last_message: 'إعادة محاولة رفع الجزء'
+                    }, `إعادة محاولة الجزء ${chunkIndex + 1}`);
                     window.setTimeout(() => uploadChunk(retryAttempt + 1), [2000, 5000, 10000][retryAttempt]);
                     return;
                 }
@@ -496,6 +790,14 @@ jQuery(function ($) {
         };
 
         const probeDirectUpload = (currentUpload, start, end, chunkIndex, directChunkSize, retryAttempt, probeRetryAttempt, diagnostics = {}, errorCode = 'direct_browser_network_or_response_failure') => {
+            setUploadState(currentUpload.upload_id, {
+                status: 'probing',
+                current_stage: 'direct_upload_probe',
+                error_code: errorCode,
+                xhr_status: diagnostics.xhr_status || 0,
+                uploaded_bytes: diagnostics.loaded_bytes || start,
+                last_message: cfg.i18n.direct_probe_checking || cfg.i18n.direct_browser_failed
+            }, 'حدث انقطاع مؤقت، يتم فحص حالة Google');
             currentUpload.statusElement.text(cfg.i18n.direct_probe_checking || cfg.i18n.direct_browser_failed);
             logDirectEvent('direct_upload_browser_error', currentUpload.payload, currentUpload.file.size, diagnostics.loaded_bytes || start, errorCode, diagnostics.message_en || 'Browser upload response failed; probing Google resumable session.', 0, diagnostics);
             $.post(cfg.ajaxurl, {
@@ -512,13 +814,22 @@ jQuery(function ($) {
                     next_start: probeData.next_start || 0,
                     stage: 'direct_google_put'
                 };
+                setUploadState(currentUpload.upload_id, {
+                    last_probe_status: probeDiagnostics.last_probe_status,
+                    next_start: probeDiagnostics.next_start
+                }, `Google استلم حتى ${formatBytes(probeDiagnostics.next_start || 0)}`);
 
                 if (response.success && probeData.complete) {
                     currentUpload.bar.css('width', '100%');
                     logDirectEvent('direct_upload_completed_browser', currentUpload.payload, currentUpload.file.size, currentUpload.file.size, '', 'Direct upload completed according to Google probe.', 100, probeDiagnostics);
                     currentUpload.statusElement.text(cfg.i18n.direct_completed_finalizing);
-                    currentUpload.status = 'finalizing';
-                    currentUpload.current_stage = 'direct_finalize';
+                    setUploadState(currentUpload.upload_id, {
+                        status: 'finalizing',
+                        current_stage: 'direct_finalize',
+                        uploaded_bytes: currentUpload.file.size,
+                        percent: 100,
+                        last_message: cfg.i18n.direct_completed_finalizing
+                    }, 'جاري إنهاء الرفع');
                     refreshUploadNonce().always(function () {
                         finalizeDirectUpload(currentUpload, '', 0);
                     });
@@ -527,11 +838,23 @@ jQuery(function ($) {
 
                 if (response.success && probeData.next_start > start) {
                     nextStart = Math.min(currentUpload.file.size, probeData.next_start);
+                    setUploadState(currentUpload.upload_id, {
+                        status: 'uploading',
+                        current_stage: 'direct_google_put',
+                        uploaded_bytes: nextStart,
+                        percent: Math.min(99, Math.round((nextStart / currentUpload.file.size) * 100)),
+                        last_message: `استئناف الرفع من ${formatBytes(nextStart)}`
+                    }, `Google استلم حتى ${formatBytes(nextStart)}`);
                     uploadChunk();
                     return;
                 }
 
                 if (response.success && probeData.next_start === start && retryAttempt < 3) {
+                    setUploadState(currentUpload.upload_id, {
+                        status: 'retrying',
+                        retry_count: retryAttempt + 1,
+                        last_message: 'إعادة محاولة نفس الجزء بعد الفحص'
+                    }, 'إعادة محاولة نفس الجزء');
                     window.setTimeout(() => uploadChunk(retryAttempt + 1, probeRetryAttempt + 1), [2000, 5000, 10000][retryAttempt]);
                     return;
                 }
@@ -606,6 +929,14 @@ jQuery(function ($) {
         }).done(function (response) {
             if (response.success) {
                 uploadState.bar.css('width', '100%').css('background', '#2271b1');
+                setUploadState(uploadState.upload_id, {
+                    status: 'completed',
+                    current_stage: 'completed',
+                    percent: 100,
+                    uploaded_bytes: uploadState.total_size,
+                    last_message: cfg.i18n.direct_success,
+                    completed_at: Date.now()
+                }, 'تم الرفع بنجاح');
                 uploadState.statusElement.text(cfg.i18n.direct_success);
                 notify(cfg.i18n.direct_success, 'success');
                 finishUpload(uploadState, 'completed');
@@ -621,8 +952,20 @@ jQuery(function ($) {
 
     function showDirectFallback(uploadState, message, errorCode = 'direct_browser_error', diagnostics = {}, eventType = 'direct_upload_browser_error') {
         const $progress = uploadState.progress;
-        uploadState.status = 'failed';
-        uploadState.current_stage = 'failed';
+        setUploadState(uploadState.upload_id, {
+            status: 'failed',
+            current_stage: diagnostics.stage || 'failed',
+            error_code: errorCode,
+            xhr_status: diagnostics.xhr_status || '',
+            drive_http_status: diagnostics.drive_http_status || diagnostics.drive_http_status === 0 ? diagnostics.drive_http_status : '',
+            current_chunk_index: Number.isInteger(diagnostics.chunk_index) ? diagnostics.chunk_index : uploadState.current_chunk_index,
+            uploaded_bytes: diagnostics.loaded_bytes || uploadState.uploaded_bytes,
+            last_probe_status: diagnostics.last_probe_status || uploadState.last_probe_status,
+            next_start: diagnostics.next_start || uploadState.next_start,
+            last_message: message,
+            completed_at: Date.now()
+        }, message);
+        uploadState.uploadButton.prop('disabled', false);
         uploadState.bar.css('width', '100%').css('background', '#dba617');
         let adminDetails = '';
         if (cfg.canManage) {
@@ -701,9 +1044,16 @@ jQuery(function ($) {
         let index = 0;
 
         uploadState.transport_mode = 'wordpress_streamed';
-        uploadState.status = 'uploading';
-        uploadState.current_stage = isFallback ? 'wordpress_fallback_upload' : 'wordpress_upload';
         uploadState.job_uuid = uuid;
+        setUploadState(uploadState.upload_id, {
+            transport_mode: 'wordpress_streamed',
+            status: 'uploading',
+            current_stage: isFallback ? 'wordpress_fallback_upload' : 'wordpress_upload',
+            job_uuid: uuid,
+            percent: 0,
+            uploaded_bytes: 0,
+            last_message: cfg.i18n.transport_wordpress
+        }, isFallback ? 'تم اختيار الرفع عبر WordPress كبديل' : 'بدأ الرفع عبر WordPress');
         $progress.show();
         $progress.find('.olama-direct-actions').remove();
         $bar.css('width', '0%');
@@ -734,8 +1084,12 @@ jQuery(function ($) {
             formData.append('semester_id', f.semester_id);
             formData.append('grade_id', f.grade_id);
             formData.append('subject_id', f.subject_id);
-            uploadState.current_chunk_index = index;
-            uploadState.uploaded_bytes = start;
+            setUploadState(uploadState.upload_id, {
+                current_chunk_index: index,
+                uploaded_bytes: start,
+                current_stage: 'wordpress_chunk_upload',
+                last_message: `جاري رفع الجزء ${index + 1} من ${totalChunks}`
+            }, `بدأ رفع الجزء ${index + 1} من ${totalChunks}`);
 
             if (retryAttempt > 0) {
                 $text.text(cfg.i18n.retrying_chunk
@@ -753,6 +1107,11 @@ jQuery(function ($) {
 
                 if (retryable && retryAttempt < retryDelays.length) {
                     const nextAttempt = retryAttempt + 1;
+                    setUploadState(uploadState.upload_id, {
+                        status: 'retrying',
+                        retry_count: nextAttempt,
+                        last_message: cfg.i18n.retryable_network_error
+                    }, `إعادة محاولة الجزء ${index + 1}`);
                     $text.text(cfg.i18n.retryable_network_error);
                     refreshUploadNonce().done(function (nonceResponse) {
                         if (!nonceResponse.success || !nonceResponse.data || !nonceResponse.data.drive_authenticated) {
@@ -780,6 +1139,13 @@ jQuery(function ($) {
                 $bar.css('width', '100%').css('background', '#d63638');
                 $text.text(responseMessage);
                 notify(responseMessage, 'error');
+                setUploadState(uploadState.upload_id, {
+                    status: 'failed',
+                    error_code: responseData && responseData.error_code ? responseData.error_code : '',
+                    current_stage: responseData && responseData.stage ? responseData.stage : 'wordpress_upload_failed',
+                    drive_http_status: responseData && responseData.drive_http_status ? responseData.drive_http_status : '',
+                    last_message: responseMessage
+                }, responseMessage);
                 finishUpload(uploadState, 'failed', false);
             };
 
@@ -795,6 +1161,12 @@ jQuery(function ($) {
                         if (event.lengthComputable) {
                             const uploaded = start + event.loaded;
                             const percent = Math.min(95, Math.round((uploaded / file.size) * 100));
+                            setUploadState(uploadState.upload_id, {
+                                uploaded_bytes: uploaded,
+                                percent,
+                                status: 'uploading',
+                                last_message: `${cfg.i18n.transport_wordpress} ${percent}%`
+                            });
                             $bar.css('width', percent + '%');
                             uploadState.uploaded_bytes = uploaded;
                         }
@@ -821,6 +1193,12 @@ jQuery(function ($) {
                     return;
                 }
                 index++;
+                setUploadState(uploadState.upload_id, {
+                    uploaded_bytes: Math.min(index * chunkSize, file.size),
+                    percent: Math.min(95, Math.round((Math.min(index * chunkSize, file.size) / file.size) * 100)),
+                    status: 'uploading',
+                    last_message: `تم رفع الجزء ${index} من ${totalChunks}`
+                }, `تم رفع الجزء ${index} من ${totalChunks}`);
                 if (index < totalChunks) {
                     next();
                 }
@@ -841,6 +1219,12 @@ jQuery(function ($) {
         const retryDelays = [2000, 5000, 10000];
         const $text = uploadState.statusElement;
         const $bar = uploadState.bar;
+        setUploadState(uploadState.upload_id, {
+            status: 'finalizing',
+            current_stage: 'finalize_upload',
+            last_message: cfg.i18n.finalizing_upload,
+            percent: Math.max(uploadState.percent || 0, 95)
+        }, 'جاري تثبيت بيانات الفيديو');
         if ($text && $text.length) {
             $text.text(cfg.i18n.finalizing_upload);
         }
@@ -859,6 +1243,14 @@ jQuery(function ($) {
                     $text.text(cfg.i18n.status_uploaded_to_drive);
                 }
                 notify(cfg.i18n.processing_note, 'success');
+                setUploadState(uploadState.upload_id, {
+                    status: 'completed',
+                    current_stage: 'completed',
+                    percent: 100,
+                    uploaded_bytes: uploadState.total_size,
+                    last_message: 'تم الرفع بنجاح. المعاينة قيد المعالجة.',
+                    completed_at: Date.now()
+                }, 'تم الرفع بنجاح');
                 finishUpload(uploadState, 'completed');
                 return;
             }
@@ -872,6 +1264,11 @@ jQuery(function ($) {
                             $text.text(nonceMessage);
                         }
                         notify(nonceMessage, 'error');
+                        setUploadState(uploadState.upload_id, {
+                            status: 'failed',
+                            current_stage: 'finalize_nonce_refresh',
+                            last_message: nonceMessage
+                        }, nonceMessage);
                         return;
                     }
                     window.setTimeout(() => finalizeUpload(uploadState, retryAttempt + 1), retryDelays[retryAttempt]);
@@ -891,6 +1288,12 @@ jQuery(function ($) {
                 $text.text(uploadErrorMessage(response.data) || cfg.i18n.finalize_failed);
             }
             notify(uploadErrorMessage(response.data) || cfg.i18n.finalize_failed, 'error');
+            setUploadState(uploadState.upload_id, {
+                status: 'failed',
+                current_stage: response.data && response.data.stage ? response.data.stage : 'finalize_failed',
+                error_code: response.data && response.data.error_code ? response.data.error_code : '',
+                last_message: uploadErrorMessage(response.data) || cfg.i18n.finalize_failed
+            }, uploadErrorMessage(response.data) || cfg.i18n.finalize_failed);
             finishUpload(uploadState, 'failed');
         }).fail(function () {
             if (retryAttempt < retryDelays.length) {
@@ -901,6 +1304,11 @@ jQuery(function ($) {
                 $text.text(cfg.i18n.finalize_failed);
             }
             notify(cfg.i18n.finalize_failed, 'error');
+            setUploadState(uploadState.upload_id, {
+                status: 'failed',
+                current_stage: 'finalize_transport_failed',
+                last_message: cfg.i18n.finalize_failed
+            }, cfg.i18n.finalize_failed);
             finishUpload(uploadState, 'failed');
         });
     }
@@ -921,9 +1329,20 @@ jQuery(function ($) {
             uploadButton: $btn,
             asset_id: assetId,
             job_uuid: jobUuid,
+            transport_mode: 'wordpress_streamed',
+            lesson: { lessonName: $row.find('td').eq(1).text() },
+            total_size: 0,
+            uploaded_bytes: 0,
+            percent: 95,
+            started_at: Date.now(),
+            current_stage: 'manual_finalize',
+            last_message: cfg.i18n.finalizing_upload,
+            events: [],
             status: 'finalizing'
         };
         activeUploads.set(uploadState.upload_id, uploadState);
+        appendUploadEvent(uploadState, 'finalizing', 'جاري تثبيت بيانات الفيديو');
+        renderUploadState(uploadState.upload_id);
         finalizeUpload(uploadState);
         window.setTimeout(() => $btn.prop('disabled', false).text(cfg.i18n.retry_finalize), 1500);
     });

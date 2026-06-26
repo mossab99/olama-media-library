@@ -131,6 +131,12 @@ Browser diagnostics now distinguish `direct_browser_network_or_response_failure`
 
 The admin upload UI now tracks each upload with an isolated per-upload state object. Progress bars, retry/fallback buttons, finalize calls, and status text are scoped to the lesson row that started the upload. Curriculum refreshes are delayed while upload contexts are active so one completed upload does not redraw the table and hide another lesson's progress.
 
+## Phase 2.4 Upload Visibility
+
+Each lesson row now includes a persistent upload panel with summary, progress, details, and optional debug output. A global upload monitor lists active and recent uploads, including transport, status, percent, uploaded size, current stage, job UUID, and the latest message.
+
+Admins can enable diagnostic details in the UI, copy safe failure diagnostics, and jump to filtered logs by job UUID. Completion and failure messages remain visible after the upload attempt so teacher support can see what happened without relying on browser console or backend logs alone.
+
 ## Phase 1.3 Streaming Uploads
 
 Chunk upload still passes through WordPress AJAX, but the Drive transfer now streams the temporary chunk file to Google Drive with native cURL. This avoids reading the chunk into a large PHP string before sending it to Drive and should reduce PHP memory pressure compared with the previous `wp_remote_request()` string-body transfer.

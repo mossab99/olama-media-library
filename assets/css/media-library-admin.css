@@ -82,12 +82,13 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+    user-select: none;
 }
 
 .olama-progress {
     min-width: 180px;
     margin-top: 8px;
-    display: none;
+    display: block;
 }
 
 .olama-progress-bar {
@@ -99,6 +100,147 @@
 
 .olama-progress-track {
     background: #dcdcde;
+}
+
+.olama-upload-monitor {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    padding: 12px;
+    margin: 0 0 16px;
+}
+
+.olama-upload-monitor-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.olama-upload-monitor-header h2 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.olama-upload-monitor-list {
+    display: grid;
+    gap: 8px;
+}
+
+.olama-upload-monitor-item {
+    display: grid;
+    grid-template-columns: minmax(140px, 1.6fr) repeat(5, minmax(80px, auto));
+    gap: 8px;
+    align-items: center;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 8px;
+    background: #f6f7f7;
+}
+
+.olama-upload-monitor-item.status-completed {
+    border-color: #8fd19e;
+    background: #edfaef;
+}
+
+.olama-upload-monitor-item.status-failed {
+    border-color: #f0a49a;
+    background: #fff0ee;
+}
+
+.olama-upload-monitor-debug {
+    grid-column: 1 / -1;
+    direction: ltr;
+    overflow-wrap: anywhere;
+    color: #50575e;
+}
+
+.olama-upload-panel {
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 8px;
+    background: #f6f7f7;
+    min-width: 240px;
+    user-select: none;
+}
+
+.olama-upload-panel.is-active,
+.olama-upload-panel.is-probing,
+.olama-upload-panel.is-finalizing {
+    border-color: #72aee6;
+    background: #f0f6fc;
+}
+
+.olama-upload-panel.is-completed {
+    border-color: #8fd19e;
+    background: #edfaef;
+}
+
+.olama-upload-panel.is-failed {
+    border-color: #f0a49a;
+    background: #fff0ee;
+}
+
+.olama-upload-summary {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.olama-upload-progress-wrap {
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #dcdcde;
+    user-select: none;
+}
+
+.olama-upload-progress-bar {
+    height: 10px;
+    min-height: 10px;
+}
+
+.olama-upload-details {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.olama-upload-debug {
+    margin-top: 8px;
+    direction: ltr;
+    text-align: left;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.olama-upload-debug pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 0;
+    max-height: 180px;
+    overflow: auto;
+    background: #1d2327;
+    color: #f0f0f1;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.olama-upload-debug-actions,
+.olama-direct-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    user-select: none;
+}
+
+.olama-media-unit td {
+    vertical-align: top;
+}
+
+.olama-media-unit .button:disabled {
+    color: #646970;
+    opacity: .75;
 }
 
 .olama-processing-note {

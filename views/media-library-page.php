@@ -71,6 +71,19 @@ $refresh_token = $settings['refresh_token'] ?? '';
             <button type="button" id="btn-load-curriculum" class="button button-primary"><?php esc_html_e('تحميل المنهاج', 'olama-media-library'); ?></button>
         </div>
 
+        <div class="olama-upload-monitor" id="olama-upload-monitor">
+            <div class="olama-upload-monitor-header">
+                <h2><?php esc_html_e('عمليات الرفع الحالية', 'olama-media-library'); ?></h2>
+                <label>
+                    <input type="checkbox" id="olama-upload-debug-toggle">
+                    <?php esc_html_e('إظهار تفاصيل التشخيص', 'olama-media-library'); ?>
+                </label>
+            </div>
+            <div id="olama-upload-monitor-list" class="olama-upload-monitor-list">
+                <p class="description"><?php esc_html_e('لا توجد عمليات رفع نشطة حالياً.', 'olama-media-library'); ?></p>
+            </div>
+        </div>
+
         <div id="curriculum-container" class="olama-media-lessons">
             <div class="notice notice-info inline"><p><?php esc_html_e('اختر الصف والمادة ثم حمّل الدروس. لا يتم فحص Google Drive أثناء تحميل القائمة.', 'olama-media-library'); ?></p></div>
         </div>

@@ -3,7 +3,7 @@
  * Plugin Name: Olama Media Library
  * Plugin URI: https://olama.online
  * Description: Standalone media library and Google Drive upload module for Olama School curriculum lessons.
- * Version: 1.1.3
+ * Version: 1.1.4
  * Author: Olama
  * Text Domain: olama-media-library
  * Domain Path: /languages
@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('OLAMA_MEDIA_LIBRARY_VERSION', '1.1.3');
+define('OLAMA_MEDIA_LIBRARY_VERSION', '1.1.4');
 define('OLAMA_MEDIA_LIBRARY_FILE', __FILE__);
 define('OLAMA_MEDIA_LIBRARY_PATH', plugin_dir_path(__FILE__));
 define('OLAMA_MEDIA_LIBRARY_URL', plugin_dir_url(__FILE__));
