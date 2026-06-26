@@ -127,6 +127,10 @@ For every `308`, the browser uses Google's `Range` header strictly instead of as
 
 Browser diagnostics now distinguish `direct_browser_network_or_response_failure` from a full CORS failure. Admin details include the chunk index, uploaded MB, `last_probe_status`, and `next_start` when available.
 
+## Phase 2.3 Concurrent Upload UI
+
+The admin upload UI now tracks each upload with an isolated per-upload state object. Progress bars, retry/fallback buttons, finalize calls, and status text are scoped to the lesson row that started the upload. Curriculum refreshes are delayed while upload contexts are active so one completed upload does not redraw the table and hide another lesson's progress.
+
 ## Phase 1.3 Streaming Uploads
 
 Chunk upload still passes through WordPress AJAX, but the Drive transfer now streams the temporary chunk file to Google Drive with native cURL. This avoids reading the chunk into a large PHP string before sending it to Drive and should reduce PHP memory pressure compared with the previous `wp_remote_request()` string-body transfer.
