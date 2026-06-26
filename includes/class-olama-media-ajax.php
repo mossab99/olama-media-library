@@ -21,12 +21,18 @@ class Olama_Media_Ajax
         add_action('wp_ajax_academy_load_media_curriculum', array($this, 'load_curriculum'));
         add_action('wp_ajax_olama_media_start_upload_job', array($this, 'start_upload_job'));
         add_action('wp_ajax_olama_media_refresh_upload_nonce', array($this, 'refresh_upload_nonce'));
+        add_action('wp_ajax_olama_media_start_direct_upload', array($this, 'start_direct_upload'));
         add_action('wp_ajax_academy_upload_media_video_chunk', array($this, 'upload_chunk'));
         add_action('wp_ajax_olama_media_finalize_upload', array($this, 'finalize_upload'));
+        add_action('wp_ajax_olama_media_finalize_direct_upload', array($this, 'finalize_direct_upload'));
+        add_action('wp_ajax_olama_media_log_direct_upload_event', array($this, 'log_direct_upload_event'));
         add_action('wp_ajax_olama_media_check_preview_status', array($this, 'check_preview_status'));
         add_action('wp_ajax_nopriv_olama_media_refresh_upload_nonce', array($this, 'refresh_upload_nonce'));
+        add_action('wp_ajax_nopriv_olama_media_start_direct_upload', array($this, 'start_direct_upload'));
         add_action('wp_ajax_nopriv_academy_upload_media_video_chunk', array($this, 'upload_chunk'));
         add_action('wp_ajax_nopriv_olama_media_finalize_upload', array($this, 'finalize_upload'));
+        add_action('wp_ajax_nopriv_olama_media_finalize_direct_upload', array($this, 'finalize_direct_upload'));
+        add_action('wp_ajax_nopriv_olama_media_log_direct_upload_event', array($this, 'log_direct_upload_event'));
         add_action('wp_ajax_nopriv_olama_media_check_preview_status', array($this, 'check_preview_status'));
         add_action('wp_ajax_olama_media_save_notes', array($this, 'save_notes'));
         add_action('wp_ajax_academy_update_media_status', array($this, 'update_media_status'));
@@ -117,6 +123,131 @@ class Olama_Media_Ajax
             'drive_authenticated' => $health['is_configured'] && $health['has_refresh_token'] && $health['can_refresh'],
             'has_refresh_token' => (bool) $health['has_refresh_token'],
             'auth_warning' => $auth_warning,
+        ));
+    }
+
+    public function start_direct_upload()
+    {
+        $handler_start = microtime(true);
+        $this->verify_upload_request('upload');
+
+        $job_uuid = sanitize_key($_POST['file_uuid'] ?? wp_generate_uuid4());
+        $filename = sanitize_file_name($_POST['file_name'] ?? $_POST['filename'] ?? '');
+        $file_size = absint($_POST['file_size'] ?? $_POST['total_size'] ?? 0);
+        $mime_type = sanitize_text_field($_POST['mime_type'] ?? 'video/mp4');
+
+        if ($mime_type !== 'video/mp4') {
+            $this->send_upload_error('unsupported_mime_type', 'file_validation', __('ملف الفيديو غير مدعوم. يدعم الرفع المباشر ملفات MP4 فقط حالياً.', 'olama-media-library'), 'Direct upload MVP supports video/mp4 only.', false, array(
+                'job_uuid' => $job_uuid,
+            ));
+        }
+
+        $validation = $this->validate_video($filename, $file_size);
+        if (is_wp_error($validation)) {
+            $this->send_upload_error('invalid_file', 'file_validation', __('ملف الفيديو غير صالح.', 'olama-media-library'), $validation->get_error_message(), false, array(
+                'job_uuid' => $job_uuid,
+            ));
+        }
+
+        $drive = new Olama_Media_Drive();
+        $health = $drive->get_auth_health();
+        if (!$health['is_configured'] || !$health['has_refresh_token']) {
+            $this->send_upload_error('google_refresh_token_missing', 'google_auth_check', __('اتصال Google Drive غير مكتمل. يرجى إعادة المصادقة من إعدادات Drive.', 'olama-media-library'), 'Google Drive is not configured or refresh token is missing.', false, array(
+                'job_uuid' => $job_uuid,
+                'event_type' => 'google_auth_error',
+            ));
+        }
+        if (!$health['can_refresh']) {
+            $this->send_upload_error('google_token_refresh_failed', 'google_token_refresh', __('فشل تجديد اتصال Google Drive. يرجى إعادة المصادقة مع Google ثم المحاولة مرة أخرى.', 'olama-media-library'), $health['last_error_message'] ?: 'Google Drive token refresh failed.', false, array(
+                'job_uuid' => $job_uuid,
+                'event_type' => 'google_auth_error',
+            ));
+        }
+
+        $meta = $this->prepare_upload_meta($filename, $file_size, 1);
+        if (is_wp_error($meta)) {
+            $this->send_wp_upload_error($meta, 'request_validation', array(
+                'job_uuid' => $job_uuid,
+            ));
+        }
+
+        $folder_id = $drive->get_or_create_nested_folder($meta['path']);
+        if (is_wp_error($folder_id)) {
+            $this->send_wp_upload_error($folder_id, 'drive_session_create', array(
+                'job_uuid' => $job_uuid,
+            ));
+        }
+
+        $asset_id = $this->db->upsert_asset(array(
+            'id' => $meta['record_id'],
+            'academic_year_id' => $meta['academic_year_id'],
+            'semester_id' => $meta['semester_id'],
+            'grade_id' => $meta['grade_id'],
+            'subject_id' => $meta['subject_id'],
+            'unit_id' => $meta['unit_id'],
+            'lesson_id' => $meta['lesson_id'],
+            'title' => $meta['lesson_name'],
+            'original_filename' => $filename,
+            'mime_type' => 'video/mp4',
+            'file_size' => $file_size,
+            'drive_folder_id' => $folder_id,
+            'transport_method' => 'direct_google',
+            'upload_status' => 'uploading',
+            'preview_status' => 'not_checked',
+            'approval_status' => 'pending',
+            'uploaded_by' => get_current_user_id(),
+        ));
+
+        $session = $drive->create_direct_resumable_upload_session(array(
+            'name' => $meta['target_filename'],
+            'parent_id' => $folder_id,
+        ), 'video/mp4', $file_size);
+        if (is_wp_error($session)) {
+            $this->db->update_asset($asset_id, array('upload_status' => 'failed'));
+            $this->send_wp_upload_error($session, 'drive_session_create', array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'mark_failed' => true,
+            ));
+        }
+
+        $job_id = $this->db->create_or_update_job($job_uuid, array(
+            'asset_id' => $asset_id,
+            'original_filename' => $filename,
+            'mime_type' => 'video/mp4',
+            'file_size' => $file_size,
+            'total_chunks' => 1,
+            'uploaded_chunks' => 0,
+            'status' => 'direct_session_created',
+            'transport_method' => 'direct_google',
+            'direct_upload_url_hash' => sanitize_text_field($session['upload_url_hash']),
+            'expected_file_size' => $file_size,
+            'uploaded_bytes' => 0,
+            'created_by' => get_current_user_id(),
+        ));
+
+        $this->logger->log('direct_upload_session_created', 'Direct Google upload session created.', array(
+            'job_uuid' => $job_uuid,
+            'asset_id' => $asset_id,
+            'file_name' => $filename,
+            'file_size' => $file_size,
+            'mime_type' => 'video/mp4',
+            'folder_id' => $folder_id,
+            'transport_method' => 'direct_google',
+            'upload_url_hash' => sanitize_text_field($session['upload_url_hash']),
+            'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
+            'total_handler_ms' => $this->elapsed_ms($handler_start),
+        ), $job_id, $asset_id);
+
+        wp_send_json_success(array(
+            'upload_url' => esc_url_raw($session['upload_url']),
+            'job_uuid' => $job_uuid,
+            'asset_id' => $asset_id,
+            'file_name' => $filename,
+            'file_size' => $file_size,
+            'mime_type' => 'video/mp4',
+            'expires_hint_seconds' => absint($session['expires_hint_seconds']),
+            'transport_method' => 'direct_google',
         ));
     }
 
@@ -557,6 +688,202 @@ class Olama_Media_Ajax
         }
     }
 
+    public function finalize_direct_upload()
+    {
+        $handler_start = microtime(true);
+        $this->verify_upload_request('upload');
+
+        $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
+        $asset_id = absint($_POST['asset_id'] ?? 0);
+        $drive_file_id = sanitize_text_field($_POST['drive_file_id'] ?? '');
+
+        $job = $job_uuid ? $this->db->get_job($job_uuid) : null;
+        $asset = $asset_id ? $this->db->get_asset($asset_id) : null;
+        if (!$asset && $job && $job->asset_id) {
+            $asset_id = absint($job->asset_id);
+            $asset = $this->db->get_asset($asset_id);
+        }
+
+        if (!$job || !$asset) {
+            $this->send_upload_error('invalid_job', 'direct_finalize', __('تعذر العثور على سجل الرفع المباشر. يرجى إعادة تحميل الصفحة والمحاولة مرة أخرى.', 'olama-media-library'), 'Direct upload job or asset was not found.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+            ));
+        }
+
+        if ((int) $job->created_by !== get_current_user_id() && !Olama_Media_Admin::can_manage()) {
+            $this->send_upload_error('capability_denied', 'capability_check', __('لا تملك صلاحية تثبيت بيانات هذا الفيديو.', 'olama-media-library'), 'Current user does not own this direct upload job.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'http_status' => 403,
+            ));
+        }
+
+        if (!$drive_file_id) {
+            $this->db->update_job($job->id, array('status' => 'finalize_failed', 'error_message' => 'Drive file id missing from browser upload response.'));
+            $this->send_upload_error('direct_drive_file_id_missing', 'direct_finalize', __('اكتمل الرفع في المتصفح لكن لم يتم استلام رقم ملف Google Drive. يمكنك إعادة المحاولة أو استخدام الرفع عبر WordPress.', 'olama-media-library'), 'Drive file id is missing from direct upload response.', true, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'job_id' => $job->id,
+                'event_type' => 'direct_upload_failed',
+            ));
+        }
+
+        $this->logger->log('direct_upload_finalize_started', 'Direct upload finalize started.', array(
+            'job_uuid' => $job_uuid,
+            'asset_id' => $asset_id,
+            'transport_method' => 'direct_google',
+            'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
+        ), $job->id, $asset_id);
+
+        $drive = new Olama_Media_Drive();
+        $metadata = $drive->get_file_metadata($drive_file_id);
+        if (is_wp_error($metadata)) {
+            $this->db->update_job($job->id, array('status' => 'finalize_failed', 'error_message' => $metadata->get_error_message()));
+            $this->send_wp_upload_error($metadata, 'direct_finalize', array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'job_id' => $job->id,
+                'event_type' => 'direct_upload_failed',
+            ));
+        }
+
+        $expected_size = absint($job->expected_file_size ?: $job->file_size);
+        $actual_size = absint($metadata['size'] ?? 0);
+        $expected_folder = sanitize_text_field($asset->drive_folder_id ?? '');
+        $parents = array_map('sanitize_text_field', (array) ($metadata['parents'] ?? array()));
+
+        if (!empty($metadata['trashed']) || ($metadata['mime_type'] ?? '') !== 'video/mp4' || ($expected_size && $actual_size && $expected_size !== $actual_size) || ($expected_folder && $parents && !in_array($expected_folder, $parents, true))) {
+            $this->db->update_job($job->id, array('status' => 'finalize_failed', 'error_message' => 'Direct upload Drive metadata validation failed.'));
+            $this->logger->log('direct_upload_failed', 'Direct upload Drive metadata validation failed.', array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'expected_file_size' => $expected_size,
+                'actual_file_size' => $actual_size,
+                'mime_type' => sanitize_text_field($metadata['mime_type'] ?? ''),
+                'trashed' => !empty($metadata['trashed']),
+                'expected_folder_match' => !$expected_folder || !$parents || in_array($expected_folder, $parents, true),
+                'transport_method' => 'direct_google',
+            ), $job->id, $asset_id);
+            $this->send_upload_error('direct_metadata_validation_failed', 'direct_finalize', __('فشل التحقق من ملف Google Drive بعد الرفع المباشر. يرجى إعادة المحاولة أو استخدام الرفع عبر WordPress.', 'olama-media-library'), 'Direct upload Drive metadata validation failed.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'job_id' => $job->id,
+                'event_type' => 'direct_upload_failed',
+            ));
+        }
+
+        $permission = $drive->ensure_file_permissions($drive_file_id);
+        if (is_wp_error($permission)) {
+            $this->db->update_job($job->id, array('status' => 'finalize_failed', 'error_message' => $permission->get_error_message()));
+            $this->send_wp_upload_error($permission, 'direct_finalize', array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'job_id' => $job->id,
+                'event_type' => 'direct_upload_failed',
+            ));
+        }
+
+        $download_link = $metadata['web_content_link'] ?: 'https://drive.google.com/uc?export=download&id=' . rawurlencode($drive_file_id);
+        $this->db->update_asset($asset_id, array(
+            'drive_file_id' => $drive_file_id,
+            'web_view_link' => esc_url_raw($metadata['web_view_link']),
+            'web_content_link' => esc_url_raw($download_link),
+            'thumbnail_link' => esc_url_raw($metadata['thumbnail_link']),
+            'upload_status' => 'uploaded_to_drive',
+            'preview_status' => 'processing',
+            'transport_method' => 'direct_google',
+            'uploaded_at' => current_time('mysql'),
+        ));
+        $this->db->update_job($job->id, array(
+            'drive_file_id' => $drive_file_id,
+            'status' => 'completed',
+            'uploaded_chunks' => 1,
+            'uploaded_bytes' => $actual_size ?: $expected_size,
+            'direct_upload_completed_at' => current_time('mysql'),
+            'completed_at' => current_time('mysql'),
+        ));
+
+        $this->logger->log('direct_upload_finalized', 'Direct upload finalized.', array(
+            'job_uuid' => $job_uuid,
+            'asset_id' => $asset_id,
+            'file_size' => $actual_size ?: $expected_size,
+            'transport_method' => 'direct_google',
+            'permission_already_exists' => is_array($permission) && !empty($permission['already_exists']),
+            'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
+            'total_handler_ms' => $this->elapsed_ms($handler_start),
+        ), $job->id, $asset_id);
+
+        wp_send_json_success(array(
+            'asset_id' => $asset_id,
+            'job_uuid' => $job_uuid,
+            'upload_status' => 'uploaded_to_drive',
+            'preview_status' => 'processing',
+            'web_view_link' => esc_url_raw($metadata['web_view_link']),
+            'web_content_link' => esc_url_raw($download_link),
+        ));
+    }
+
+    public function log_direct_upload_event()
+    {
+        $this->verify_upload_request('upload');
+
+        $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
+        $asset_id = absint($_POST['asset_id'] ?? 0);
+        $event_type = sanitize_key($_POST['event_type'] ?? '');
+        $allowed = array(
+            'direct_upload_selected',
+            'direct_upload_started',
+            'direct_upload_progress_checkpoint',
+            'direct_upload_browser_error',
+            'direct_upload_completed_browser',
+            'direct_upload_failed',
+            'direct_upload_fallback_selected',
+        );
+        if (!in_array($event_type, $allowed, true)) {
+            wp_send_json_error(__('Invalid event type.', 'olama-media-library'));
+        }
+
+        $job = $job_uuid ? $this->db->get_job($job_uuid) : null;
+        $context = array(
+            'job_uuid' => $job_uuid,
+            'asset_id' => $asset_id,
+            'file_size' => absint($_POST['file_size'] ?? 0),
+            'uploaded_bytes' => absint($_POST['uploaded_bytes'] ?? 0),
+            'percent' => absint($_POST['percent'] ?? 0),
+            'transport_method' => 'direct_google',
+            'error_code' => sanitize_key($_POST['error_code'] ?? ''),
+            'message_en' => sanitize_text_field($_POST['message_en'] ?? ''),
+        );
+
+        if ($job) {
+            $update = array();
+            if ($context['uploaded_bytes']) {
+                $update['uploaded_bytes'] = $context['uploaded_bytes'];
+            }
+            if ($event_type === 'direct_upload_started') {
+                $update['status'] = 'direct_uploading';
+                $update['direct_upload_started_at'] = current_time('mysql');
+            } elseif ($event_type === 'direct_upload_completed_browser') {
+                $update['status'] = 'direct_browser_completed';
+                $update['direct_upload_completed_at'] = current_time('mysql');
+            } elseif ($event_type === 'direct_upload_failed' || $event_type === 'direct_upload_browser_error') {
+                $update['status'] = 'direct_upload_failed';
+                $update['error_message'] = $context['message_en'];
+                if ($asset_id) {
+                    $this->db->update_asset($asset_id, array('upload_status' => 'failed'));
+                }
+            }
+            if ($update) {
+                $this->db->update_job($job->id, $update);
+            }
+        }
+
+        $message = sanitize_text_field($_POST['message_en'] ?? $event_type);
+        $this->logger->log($event_type, $message, $context, $job ? absint($job->id) : 0, $asset_id);
+        wp_send_json_success();
+    }
+
     public function check_preview_status()
     {
         $this->verify_upload_request('manage');
@@ -660,11 +987,17 @@ class Olama_Media_Ajax
         $current = get_option('academy_media_library_settings', array());
         $client_id = sanitize_text_field($_POST['client_id'] ?? '');
         $client_secret = sanitize_text_field($_POST['client_secret'] ?? '');
+        $transport_mode = sanitize_key($_POST['olama_media_upload_transport_mode'] ?? $_POST['upload_transport_mode'] ?? 'auto');
+        if (!in_array($transport_mode, array('wordpress_streamed', 'direct_google', 'auto'), true)) {
+            $transport_mode = 'auto';
+        }
         $settings = array(
             'client_id' => $client_id,
             'client_secret' => $client_secret,
             'root_folder_id' => trim(sanitize_text_field($_POST['root_folder_id'] ?? ''), " \t\n\r\0\x0B."),
             'max_file_size' => max(1, absint($_POST['max_file_size'] ?? 2048)),
+            'olama_media_upload_transport_mode' => $transport_mode,
+            'olama_media_direct_upload_threshold_mb' => max(1, absint($_POST['olama_media_direct_upload_threshold_mb'] ?? $_POST['direct_upload_threshold_mb'] ?? 20)),
             'refresh_token' => $current['refresh_token'] ?? '',
             'access_token' => $current['access_token'] ?? null,
         );

@@ -43,6 +43,7 @@ class Olama_Media_DB
             web_view_link TEXT NULL,
             web_content_link TEXT NULL,
             thumbnail_link TEXT NULL,
+            transport_method VARCHAR(50) NULL,
             upload_status VARCHAR(50) NOT NULL DEFAULT 'none',
             preview_status VARCHAR(50) NOT NULL DEFAULT 'not_checked',
             approval_status VARCHAR(50) NOT NULL DEFAULT 'pending',
@@ -75,6 +76,12 @@ class Olama_Media_DB
             uploaded_chunks INT UNSIGNED NOT NULL DEFAULT 0,
             drive_file_id VARCHAR(255) NULL,
             drive_upload_uri TEXT NULL,
+            transport_method VARCHAR(50) NOT NULL DEFAULT 'wordpress_streamed',
+            direct_upload_url_hash VARCHAR(191) NULL,
+            direct_upload_started_at DATETIME NULL,
+            direct_upload_completed_at DATETIME NULL,
+            expected_file_size BIGINT UNSIGNED NULL,
+            uploaded_bytes BIGINT UNSIGNED NULL,
             status VARCHAR(50) NOT NULL DEFAULT 'created',
             error_message TEXT NULL,
             created_by BIGINT UNSIGNED NULL,
@@ -85,7 +92,8 @@ class Olama_Media_DB
             UNIQUE KEY job_uuid (job_uuid),
             KEY asset_id (asset_id),
             KEY drive_file_id (drive_file_id),
-            KEY status (status)
+            KEY status (status),
+            KEY transport_method (transport_method)
         ) $charset_collate;");
 
         dbDelta("CREATE TABLE {$this->events_table} (

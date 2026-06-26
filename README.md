@@ -57,6 +57,43 @@ Drive preview can take time after a successful upload. While processing, users c
 5. Preview remains `processing` until a manual Check Status confirms Drive video metadata.
 6. If finalization fails, use the admin action `إعادة تثبيت بيانات الفيديو` to retry without uploading the file again.
 
+## Phase 2.0 Upload Transport Modes
+
+The plugin supports three upload transport modes from Drive settings:
+
+- `wordpress_streamed`: the stable Phase 1.3 path. Browser uploads chunks to WordPress, then PHP streams them to Google Drive.
+- `direct_google`: WordPress creates a secure Google Drive resumable upload session, then the browser sends the video bytes directly to Google Drive.
+- `auto`: recommended production mode. Files at or above the configured threshold use direct Google upload; smaller files keep the WordPress streamed uploader.
+
+Recommended production setting: `auto` with `olama_media_direct_upload_threshold_mb = 20`.
+
+Direct upload flow:
+
+1. WordPress verifies nonce, logged-in user, media upload capability, file type, Google auth health, and lesson binding.
+2. WordPress creates the target Drive folder and media/job rows.
+3. WordPress creates a Google Drive resumable upload URL and returns only that temporary session URL to the browser.
+4. The browser uploads the MP4 directly to Google Drive with `XMLHttpRequest`.
+5. The browser calls `olama_media_finalize_direct_upload`.
+6. WordPress verifies Drive metadata server-side, ensures public read permission, stores links, and sets `upload_status = uploaded_to_drive` and `preview_status = processing`.
+
+Security model:
+
+- OAuth access tokens, refresh tokens, client secrets, and Google credentials are never exposed to the browser.
+- The resumable upload URL is treated as sensitive and is not written to logs. Logs store only a hash/masked diagnostic value.
+- The browser-provided Drive file ID is not trusted blindly. WordPress fetches Drive metadata and validates MIME type, file size, trash status, and expected folder when available before storing the file.
+
+Fallback behavior:
+
+- If direct upload initialization fails before bytes are sent, the UI offers the WordPress streamed uploader.
+- If direct upload fails mid-transfer, the UI offers direct retry or explicit fallback to WordPress streamed upload. It does not silently re-upload through WordPress.
+- The existing `academy_upload_media_video_chunk` endpoint remains available and unchanged for fallback.
+
+Known Phase 2.0 MVP limitations:
+
+- Browser/CORS behavior must be tested in Chrome against the live Google Drive resumable URL.
+- If Google's final browser upload response does not expose the Drive file ID, finalization cannot complete automatically; the UI will offer retry/fallback.
+- Google Drive preview processing may still take time after upload completion.
+
 ## Phase 1.3 Streaming Uploads
 
 Chunk upload still passes through WordPress AJAX, but the Drive transfer now streams the temporary chunk file to Google Drive with native cURL. This avoids reading the chunk into a large PHP string before sending it to Drive and should reduce PHP memory pressure compared with the previous `wp_remote_request()` string-body transfer.

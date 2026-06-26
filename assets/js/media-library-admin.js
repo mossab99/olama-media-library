@@ -2,7 +2,7 @@ jQuery(function ($) {
     'use strict';
 
     const cfg = window.olamaMediaLibrary;
-    const state = { currentLesson: null, logPage: 1 };
+    const state = { currentLesson: null, logPage: 1, pendingDirectUpload: null, pendingDirectPayload: null };
 
     const esc = (value) => $('<div>').text(value == null ? '' : value).html();
     const statusLabel = (status) => cfg.i18n['status_' + status] || status || cfg.i18n.status_none;
@@ -180,11 +180,47 @@ jQuery(function ($) {
                 notify((response.data && response.data.message_ar) || (response.data && response.data.auth_warning) || cfg.i18n.session_or_permission_expired, 'error');
                 return;
             }
-            uploadFile(file, state.currentLesson);
+            if (shouldUseDirectUpload(file)) {
+                uploadFileDirect(file, state.currentLesson);
+            } else {
+                uploadFile(file, state.currentLesson);
+            }
         }).fail(function () {
             notify(cfg.i18n.session_or_permission_expired, 'error');
         });
     });
+
+    function shouldUseDirectUpload(file) {
+        if (cfg.uploadTransportMode === 'direct_google') {
+            return true;
+        }
+        if (cfg.uploadTransportMode === 'auto') {
+            return file.size >= (cfg.directUploadThresholdBytes || (20 * 1024 * 1024));
+        }
+        return false;
+    }
+
+    function lessonUploadPayload(file, lesson) {
+        const f = filters();
+        return {
+            file_uuid: Date.now() + '-' + Math.random().toString(36).slice(2),
+            file_name: file.name,
+            filename: file.name,
+            file_size: file.size,
+            total_size: file.size,
+            mime_type: file.type || 'video/mp4',
+            id: lesson.recordId || '',
+            lesson_id: lesson.lessonId,
+            unit_id: lesson.unitId,
+            lesson_name: lesson.lessonName,
+            lesson_number: lesson.lessonNumber,
+            unit_name: lesson.unitName,
+            academic_year_id: f.academic_year_id,
+            semester_id: f.semester_id,
+            grade_id: f.grade_id,
+            subject_id: f.subject_id
+        };
+    }
 
     function refreshUploadNonce() {
         return $.post(cfg.ajaxurl, {
@@ -218,6 +254,191 @@ jQuery(function ($) {
             return message;
         }
         return data || cfg.i18n.error;
+    }
+
+    function uploadFileDirect(file, lesson) {
+        const payload = lessonUploadPayload(file, lesson);
+        const $progress = $('#progress-' + lesson.lessonId);
+        const $bar = $progress.find('.olama-progress-bar');
+        const $text = $progress.find('.olama-progress-text');
+
+        state.pendingDirectUpload = { file, lesson };
+        state.pendingDirectPayload = payload;
+        $progress.show().find('.olama-direct-actions').remove();
+        $bar.css('width', '0%').css('background', '#2271b1');
+        $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_session_creating}`);
+        logDirectEvent('direct_upload_selected', payload, 0, 0, '', 'Direct upload selected.');
+
+        refreshUploadNonce().done(function (nonceResponse) {
+            if (!nonceResponse.success || !nonceResponse.data || !nonceResponse.data.drive_authenticated) {
+                showDirectFallback($progress, $bar, $text, uploadErrorMessage(nonceResponse.data) || cfg.i18n.session_or_permission_expired);
+                return;
+            }
+
+            $.post(cfg.ajaxurl, {
+                action: 'olama_media_start_direct_upload',
+                nonce: cfg.nonce,
+                ...payload
+            }).done(function (response) {
+                if (!response.success || !response.data || !response.data.upload_url) {
+                    showDirectFallback($progress, $bar, $text, uploadErrorMessage(response.data) || cfg.i18n.direct_browser_failed);
+                    return;
+                }
+
+                const session = response.data;
+                payload.job_uuid = session.job_uuid;
+                payload.asset_id = session.asset_id;
+                state.pendingDirectPayload = payload;
+                $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_uploading}`);
+                logDirectEvent('direct_upload_started', payload, file.size, 0, '', 'Direct browser upload started.');
+                sendDirectToGoogle(file, session, payload, $progress, $bar, $text);
+            }).fail(function () {
+                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed);
+            });
+        }).fail(function () {
+            showDirectFallback($progress, $bar, $text, cfg.i18n.session_or_permission_expired);
+        });
+    }
+
+    function sendDirectToGoogle(file, session, payload, $progress, $bar, $text) {
+        const xhr = new XMLHttpRequest();
+        const checkpoints = { 25: false, 50: false, 75: false, 100: false };
+
+        xhr.upload.onprogress = function (event) {
+            if (!event.lengthComputable) {
+                return;
+            }
+            const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
+            $bar.css('width', percent + '%');
+            $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_uploading} ${percent}%`);
+            [25, 50, 75].forEach(function (point) {
+                if (percent >= point && !checkpoints[point]) {
+                    checkpoints[point] = true;
+                    logDirectEvent('direct_upload_progress_checkpoint', payload, file.size, event.loaded, '', `Direct upload reached ${point}%.`, point);
+                }
+            });
+        };
+
+        xhr.onload = function () {
+            if (xhr.status === 200 || xhr.status === 201) {
+                $bar.css('width', '100%');
+                checkpoints[100] = true;
+                logDirectEvent('direct_upload_completed_browser', payload, file.size, file.size, '', 'Direct browser upload completed.', 100);
+                $text.text(cfg.i18n.direct_completed_finalizing);
+                let driveFileId = '';
+                try {
+                    const data = JSON.parse(xhr.responseText || '{}');
+                    driveFileId = data.id || '';
+                } catch (error) {
+                    driveFileId = '';
+                }
+                refreshUploadNonce().always(function () {
+                    finalizeDirectUpload(session.asset_id, session.job_uuid, driveFileId, $text, $bar, $progress);
+                });
+                return;
+            }
+
+            if (xhr.status === 308) {
+                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed + ' ' + cfg.i18n.direct_fallback_available, 'direct_resume_incomplete');
+                return;
+            }
+
+            const errorCode = xhr.status === 401 || xhr.status === 403 ? 'google_auth_failed' : 'direct_google_http_error';
+            showDirectFallback($progress, $bar, $text, `${cfg.i18n.direct_browser_failed} (${xhr.status})`, errorCode);
+        };
+
+        xhr.onerror = function () {
+            showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_error');
+        };
+        xhr.ontimeout = function () {
+            showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_timeout');
+        };
+        xhr.onabort = function () {
+            showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_aborted');
+        };
+
+        xhr.open('PUT', session.upload_url, true);
+        xhr.timeout = 2 * 60 * 60 * 1000;
+        xhr.setRequestHeader('Content-Type', session.mime_type || 'video/mp4');
+        xhr.setRequestHeader('Content-Range', `bytes 0-${file.size - 1}/${file.size}`);
+        xhr.send(file);
+    }
+
+    function finalizeDirectUpload(assetId, jobUuid, driveFileId, $text, $bar, $progress) {
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_finalize_direct_upload',
+            nonce: cfg.nonce,
+            asset_id: assetId,
+            job_uuid: jobUuid || '',
+            drive_file_id: driveFileId || ''
+        }).done(function (response) {
+            if (response.success) {
+                $bar.css('width', '100%').css('background', '#2271b1');
+                $text.text(cfg.i18n.direct_success);
+                notify(cfg.i18n.direct_success, 'success');
+                state.pendingDirectUpload = null;
+                state.pendingDirectPayload = null;
+                loadCurriculum();
+                return;
+            }
+            showDirectFallback($progress, $bar, $text, uploadErrorMessage(response.data) || cfg.i18n.finalize_failed, 'direct_finalize_failed');
+            loadCurriculum();
+        }).fail(function () {
+            showDirectFallback($progress, $bar, $text, cfg.i18n.finalize_failed, 'direct_finalize_transport_failed');
+            loadCurriculum();
+        });
+    }
+
+    function showDirectFallback($progress, $bar, $text, message, errorCode = 'direct_browser_error') {
+        $bar.css('width', '100%').css('background', '#dba617');
+        $text.text(`${message} ${cfg.i18n.direct_fallback_available}`);
+        notify(message, 'error');
+
+        if (state.pendingDirectUpload) {
+            logDirectEvent('direct_upload_browser_error', state.pendingDirectPayload, state.pendingDirectUpload.file.size, 0, errorCode, message);
+        }
+
+        $progress.find('.olama-direct-actions').remove();
+        $progress.append(`<div class="olama-direct-actions">
+            <button type="button" class="button button-small btn-retry-direct-upload">${esc(cfg.i18n.retry_direct_upload)}</button>
+            <button type="button" class="button button-small btn-use-wordpress-fallback">${esc(cfg.i18n.use_wordpress_fallback)}</button>
+        </div>`);
+    }
+
+    $(document).on('click', '.btn-retry-direct-upload', function () {
+        if (!state.pendingDirectUpload) {
+            return;
+        }
+        uploadFileDirect(state.pendingDirectUpload.file, state.pendingDirectUpload.lesson);
+    });
+
+    $(document).on('click', '.btn-use-wordpress-fallback', function () {
+        if (!state.pendingDirectUpload) {
+            return;
+        }
+        const pending = state.pendingDirectUpload;
+        logDirectEvent('direct_upload_fallback_selected', state.pendingDirectPayload, pending.file.size, 0, '', 'User selected WordPress streamed fallback.');
+        state.pendingDirectUpload = null;
+        state.pendingDirectPayload = null;
+        uploadFile(pending.file, pending.lesson);
+    });
+
+    function logDirectEvent(eventType, payload, fileSize, uploadedBytes, errorCode, messageEn, percent = 0) {
+        if (!payload) {
+            return;
+        }
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_log_direct_upload_event',
+            nonce: cfg.nonce,
+            event_type: eventType,
+            job_uuid: payload.job_uuid || '',
+            asset_id: payload.asset_id || 0,
+            file_size: fileSize || payload.file_size || 0,
+            uploaded_bytes: uploadedBytes || 0,
+            percent: percent || 0,
+            error_code: errorCode || '',
+            message_en: messageEn || eventType
+        });
     }
 
     function uploadFile(file, lesson) {
@@ -265,7 +486,7 @@ jQuery(function ($) {
                     .replace('%2$s', totalChunks)
                     .replace('%3$s', retryAttempt));
             } else {
-                $text.text(`${cfg.i18n.uploading} ${index + 1}/${totalChunks}`);
+                $text.text(`${cfg.i18n.transport_wordpress} - ${cfg.i18n.uploading} ${index + 1}/${totalChunks}`);
             }
             $bar.css('background', '#2271b1');
 

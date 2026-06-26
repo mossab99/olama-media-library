@@ -133,6 +133,23 @@ $refresh_token = $settings['refresh_token'] ?? '';
                         <th><label for="max_file_size"><?php esc_html_e('Max Upload Size (MB)', 'olama-media-library'); ?></label></th>
                         <td><input type="number" id="max_file_size" name="max_file_size" value="<?php echo esc_attr($settings['max_file_size'] ?? 2048); ?>" class="small-text"></td>
                     </tr>
+                    <tr>
+                        <th><label for="upload_transport_mode"><?php esc_html_e('طريقة رفع الفيديوهات', 'olama-media-library'); ?></label></th>
+                        <td>
+                            <?php $transport_mode = $settings['olama_media_upload_transport_mode'] ?? $settings['upload_transport_mode'] ?? 'auto'; ?>
+                            <select id="olama_media_upload_transport_mode" name="olama_media_upload_transport_mode">
+                                <option value="wordpress_streamed" <?php selected($transport_mode, 'wordpress_streamed'); ?>><?php esc_html_e('الرفع عبر WordPress — الوضع المستقر الحالي', 'olama-media-library'); ?></option>
+                                <option value="direct_google" <?php selected($transport_mode, 'direct_google'); ?>><?php esc_html_e('الرفع المباشر إلى Google Drive — أسرع للملفات الكبيرة', 'olama-media-library'); ?></option>
+                                <option value="auto" <?php selected($transport_mode, 'auto'); ?>><?php esc_html_e('تلقائي — استخدم الرفع المباشر للملفات الكبيرة والرفع العادي للملفات الصغيرة', 'olama-media-library'); ?></option>
+                            </select>
+                            <p class="description"><?php esc_html_e('عند تفعيل الرفع المباشر، يتم رفع الفيديو من جهاز المستخدم إلى Google Drive مباشرة بدون مرور ملف الفيديو عبر خادم الموقع. يبقى WordPress مسؤولاً عن الصلاحيات، ربط الفيديو بالدرس، وحفظ بيانات الملف.', 'olama-media-library'); ?></p>
+                            <p class="description"><strong><?php esc_html_e('تنبيه:', 'olama-media-library'); ?></strong> <?php esc_html_e('يتطلب الرفع المباشر اتصال Google Drive صالحاً. في حال فشل الرفع المباشر يمكن الرجوع إلى الرفع عبر WordPress.', 'olama-media-library'); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="olama_media_direct_upload_threshold_mb"><?php esc_html_e('Direct Upload Threshold (MB)', 'olama-media-library'); ?></label></th>
+                        <td><input type="number" id="olama_media_direct_upload_threshold_mb" name="olama_media_direct_upload_threshold_mb" value="<?php echo esc_attr($settings['olama_media_direct_upload_threshold_mb'] ?? $settings['direct_upload_threshold_mb'] ?? 20); ?>" class="small-text" min="1"></td>
+                    </tr>
                 </table>
                 <p class="submit">
                     <button type="submit" class="button button-primary"><?php esc_html_e('حفظ', 'olama-media-library'); ?></button>
