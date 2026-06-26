@@ -301,67 +301,141 @@ jQuery(function ($) {
     }
 
     function sendDirectToGoogle(file, session, payload, $progress, $bar, $text) {
-        const xhr = new XMLHttpRequest();
+        const chunkSize = normalizeDirectChunkSize(cfg.directUploadChunkSizeBytes || (16 * 1024 * 1024));
+        const totalChunks = Math.ceil(file.size / chunkSize);
         const checkpoints = { 25: false, 50: false, 75: false, 100: false };
+        let chunkIndex = 0;
 
-        xhr.upload.onprogress = function (event) {
-            if (!event.lengthComputable) {
-                return;
-            }
-            const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
-            $bar.css('width', percent + '%');
-            $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_uploading} ${percent}%`);
-            [25, 50, 75].forEach(function (point) {
-                if (percent >= point && !checkpoints[point]) {
-                    checkpoints[point] = true;
-                    logDirectEvent('direct_upload_progress_checkpoint', payload, file.size, event.loaded, '', `Direct upload reached ${point}%.`, point);
-                }
-            });
-        };
+        const uploadChunk = (retryAttempt = 0) => {
+            const start = chunkIndex * chunkSize;
+            const end = Math.min(file.size - 1, start + chunkSize - 1);
+            const blob = file.slice(start, end + 1);
+            const xhr = new XMLHttpRequest();
 
-        xhr.onload = function () {
-            if (xhr.status === 200 || xhr.status === 201) {
-                $bar.css('width', '100%');
-                checkpoints[100] = true;
-                logDirectEvent('direct_upload_completed_browser', payload, file.size, file.size, '', 'Direct browser upload completed.', 100);
-                $text.text(cfg.i18n.direct_completed_finalizing);
-                let driveFileId = '';
-                try {
-                    const data = JSON.parse(xhr.responseText || '{}');
-                    driveFileId = data.id || '';
-                } catch (error) {
-                    driveFileId = '';
+            xhr.upload.onprogress = function (event) {
+                if (!event.lengthComputable) {
+                    return;
                 }
-                refreshUploadNonce().always(function () {
-                    finalizeDirectUpload(session.asset_id, session.job_uuid, driveFileId, $text, $bar, $progress);
+                const uploaded = start + event.loaded;
+                const percent = Math.min(99, Math.round((uploaded / file.size) * 100));
+                $bar.css('width', percent + '%');
+                $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_uploading} ${percent}%`);
+                [25, 50, 75].forEach(function (point) {
+                    if (percent >= point && !checkpoints[point]) {
+                        checkpoints[point] = true;
+                        logDirectEvent('direct_upload_progress_checkpoint', payload, file.size, uploaded, '', `Direct upload reached ${point}%.`, point, {
+                            loaded_bytes: uploaded,
+                            total_bytes: file.size,
+                            chunk_start: start,
+                            chunk_end: end,
+                            chunk_index: chunkIndex,
+                            direct_chunk_size: chunkSize,
+                            stage: 'direct_google_put'
+                        });
+                    }
                 });
-                return;
-            }
+            };
 
-            if (xhr.status === 308) {
-                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed + ' ' + cfg.i18n.direct_fallback_available, 'direct_resume_incomplete');
-                return;
-            }
+            xhr.onload = function () {
+                const diagnostics = directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize);
+                if (xhr.status === 308) {
+                    const acceptedEnd = parseAcceptedRangeEnd(xhr);
+                    chunkIndex = acceptedEnd >= 0 ? Math.floor((acceptedEnd + 1) / chunkSize) : chunkIndex + 1;
+                    if (chunkIndex < totalChunks) {
+                        uploadChunk();
+                        return;
+                    }
+                }
 
-            const errorCode = xhr.status === 401 || xhr.status === 403 ? 'google_auth_failed' : 'direct_google_http_error';
-            showDirectFallback($progress, $bar, $text, `${cfg.i18n.direct_browser_failed} (${xhr.status})`, errorCode);
+                if (xhr.status === 200 || xhr.status === 201) {
+                    $bar.css('width', '100%');
+                    checkpoints[100] = true;
+                    logDirectEvent('direct_upload_completed_browser', payload, file.size, file.size, '', 'Direct browser upload completed.', 100, diagnostics);
+                    $text.text(cfg.i18n.direct_completed_finalizing);
+                    refreshUploadNonce().always(function () {
+                        finalizeDirectUpload(session.asset_id, session.job_uuid, '', $text, $bar, $progress);
+                    });
+                    return;
+                }
+
+                if (xhr.status >= 500 && retryAttempt < 3) {
+                    window.setTimeout(() => uploadChunk(retryAttempt + 1), [2000, 5000, 10000][retryAttempt]);
+                    return;
+                }
+
+                const errorCode = xhr.status === 0 ? 'direct_cors_or_network_failure' : (xhr.status >= 400 && xhr.status < 500 ? 'direct_session_restart_required' : 'direct_google_http_error');
+                const message = xhr.status >= 400 && xhr.status < 500 ? cfg.i18n.direct_session_restart_required : `${cfg.i18n.direct_browser_failed} (${xhr.status})`;
+                showDirectFallback($progress, $bar, $text, message, errorCode, diagnostics, xhr.status >= 400 && xhr.status < 500 ? 'direct_upload_failed' : 'direct_upload_browser_error');
+            };
+
+            xhr.onerror = function () {
+                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_cors_or_network_failure', {
+                    loaded_bytes: start,
+                    total_bytes: file.size,
+                    chunk_start: start,
+                    chunk_end: end,
+                    chunk_index: chunkIndex,
+                    direct_chunk_size: chunkSize,
+                    xhr_status: 0,
+                    xhr_status_text: '',
+                    stage: 'direct_google_put',
+                    message_en: 'Browser blocked or failed the direct Google upload request. This is likely CORS, preflight, or network rejection.'
+                });
+            };
+            xhr.ontimeout = function () {
+                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_timeout', directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize));
+            };
+            xhr.onabort = function () {
+                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_aborted', directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize));
+            };
+
+            xhr.open('PUT', session.upload_url, true);
+            xhr.timeout = 2 * 60 * 60 * 1000;
+            xhr.setRequestHeader('Content-Type', session.mime_type || 'video/mp4');
+            xhr.setRequestHeader('Content-Range', `bytes ${start}-${end}/${file.size}`);
+            xhr.send(blob);
         };
 
-        xhr.onerror = function () {
-            showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_error');
-        };
-        xhr.ontimeout = function () {
-            showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_timeout');
-        };
-        xhr.onabort = function () {
-            showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_aborted');
-        };
+        uploadChunk();
+    }
 
-        xhr.open('PUT', session.upload_url, true);
-        xhr.timeout = 2 * 60 * 60 * 1000;
-        xhr.setRequestHeader('Content-Type', session.mime_type || 'video/mp4');
-        xhr.setRequestHeader('Content-Range', `bytes 0-${file.size - 1}/${file.size}`);
-        xhr.send(file);
+    function normalizeDirectChunkSize(bytes) {
+        const unit = 256 * 1024;
+        const value = Math.max(unit, parseInt(bytes, 10) || (16 * 1024 * 1024));
+        return Math.max(unit, Math.floor(value / unit) * unit);
+    }
+
+    function directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize) {
+        let responseHeaders = '';
+        try {
+            responseHeaders = xhr.getAllResponseHeaders() || '';
+        } catch (error) {
+            responseHeaders = '';
+        }
+        return {
+            xhr_status: xhr.status || 0,
+            xhr_status_text: xhr.statusText || '',
+            response_text_preview: (xhr.responseText || '').slice(0, 500),
+            response_headers_preview: responseHeaders.slice(0, 500),
+            loaded_bytes: Math.min(file.size, end + 1),
+            total_bytes: file.size,
+            chunk_start: start,
+            chunk_end: end,
+            chunk_index: chunkIndex,
+            direct_chunk_size: chunkSize,
+            stage: 'direct_google_put'
+        };
+    }
+
+    function parseAcceptedRangeEnd(xhr) {
+        let range = '';
+        try {
+            range = xhr.getResponseHeader('Range') || xhr.getResponseHeader('range') || '';
+        } catch (error) {
+            range = '';
+        }
+        const match = range.match(/bytes=0-(\d+)/i);
+        return match ? parseInt(match[1], 10) : -1;
     }
 
     function finalizeDirectUpload(assetId, jobUuid, driveFileId, $text, $bar, $progress) {
@@ -389,13 +463,27 @@ jQuery(function ($) {
         });
     }
 
-    function showDirectFallback($progress, $bar, $text, message, errorCode = 'direct_browser_error') {
+    function showDirectFallback($progress, $bar, $text, message, errorCode = 'direct_browser_error', diagnostics = {}, eventType = 'direct_upload_browser_error') {
         $bar.css('width', '100%').css('background', '#dba617');
-        $text.text(`${message} ${cfg.i18n.direct_fallback_available}`);
-        notify(message, 'error');
+        let adminDetails = '';
+        if (cfg.canManage) {
+            const uploadedMb = diagnostics.loaded_bytes && diagnostics.total_bytes
+                ? `uploaded=${(diagnostics.loaded_bytes / 1024 / 1024).toFixed(1)}MB/${(diagnostics.total_bytes / 1024 / 1024).toFixed(1)}MB`
+                : '';
+            adminDetails = [
+                errorCode ? `error_code=${errorCode}` : '',
+                diagnostics.xhr_status || diagnostics.xhr_status === 0 ? `xhr_status=${diagnostics.xhr_status}` : '',
+                diagnostics.stage ? `stage=${diagnostics.stage}` : '',
+                Number.isInteger(diagnostics.chunk_index) ? `chunk_index=${diagnostics.chunk_index}` : '',
+                uploadedMb
+            ].filter(Boolean).join(' | ');
+        }
+        const fullMessage = adminDetails ? `${message} (${adminDetails})` : message;
+        $text.text(`${fullMessage} ${cfg.i18n.direct_fallback_available}`);
+        notify(fullMessage, 'error');
 
         if (state.pendingDirectUpload) {
-            logDirectEvent('direct_upload_browser_error', state.pendingDirectPayload, state.pendingDirectUpload.file.size, 0, errorCode, message);
+            logDirectEvent(eventType, state.pendingDirectPayload, state.pendingDirectUpload.file.size, diagnostics.loaded_bytes || 0, errorCode, diagnostics.message_en || message, 0, diagnostics);
         }
 
         $progress.find('.olama-direct-actions').remove();
@@ -423,7 +511,7 @@ jQuery(function ($) {
         uploadFile(pending.file, pending.lesson);
     });
 
-    function logDirectEvent(eventType, payload, fileSize, uploadedBytes, errorCode, messageEn, percent = 0) {
+    function logDirectEvent(eventType, payload, fileSize, uploadedBytes, errorCode, messageEn, percent = 0, diagnostics = {}) {
         if (!payload) {
             return;
         }
@@ -437,7 +525,8 @@ jQuery(function ($) {
             uploaded_bytes: uploadedBytes || 0,
             percent: percent || 0,
             error_code: errorCode || '',
-            message_en: messageEn || eventType
+            message_en: messageEn || eventType,
+            ...diagnostics
         });
     }
 

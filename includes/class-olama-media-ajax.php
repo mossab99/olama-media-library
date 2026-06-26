@@ -178,6 +178,14 @@ class Olama_Media_Ajax
             ));
         }
 
+        $reserved_file = $drive->create_metadata_file($meta['target_filename'], $folder_id, 'video/mp4');
+        if (is_wp_error($reserved_file)) {
+            $this->send_wp_upload_error($reserved_file, 'drive_metadata_file_create', array(
+                'job_uuid' => $job_uuid,
+            ));
+        }
+        $drive_file_id = sanitize_text_field($reserved_file['id'] ?? '');
+
         $asset_id = $this->db->upsert_asset(array(
             'id' => $meta['record_id'],
             'academic_year_id' => $meta['academic_year_id'],
@@ -190,26 +198,17 @@ class Olama_Media_Ajax
             'original_filename' => $filename,
             'mime_type' => 'video/mp4',
             'file_size' => $file_size,
+            'drive_file_id' => $drive_file_id,
             'drive_folder_id' => $folder_id,
+            'web_view_link' => esc_url_raw($reserved_file['web_view_link'] ?? ''),
+            'web_content_link' => esc_url_raw($reserved_file['web_content_link'] ?? ''),
+            'thumbnail_link' => esc_url_raw($reserved_file['thumbnail_link'] ?? ''),
             'transport_method' => 'direct_google',
             'upload_status' => 'uploading',
             'preview_status' => 'not_checked',
             'approval_status' => 'pending',
             'uploaded_by' => get_current_user_id(),
         ));
-
-        $session = $drive->create_direct_resumable_upload_session(array(
-            'name' => $meta['target_filename'],
-            'parent_id' => $folder_id,
-        ), 'video/mp4', $file_size);
-        if (is_wp_error($session)) {
-            $this->db->update_asset($asset_id, array('upload_status' => 'failed'));
-            $this->send_wp_upload_error($session, 'drive_session_create', array(
-                'job_uuid' => $job_uuid,
-                'asset_id' => $asset_id,
-                'mark_failed' => true,
-            ));
-        }
 
         $job_id = $this->db->create_or_update_job($job_uuid, array(
             'asset_id' => $asset_id,
@@ -218,12 +217,38 @@ class Olama_Media_Ajax
             'file_size' => $file_size,
             'total_chunks' => 1,
             'uploaded_chunks' => 0,
-            'status' => 'direct_session_created',
+            'drive_file_id' => $drive_file_id,
+            'status' => 'direct_file_reserved',
             'transport_method' => 'direct_google',
-            'direct_upload_url_hash' => sanitize_text_field($session['upload_url_hash']),
             'expected_file_size' => $file_size,
             'uploaded_bytes' => 0,
             'created_by' => get_current_user_id(),
+        ));
+
+        $session = $drive->create_direct_resumable_update_session($drive_file_id, 'video/mp4', $file_size);
+        if (is_wp_error($session)) {
+            $this->db->update_asset($asset_id, array('upload_status' => 'failed'));
+            $this->db->update_job($job_id, array('status' => 'direct_session_failed', 'error_message' => $session->get_error_message()));
+            $this->logger->log('direct_reserved_file_incomplete', 'Direct upload reserved file has no upload session.', array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'drive_file_id' => $drive_file_id,
+                'file_size' => $file_size,
+                'transport_method' => 'direct_google',
+                'message_en' => $session->get_error_message(),
+                'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
+            ), $job_id, $asset_id);
+            $this->send_wp_upload_error($session, 'drive_session_create', array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'job_id' => $job_id,
+                'mark_failed' => true,
+            ));
+        }
+
+        $this->db->update_job($job_id, array(
+            'status' => 'direct_session_created',
+            'direct_upload_url_hash' => sanitize_text_field($session['upload_url_hash']),
         ));
 
         $this->logger->log('direct_upload_session_created', 'Direct Google upload session created.', array(
@@ -233,6 +258,7 @@ class Olama_Media_Ajax
             'file_size' => $file_size,
             'mime_type' => 'video/mp4',
             'folder_id' => $folder_id,
+            'drive_file_id' => $drive_file_id,
             'transport_method' => 'direct_google',
             'upload_url_hash' => sanitize_text_field($session['upload_url_hash']),
             'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
@@ -243,6 +269,7 @@ class Olama_Media_Ajax
             'upload_url' => esc_url_raw($session['upload_url']),
             'job_uuid' => $job_uuid,
             'asset_id' => $asset_id,
+            'drive_file_id' => $drive_file_id,
             'file_name' => $filename,
             'file_size' => $file_size,
             'mime_type' => 'video/mp4',
@@ -719,9 +746,16 @@ class Olama_Media_Ajax
             ));
         }
 
+        if (!$drive_file_id && !empty($job->drive_file_id)) {
+            $drive_file_id = sanitize_text_field($job->drive_file_id);
+        }
+        if (!$drive_file_id && !empty($asset->drive_file_id)) {
+            $drive_file_id = sanitize_text_field($asset->drive_file_id);
+        }
+
         if (!$drive_file_id) {
-            $this->db->update_job($job->id, array('status' => 'finalize_failed', 'error_message' => 'Drive file id missing from browser upload response.'));
-            $this->send_upload_error('direct_drive_file_id_missing', 'direct_finalize', __('اكتمل الرفع في المتصفح لكن لم يتم استلام رقم ملف Google Drive. يمكنك إعادة المحاولة أو استخدام الرفع عبر WordPress.', 'olama-media-library'), 'Drive file id is missing from direct upload response.', true, array(
+            $this->db->update_job($job->id, array('status' => 'finalize_failed', 'error_message' => 'Drive file id missing from stored direct upload job.'));
+            $this->send_upload_error('direct_drive_file_id_missing', 'direct_finalize', __('تعذر العثور على رقم ملف Google Drive المرتبط بهذا الرفع المباشر. يمكنك إعادة المحاولة أو استخدام الرفع عبر WordPress.', 'olama-media-library'), 'Drive file id is missing from stored direct upload job.', true, array(
                 'job_uuid' => $job_uuid,
                 'asset_id' => $asset_id,
                 'job_id' => $job->id,
@@ -850,9 +884,20 @@ class Olama_Media_Ajax
             'asset_id' => $asset_id,
             'file_size' => absint($_POST['file_size'] ?? 0),
             'uploaded_bytes' => absint($_POST['uploaded_bytes'] ?? 0),
+            'loaded_bytes' => absint($_POST['loaded_bytes'] ?? $_POST['uploaded_bytes'] ?? 0),
+            'total_bytes' => absint($_POST['total_bytes'] ?? $_POST['file_size'] ?? 0),
             'percent' => absint($_POST['percent'] ?? 0),
             'transport_method' => 'direct_google',
             'error_code' => sanitize_key($_POST['error_code'] ?? ''),
+            'stage' => sanitize_key($_POST['stage'] ?? ''),
+            'xhr_status' => absint($_POST['xhr_status'] ?? 0),
+            'xhr_status_text' => sanitize_text_field($_POST['xhr_status_text'] ?? ''),
+            'response_text_preview' => sanitize_textarea_field(substr((string) ($_POST['response_text_preview'] ?? ''), 0, 500)),
+            'response_headers_preview' => sanitize_textarea_field(substr((string) ($_POST['response_headers_preview'] ?? ''), 0, 500)),
+            'chunk_start' => absint($_POST['chunk_start'] ?? 0),
+            'chunk_end' => absint($_POST['chunk_end'] ?? 0),
+            'chunk_index' => absint($_POST['chunk_index'] ?? 0),
+            'direct_chunk_size' => absint($_POST['direct_chunk_size'] ?? 0),
             'message_en' => sanitize_text_field($_POST['message_en'] ?? ''),
         );
 
@@ -872,6 +917,19 @@ class Olama_Media_Ajax
                 $update['error_message'] = $context['message_en'];
                 if ($asset_id) {
                     $this->db->update_asset($asset_id, array('upload_status' => 'failed'));
+                }
+                $asset = $asset_id ? $this->db->get_asset($asset_id) : null;
+                if ($asset && !empty($asset->drive_file_id)) {
+                    $this->logger->log('direct_reserved_file_incomplete', 'Direct upload reserved Drive file is incomplete after browser failure.', array(
+                        'job_uuid' => $job_uuid,
+                        'asset_id' => $asset_id,
+                        'drive_file_id' => sanitize_text_field($asset->drive_file_id),
+                        'uploaded_bytes' => $context['uploaded_bytes'],
+                        'total_bytes' => $context['total_bytes'],
+                        'error_code' => $context['error_code'],
+                        'stage' => $context['stage'],
+                        'transport_method' => 'direct_google',
+                    ), $job->id, $asset_id);
                 }
             }
             if ($update) {
@@ -998,6 +1056,7 @@ class Olama_Media_Ajax
             'max_file_size' => max(1, absint($_POST['max_file_size'] ?? 2048)),
             'olama_media_upload_transport_mode' => $transport_mode,
             'olama_media_direct_upload_threshold_mb' => max(1, absint($_POST['olama_media_direct_upload_threshold_mb'] ?? $_POST['direct_upload_threshold_mb'] ?? 20)),
+            'olama_media_direct_chunk_size_mb' => max(1, absint($_POST['olama_media_direct_chunk_size_mb'] ?? 16)),
             'refresh_token' => $current['refresh_token'] ?? '',
             'access_token' => $current['access_token'] ?? null,
         );

@@ -77,6 +77,7 @@ class Olama_Media_Admin
             $transport_mode = 'auto';
         }
         $direct_threshold_mb = max(1, absint($settings['olama_media_direct_upload_threshold_mb'] ?? $settings['direct_upload_threshold_mb'] ?? 20));
+        $direct_chunk_size_mb = max(1, absint($settings['olama_media_direct_chunk_size_mb'] ?? 16));
 
         wp_localize_script('olama-media-library-admin', 'olamaMediaLibrary', array(
             'ajaxurl' => admin_url('admin-ajax.php', 'relative'),
@@ -88,6 +89,7 @@ class Olama_Media_Admin
             'maxFileSizeHuman' => size_format($max_size),
             'uploadTransportMode' => $transport_mode,
             'directUploadThresholdBytes' => $direct_threshold_mb * 1024 * 1024,
+            'directUploadChunkSizeBytes' => $this->normalize_direct_chunk_size($direct_chunk_size_mb * 1024 * 1024),
             'driveAuth' => array(
                 'drive_authenticated' => $drive_auth_health['is_configured'] && $drive_auth_health['has_refresh_token'] && $drive_auth_health['can_refresh'],
                 'has_refresh_token' => (bool) $drive_auth_health['has_refresh_token'],
@@ -186,6 +188,13 @@ class Olama_Media_Admin
         return $number;
     }
 
+    private function normalize_direct_chunk_size($bytes)
+    {
+        $unit = 256 * 1024;
+        $bytes = max($unit, absint($bytes));
+        return max($unit, (int) floor($bytes / $unit) * $unit);
+    }
+
     private function i18n()
     {
         return array(
@@ -224,6 +233,7 @@ class Olama_Media_Admin
             'direct_completed_finalizing' => __('اكتمل رفع الفيديو إلى Google Drive، جاري تثبيت بيانات الفيديو...', 'olama-media-library'),
             'direct_success' => __('تم رفع الفيديو بنجاح. المعاينة قيد المعالجة من Google Drive.', 'olama-media-library'),
             'direct_browser_failed' => __('تعذر الرفع المباشر إلى Google Drive من المتصفح. يمكنك استخدام الرفع عبر WordPress كبديل.', 'olama-media-library'),
+            'direct_session_restart_required' => __('تعذر إكمال الرفع المباشر. سيتم استخدام الرفع عبر WordPress كبديل.', 'olama-media-library'),
             'direct_fallback_available' => __('يمكنك إعادة المحاولة أو استخدام طريقة الرفع عبر WordPress.', 'olama-media-library'),
             'use_wordpress_fallback' => __('استخدام الرفع عبر WordPress بدلاً من ذلك', 'olama-media-library'),
             'retry_direct_upload' => __('إعادة محاولة الرفع المباشر', 'olama-media-library'),

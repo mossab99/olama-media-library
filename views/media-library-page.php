@@ -150,6 +150,13 @@ $refresh_token = $settings['refresh_token'] ?? '';
                         <th><label for="olama_media_direct_upload_threshold_mb"><?php esc_html_e('Direct Upload Threshold (MB)', 'olama-media-library'); ?></label></th>
                         <td><input type="number" id="olama_media_direct_upload_threshold_mb" name="olama_media_direct_upload_threshold_mb" value="<?php echo esc_attr($settings['olama_media_direct_upload_threshold_mb'] ?? $settings['direct_upload_threshold_mb'] ?? 20); ?>" class="small-text" min="1"></td>
                     </tr>
+                    <tr>
+                        <th><label for="olama_media_direct_chunk_size_mb"><?php esc_html_e('Direct Chunk Size (MB)', 'olama-media-library'); ?></label></th>
+                        <td>
+                            <input type="number" id="olama_media_direct_chunk_size_mb" name="olama_media_direct_chunk_size_mb" value="<?php echo esc_attr($settings['olama_media_direct_chunk_size_mb'] ?? 16); ?>" class="small-text" min="1">
+                            <p class="description"><?php esc_html_e('يتم تقريب حجم أجزاء الرفع المباشر داخلياً إلى مضاعفات 256 KB حسب متطلبات Google Drive.', 'olama-media-library'); ?></p>
+                        </td>
+                    </tr>
                 </table>
                 <p class="submit">
                     <button type="submit" class="button button-primary"><?php esc_html_e('حفظ', 'olama-media-library'); ?></button>

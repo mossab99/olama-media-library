@@ -91,8 +91,24 @@ Fallback behavior:
 Known Phase 2.0 MVP limitations:
 
 - Browser/CORS behavior must be tested in Chrome against the live Google Drive resumable URL.
-- If Google's final browser upload response does not expose the Drive file ID, finalization cannot complete automatically; the UI will offer retry/fallback.
 - Google Drive preview processing may still take time after upload completion.
+
+## Phase 2.1 Direct Upload Stabilization
+
+Direct upload no longer depends on the browser receiving the final Google Drive file ID. WordPress now creates a metadata-only Drive file first, stores its `drive_file_id` on the asset and upload job, then creates a resumable update session for that known file. Finalization uses the stored file ID and validates Drive metadata server-side.
+
+Browser direct upload now sends the MP4 in resumable chunks:
+
+- Default direct chunk size is `olama_media_direct_chunk_size_mb = 16`.
+- Chunks are rounded to a multiple of 256 KB for Google Drive resumable upload compatibility.
+- `308 Resume Incomplete` is treated as normal progress, not a failure.
+- Final `200` or `201` completes the browser upload and triggers WordPress finalization.
+- Google `4xx` responses stop the current direct session; the UI offers a new direct retry or WordPress streamed fallback.
+- Google `5xx` responses retry the same chunk with short backoff.
+
+Direct browser diagnostics are logged without storing the upload URL. Useful log context includes `xhr_status`, `stage`, `chunk_index`, byte range, response previews when readable, and `direct_cors_or_network_failure` when the browser reports status `0`.
+
+Incomplete reserved Drive files are logged with `direct_reserved_file_incomplete`. They are not automatically deleted in this phase; review the logs before manual cleanup.
 
 ## Phase 1.3 Streaming Uploads
 

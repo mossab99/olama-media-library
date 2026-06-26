@@ -253,6 +253,78 @@ class Olama_Media_Drive
         }
     }
 
+    public function create_metadata_file($name, $parent_id, $mime_type)
+    {
+        if (!$this->service) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+
+        try {
+            $file = $this->service->files->create(new Google_Service_Drive_DriveFile(array(
+                'name' => sanitize_file_name($name),
+                'parents' => array(sanitize_text_field($parent_id)),
+                'mimeType' => sanitize_text_field($mime_type),
+            )), array(
+                'fields' => 'id,name,mimeType,parents,webViewLink,webContentLink,thumbnailLink',
+                'supportsAllDrives' => true,
+            ));
+
+            return array(
+                'id' => sanitize_text_field($file->id),
+                'name' => sanitize_text_field($file->name),
+                'mime_type' => sanitize_text_field($file->mimeType),
+                'parents' => (array) $file->parents,
+                'web_view_link' => esc_url_raw($file->webViewLink),
+                'web_content_link' => esc_url_raw($file->webContentLink),
+                'thumbnail_link' => esc_url_raw($file->thumbnailLink),
+            );
+        } catch (Exception $e) {
+            return new WP_Error('drive_metadata_file_error', $this->extract_error($e));
+        }
+    }
+
+    public function create_direct_resumable_update_session($file_id, $mime_type, $file_size)
+    {
+        if (!$this->service) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+
+        $file_id = sanitize_text_field($file_id);
+        if (!$file_id) {
+            return new WP_Error('missing_drive_file_id', __('Drive file ID is missing.', 'olama-media-library'));
+        }
+
+        try {
+            $client = $this->service->getClient();
+            $client->setDefer(true);
+            $request = $this->service->files->update($file_id, new Google_Service_Drive_DriveFile(), array(
+                'fields' => 'id,name,mimeType,size,parents,webViewLink,webContentLink,thumbnailLink,videoMediaMetadata',
+                'supportsAllDrives' => true,
+            ));
+            $media = new Google_Http_MediaFileUpload($client, $request, $mime_type, null, true, 10485760);
+            $media->setFileSize(absint($file_size));
+            $resume_uri = $media->getResumeUri();
+            $client->setDefer(false);
+
+            if (!$resume_uri) {
+                return new WP_Error('drive_upload_init_error', __('Google Drive did not return a resumable upload URL.', 'olama-media-library'));
+            }
+
+            return array(
+                'upload_url' => esc_url_raw($resume_uri),
+                'upload_url_hash' => hash('sha256', $resume_uri),
+                'file_id' => $file_id,
+                'expires_hint_seconds' => 3600,
+            );
+        } catch (Exception $e) {
+            return new WP_Error('drive_upload_init_error', $this->extract_error($e));
+        } finally {
+            if (isset($client)) {
+                $client->setDefer(false);
+            }
+        }
+    }
+
     public function put_upload_chunk($resume_uri, $chunk_data, $start_byte, $total_size)
     {
         $end_byte = absint($start_byte) + strlen($chunk_data) - 1;
