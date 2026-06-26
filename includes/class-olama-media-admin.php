@@ -71,14 +71,21 @@ class Olama_Media_Admin
         $max_size_mb = max(1, absint($settings['max_file_size'] ?? 2048));
         $server_limit = $this->server_upload_limit();
         $max_size = min($max_size_mb * 1024 * 1024, $server_limit);
+        $drive_auth_health = (new Olama_Media_Drive())->get_auth_health();
 
         wp_localize_script('olama-media-library-admin', 'olamaMediaLibrary', array(
             'ajaxurl' => admin_url('admin-ajax.php', 'relative'),
             'nonce' => wp_create_nonce('olama_media_library_nonce'),
             'legacyNonce' => wp_create_nonce('olama_admin_nonce'),
+            'canManage' => self::can_manage(),
             'canApprove' => self::can_approve(),
             'maxFileSize' => $max_size,
             'maxFileSizeHuman' => size_format($max_size),
+            'driveAuth' => array(
+                'drive_authenticated' => $drive_auth_health['is_configured'] && $drive_auth_health['has_refresh_token'] && $drive_auth_health['can_refresh'],
+                'has_refresh_token' => (bool) $drive_auth_health['has_refresh_token'],
+                'auth_warning' => (!$drive_auth_health['is_configured'] || !$drive_auth_health['has_refresh_token'] || !$drive_auth_health['can_refresh']) ? __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library') : '',
+            ),
             // Phase 1 still proxies chunks through PHP before sending them to Drive.
             // Keep chunks smaller for reliability until uploads move to a background/direct flow.
             'chunkSize' => min(5 * 1024 * 1024, max(1024 * 1024, (int) floor($server_limit * 0.7))),
@@ -131,6 +138,7 @@ class Olama_Media_Admin
         $semesters = $active_year ? $this->curriculum->get_semesters($active_year->id) : array();
         $grades = $this->curriculum->get_grades();
         $settings = get_option('academy_media_library_settings', array());
+        $drive_auth_health = (new Olama_Media_Drive())->get_auth_health();
 
         settings_errors('olama_media_library');
         include OLAMA_MEDIA_LIBRARY_PATH . 'views/media-library-page.php';
@@ -198,6 +206,9 @@ class Olama_Media_Admin
             'finalizing_upload' => __('تم رفع الملف، جاري تثبيت بيانات الفيديو...', 'olama-media-library'),
             'finalize_failed' => __('فشل تثبيت بيانات الفيديو، يمكنك إعادة المحاولة بدون رفع الملف من جديد.', 'olama-media-library'),
             'retry_finalize' => __('إعادة تثبيت بيانات الفيديو', 'olama-media-library'),
+            'session_or_permission_expired' => __('انتهت جلسة الدخول أو صلاحية الرفع. يرجى تحديث الصفحة وتسجيل الدخول ثم المحاولة مرة أخرى.', 'olama-media-library'),
+            'google_auth_upload_failed' => __('فشل رفع الفيديو لأن اتصال Google Drive غير صالح. يرجى إعادة المصادقة مع Google من إعدادات Drive ثم إعادة المحاولة.', 'olama-media-library'),
+            'retryable_network_error' => __('تعذر رفع هذا الجزء مؤقتا. سيتم إعادة المحاولة تلقائيا.', 'olama-media-library'),
             'processing_note' => __('تم رفع الفيديو بنجاح، لكن Google Drive ما زال يعالج المعاينة. يمكن تحميل الملف الآن وستتوفر المشاهدة لاحقا.', 'olama-media-library'),
             'status_none' => __('لا يوجد فيديو', 'olama-media-library'),
             'status_uploading' => __('جاري الرفع', 'olama-media-library'),

@@ -20,9 +20,14 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_get_subjects', array($this, 'get_subjects'));
         add_action('wp_ajax_academy_load_media_curriculum', array($this, 'load_curriculum'));
         add_action('wp_ajax_olama_media_start_upload_job', array($this, 'start_upload_job'));
+        add_action('wp_ajax_olama_media_refresh_upload_nonce', array($this, 'refresh_upload_nonce'));
         add_action('wp_ajax_academy_upload_media_video_chunk', array($this, 'upload_chunk'));
         add_action('wp_ajax_olama_media_finalize_upload', array($this, 'finalize_upload'));
         add_action('wp_ajax_olama_media_check_preview_status', array($this, 'check_preview_status'));
+        add_action('wp_ajax_nopriv_olama_media_refresh_upload_nonce', array($this, 'refresh_upload_nonce'));
+        add_action('wp_ajax_nopriv_academy_upload_media_video_chunk', array($this, 'upload_chunk'));
+        add_action('wp_ajax_nopriv_olama_media_finalize_upload', array($this, 'finalize_upload'));
+        add_action('wp_ajax_nopriv_olama_media_check_preview_status', array($this, 'check_preview_status'));
         add_action('wp_ajax_olama_media_save_notes', array($this, 'save_notes'));
         add_action('wp_ajax_academy_update_media_status', array($this, 'update_media_status'));
         add_action('wp_ajax_olama_media_delete_asset', array($this, 'delete_asset'));
@@ -65,8 +70,7 @@ class Olama_Media_Ajax
 
     public function start_upload_job()
     {
-        $this->verify_nonce();
-        $this->require_upload();
+        $this->verify_upload_request('upload');
 
         $job_uuid = sanitize_key($_POST['file_uuid'] ?? wp_generate_uuid4());
         $filename = sanitize_file_name($_POST['filename'] ?? '');
@@ -74,7 +78,9 @@ class Olama_Media_Ajax
         $total_chunks = absint($_POST['total_chunks'] ?? 0);
         $validation = $this->validate_video($filename, $total_size);
         if (is_wp_error($validation)) {
-            wp_send_json_error($validation->get_error_message());
+            $this->send_upload_error('invalid_file', 'file_validation', __('ملف الفيديو غير صالح.', 'olama-media-library'), $validation->get_error_message(), false, array(
+                'job_uuid' => $job_uuid,
+            ));
         }
 
         $job_id = $this->db->create_or_update_job($job_uuid, array(
@@ -89,6 +95,31 @@ class Olama_Media_Ajax
         wp_send_json_success(array('job_uuid' => $job_uuid, 'job_id' => $job_id));
     }
 
+    public function refresh_upload_nonce()
+    {
+        if (!is_user_logged_in()) {
+            $this->send_upload_error('auth_session_expired', 'auth_session_check', __('انتهت جلسة الدخول. يرجى تسجيل الدخول من جديد ثم إعادة المحاولة.', 'olama-media-library'), 'WordPress login session expired.', false, array('http_status' => 403));
+        }
+
+        if (!Olama_Media_Admin::can_upload()) {
+            $this->send_upload_error('capability_denied', 'capability_check', __('لا تملك صلاحية رفع الفيديوهات.', 'olama-media-library'), 'Current user cannot upload media videos.', false, array('http_status' => 403));
+        }
+
+        $drive = new Olama_Media_Drive();
+        $health = $drive->get_auth_health();
+        $auth_warning = '';
+        if (!$health['is_configured'] || !$health['has_refresh_token'] || !$health['can_refresh']) {
+            $auth_warning = __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library');
+        }
+
+        wp_send_json_success(array(
+            'nonce' => wp_create_nonce('olama_media_library_nonce'),
+            'drive_authenticated' => $health['is_configured'] && $health['has_refresh_token'] && $health['can_refresh'],
+            'has_refresh_token' => (bool) $health['has_refresh_token'],
+            'auth_warning' => $auth_warning,
+        ));
+    }
+
     public function upload_chunk()
     {
         $handler_start = microtime(true);
@@ -97,8 +128,7 @@ class Olama_Media_Ajax
         ignore_user_abort(true);
 
         $stage_start = microtime(true);
-        $this->verify_nonce();
-        $this->require_upload();
+        $this->verify_upload_request('upload');
 
         $file_uuid = sanitize_key($_POST['file_uuid'] ?? '');
         $chunk_index = absint($_POST['chunk_index'] ?? 0);
@@ -109,21 +139,29 @@ class Olama_Media_Ajax
         $expected_chunk_size = absint($_POST['chunk_size'] ?? 0);
 
         if (!$file_uuid || !$total_chunks || empty($_FILES['video_chunk'])) {
-            $this->send_chunk_error(__('Invalid upload chunk.', 'olama-media-library'), $chunk_index, false, 0, 0, 'invalid_chunk_request', array('file_uuid' => $file_uuid));
+            $this->send_upload_error('invalid_job', 'request_validation', __('طلب رفع الفيديو غير صالح. يرجى إعادة المحاولة.', 'olama-media-library'), 'Invalid upload chunk request.', false, array(
+                'failed_chunk_index' => $chunk_index,
+                'job_uuid' => $file_uuid,
+            ));
         }
 
         $validation = $this->validate_video($filename, $total_size);
         if (is_wp_error($validation)) {
-            $this->send_chunk_error($validation->get_error_message(), $chunk_index, false, 0, 0, 'invalid_video', array('filename' => $filename));
+            $this->send_upload_error('invalid_file', 'file_validation', __('ملف الفيديو غير صالح.', 'olama-media-library'), $validation->get_error_message(), false, array(
+                'failed_chunk_index' => $chunk_index,
+                'job_uuid' => $file_uuid,
+            ));
         }
 
         $chunk_validation = $this->validate_chunk_request($chunk_index, $total_chunks, $start_byte, $expected_chunk_size);
         if (is_wp_error($chunk_validation)) {
-            $this->send_chunk_error($chunk_validation->get_error_message(), $chunk_index, false, 0, 0, 'invalid_chunk_position', array(
+            $this->send_upload_error('invalid_content_range', 'content_range_validation', __('موضع جزء الفيديو غير صحيح. يرجى إعادة محاولة الرفع.', 'olama-media-library'), $chunk_validation->get_error_message(), false, array(
                 'chunk_index' => $chunk_index,
                 'total_chunks' => $total_chunks,
                 'start_byte' => $start_byte,
                 'expected_chunk_size' => $expected_chunk_size,
+                'failed_chunk_index' => $chunk_index,
+                'job_uuid' => $file_uuid,
             ));
         }
         $timings['request_validation_ms'] = $this->elapsed_ms($stage_start);
@@ -139,6 +177,7 @@ class Olama_Media_Ajax
         try {
             $stage_start = microtime(true);
             $drive = new Olama_Media_Drive();
+            $drive_health = $drive->get_auth_health();
 
             if (file_exists($meta_path)) {
                 $meta = json_decode(file_get_contents($meta_path), true);
@@ -171,17 +210,42 @@ class Olama_Media_Ajax
 
                 $meta = $this->prepare_upload_meta($filename, $total_size, $total_chunks);
                 if (is_wp_error($meta)) {
-                    throw new Exception($meta->get_error_message());
+                    $this->send_wp_upload_error($meta, 'request_validation', array(
+                        'failed_chunk_index' => $chunk_index,
+                        'job_uuid' => $file_uuid,
+                    ));
+                }
+
+                if (!$drive_health['has_refresh_token']) {
+                    $this->send_upload_error('google_refresh_token_missing', 'google_auth_check', __('اتصال Google Drive غير مكتمل. يرجى إعادة المصادقة مع Google من إعدادات Drive.', 'olama-media-library'), 'Google Drive refresh token is missing.', false, array(
+                        'failed_chunk_index' => $chunk_index,
+                        'job_uuid' => $file_uuid,
+                        'event_type' => 'google_auth_error',
+                    ));
+                }
+
+                if (!$drive_health['can_refresh']) {
+                    $this->send_upload_error('google_token_refresh_failed', 'google_token_refresh', __('فشل تجديد اتصال Google Drive. يرجى إعادة المصادقة مع Google ثم المحاولة مرة أخرى.', 'olama-media-library'), $drive_health['last_error_message'] ?: 'Google Drive token refresh failed.', false, array(
+                        'failed_chunk_index' => $chunk_index,
+                        'job_uuid' => $file_uuid,
+                        'event_type' => 'google_auth_error',
+                    ));
                 }
 
                 $folder_id = $drive->get_or_create_nested_folder($meta['path']);
                 if (is_wp_error($folder_id)) {
-                    throw new Exception($folder_id->get_error_message());
+                    $this->send_wp_upload_error($folder_id, 'drive_session_create', array(
+                        'failed_chunk_index' => $chunk_index,
+                        'job_uuid' => $file_uuid,
+                    ));
                 }
 
                 $resume_uri = $drive->init_resumable_upload($meta['target_filename'], 'video/mp4', $folder_id, $total_size);
                 if (is_wp_error($resume_uri)) {
-                    throw new Exception($resume_uri->get_error_message());
+                    $this->send_wp_upload_error($resume_uri, 'drive_session_create', array(
+                        'failed_chunk_index' => $chunk_index,
+                        'job_uuid' => $file_uuid,
+                    ));
                 }
 
                 $asset_id = $this->db->upsert_asset(array(
@@ -232,7 +296,13 @@ class Olama_Media_Ajax
             $stage_start = microtime(true);
             $file_validation = $this->validate_uploaded_chunk_file($chunk_file);
             if (is_wp_error($file_validation)) {
-                throw new Exception($file_validation->get_error_message());
+                $this->send_wp_upload_error($file_validation, 'file_validation', array(
+                    'failed_chunk_index' => $chunk_index,
+                    'job_uuid' => $file_uuid,
+                    'asset_id' => $asset_id,
+                    'job_id' => $job_id,
+                    'mark_failed' => true,
+                ));
             }
 
             $chunk_size_bytes = absint($chunk_file['size']);
@@ -253,7 +323,14 @@ class Olama_Media_Ajax
             $timings['http_status'] = is_wp_error($result) ? 0 : absint($result['http_status'] ?? 0);
 
             if (is_wp_error($result)) {
-                throw new Exception($result->get_error_message());
+                $this->send_wp_upload_error($result, 'drive_chunk_upload', array(
+                    'failed_chunk_index' => $chunk_index,
+                    'job_uuid' => $file_uuid,
+                    'asset_id' => $asset_id,
+                    'job_id' => $job_id,
+                    'mark_failed' => true,
+                    'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
+                ));
             }
 
             if (($result['transfer_method'] ?? '') === 'fallback_wp_http') {
@@ -340,10 +417,12 @@ class Olama_Media_Ajax
                 'total_chunks' => $total_chunks,
                 'total_handler_ms' => $this->elapsed_ms($handler_start),
             ), $job_id, $asset_id);
-            wp_send_json_error(array(
+            $this->send_upload_error('upload_failed', 'drive_chunk_upload', __('فشل رفع هذا الجزء من الفيديو. يرجى المحاولة مرة أخرى.', 'olama-media-library'), $e->getMessage(), $this->is_retryable_upload_error($e->getMessage()), array(
                 'failed_chunk_index' => $chunk_index,
-                'retryable' => $this->is_retryable_upload_error($e->getMessage()),
-                'message' => $e->getMessage(),
+                'job_uuid' => $file_uuid,
+                'asset_id' => $asset_id,
+                'http_status' => 200,
+                'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
             ));
         }
     }
@@ -353,8 +432,7 @@ class Olama_Media_Ajax
         $handler_start = microtime(true);
         $timings = array();
 
-        $this->verify_nonce();
-        $this->require_upload();
+        $this->verify_upload_request('upload');
 
         $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
         $asset_id = absint($_POST['asset_id'] ?? 0);
@@ -367,9 +445,9 @@ class Olama_Media_Ajax
         }
 
         if (!$asset) {
-            wp_send_json_error(array(
-                'retryable' => false,
-                'message' => __('Media asset not found.', 'olama-media-library'),
+            $this->send_upload_error('invalid_job', 'finalize_upload', __('تعذر العثور على سجل الفيديو. يرجى إعادة تحميل الصفحة والمحاولة مرة أخرى.', 'olama-media-library'), 'Media asset not found for finalize.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
             ));
         }
 
@@ -383,9 +461,9 @@ class Olama_Media_Ajax
         }
 
         if (!$drive_file_id) {
-            wp_send_json_error(array(
-                'retryable' => false,
-                'message' => __('Drive file id is missing. Please retry the upload.', 'olama-media-library'),
+            $this->send_upload_error('invalid_job', 'finalize_upload', __('ملف Google Drive غير مرتبط بسجل الفيديو. يرجى إعادة المحاولة.', 'olama-media-library'), 'Drive file id is missing for finalize.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
             ));
         }
 
@@ -397,14 +475,20 @@ class Olama_Media_Ajax
             $metadata = $drive->get_file_metadata($drive_file_id);
             $timings['drive_metadata_fetch_ms'] = $this->elapsed_ms($stage_start);
             if (is_wp_error($metadata)) {
-                throw new Exception($metadata->get_error_message());
+                $this->send_wp_upload_error($metadata, 'finalize_upload', array(
+                    'job_uuid' => $job_uuid,
+                    'asset_id' => $asset_id,
+                ));
             }
 
             $stage_start = microtime(true);
             $permission = $drive->ensure_file_permissions($drive_file_id);
             $timings['drive_permission_update_ms'] = $this->elapsed_ms($stage_start);
             if (is_wp_error($permission)) {
-                throw new Exception($permission->get_error_message());
+                $this->send_wp_upload_error($permission, 'finalize_upload', array(
+                    'job_uuid' => $job_uuid,
+                    'asset_id' => $asset_id,
+                ));
             }
 
             $stage_start = microtime(true);
@@ -458,6 +542,12 @@ class Olama_Media_Ajax
             $this->logger->log('upload_finalize_timing', 'Upload finalize timing after failure.', $this->timing_context($timings, null, null), $job_id, $asset_id);
             $this->logger->log('upload_finalize_failed', $e->getMessage(), array('drive_file_id' => $drive_file_id), $job_id, $asset_id);
 
+            $this->send_upload_error('finalize_failed', 'finalize_upload', __('تم رفع الملف، لكن فشل تثبيت بيانات الفيديو. يمكنك إعادة المحاولة بدون رفع الملف من جديد.', 'olama-media-library'), $e->getMessage(), true, array(
+                'asset_id' => $asset_id,
+                'job_uuid' => $job_uuid,
+                'memory_peak_mb' => $this->memory_mb(memory_get_peak_usage(true)),
+            ));
+
             wp_send_json_error(array(
                 'retryable' => true,
                 'asset_id' => $asset_id,
@@ -469,20 +559,23 @@ class Olama_Media_Ajax
 
     public function check_preview_status()
     {
-        $this->verify_nonce();
-        $this->require_manage();
+        $this->verify_upload_request('manage');
 
         $asset_id = absint($_POST['asset_id'] ?? 0);
         $asset = $this->db->get_asset($asset_id);
         if (!$asset || !$asset->drive_file_id) {
-            wp_send_json_error(__('Media asset not found.', 'olama-media-library'));
+            $this->send_upload_error('invalid_job', 'preview_status_check', __('تعذر العثور على سجل الفيديو.', 'olama-media-library'), 'Media asset not found for preview status check.', false, array(
+                'asset_id' => $asset_id,
+            ));
         }
 
         $drive = new Olama_Media_Drive();
         $metadata = $drive->get_file_metadata($asset->drive_file_id);
         if (is_wp_error($metadata)) {
             $this->logger->log('drive_metadata_failed', $metadata->get_error_message(), array(), null, $asset_id);
-            wp_send_json_error($metadata->get_error_message());
+            $this->send_wp_upload_error($metadata, 'preview_status_check', array(
+                'asset_id' => $asset_id,
+            ));
         }
 
         if (!empty($metadata['trashed'])) {
@@ -598,7 +691,11 @@ class Olama_Media_Ajax
     {
         $this->verify_nonce();
         $this->require_manage();
-        wp_send_json_success($this->db->get_events(absint($_REQUEST['paged'] ?? 1)));
+        wp_send_json_success($this->db->get_events(absint($_REQUEST['paged'] ?? 1), 20, array(
+            'job_uuid' => sanitize_key($_REQUEST['job_uuid'] ?? ''),
+            'event_type' => sanitize_key($_REQUEST['event_type'] ?? ''),
+            'error_code' => sanitize_key($_REQUEST['error_code'] ?? ''),
+        )));
     }
 
     public function migrate_legacy()
@@ -814,6 +911,129 @@ class Olama_Media_Ajax
     private function memory_mb($bytes)
     {
         return round($bytes / 1048576, 2);
+    }
+
+    private function verify_upload_request($capability = 'upload')
+    {
+        if (!is_user_logged_in()) {
+            $this->send_upload_error('auth_session_expired', 'auth_session_check', __('انتهت جلسة الدخول. يرجى تسجيل الدخول من جديد ثم إعادة المحاولة.', 'olama-media-library'), 'WordPress login session expired.', false, array('http_status' => 403));
+        }
+
+        $nonce = $_REQUEST['nonce'] ?? '';
+        if (!wp_verify_nonce($nonce, 'olama_media_library_nonce') && !wp_verify_nonce($nonce, 'olama_admin_nonce')) {
+            $this->send_upload_error('nonce_expired', 'nonce_check', __('انتهت صلاحية جلسة الرفع. يرجى تحديث الصفحة ثم المحاولة مرة أخرى.', 'olama-media-library'), 'Upload nonce expired or invalid.', false, array('http_status' => 403));
+        }
+
+        $allowed = $capability === 'manage' ? Olama_Media_Admin::can_manage() : Olama_Media_Admin::can_upload();
+        if (!$allowed) {
+            $this->send_upload_error('capability_denied', 'capability_check', __('لا تملك صلاحية رفع الفيديوهات.', 'olama-media-library'), 'Current user does not have the required media capability.', false, array('http_status' => 403));
+        }
+    }
+
+    private function send_wp_upload_error($wp_error, $stage, $extra = array())
+    {
+        $data = is_wp_error($wp_error) ? (array) $wp_error->get_error_data() : array();
+        $code = is_wp_error($wp_error) ? $wp_error->get_error_code() : 'upload_failed';
+        $message = is_wp_error($wp_error) ? $wp_error->get_error_message() : __('Upload failed.', 'olama-media-library');
+        $mapped = $this->map_upload_error($code, $data, $message);
+
+        $this->send_upload_error($mapped['error_code'], $stage, $mapped['message_ar'], $message, $mapped['retryable'], array_merge($data, $extra));
+    }
+
+    private function send_upload_error($error_code, $stage, $message_ar, $message_en, $retryable, $extra = array())
+    {
+        $payload = array(
+            'error_code' => sanitize_key($error_code),
+            'message_ar' => sanitize_text_field($message_ar),
+            'message_en' => sanitize_text_field($message_en),
+            'retryable' => (bool) $retryable,
+            'stage' => sanitize_key($stage),
+            'http_status' => absint($extra['http_status'] ?? 200),
+            'drive_http_status' => absint($extra['drive_http_status'] ?? $extra['http_status'] ?? 0),
+            'failed_chunk_index' => isset($extra['failed_chunk_index']) ? absint($extra['failed_chunk_index']) : null,
+            'job_uuid' => sanitize_key($extra['job_uuid'] ?? ''),
+            'asset_id' => absint($extra['asset_id'] ?? 0),
+        );
+
+        $context = array(
+            'error_code' => $payload['error_code'],
+            'stage' => $payload['stage'],
+            'retryable' => $payload['retryable'],
+            'failed_chunk_index' => $payload['failed_chunk_index'],
+            'job_uuid' => $payload['job_uuid'],
+            'asset_id' => $payload['asset_id'],
+            'http_status' => $payload['http_status'],
+            'drive_http_status' => $payload['drive_http_status'],
+            'transfer_method' => sanitize_key($extra['transfer_method'] ?? ''),
+            'content_range' => sanitize_text_field($extra['content_range'] ?? ''),
+            'chunk_size_bytes' => absint($extra['chunk_size_bytes'] ?? 0),
+            'memory_peak_mb' => isset($extra['memory_peak_mb']) ? (float) $extra['memory_peak_mb'] : $this->memory_mb(memory_get_peak_usage(true)),
+            'message_en' => $payload['message_en'],
+        );
+
+        foreach (array('curl_errno', 'safe_curl_error', 'response_summary', 'google_accepted_range', 'expected_range', 'range_match', 'start_byte', 'end_byte', 'total_size') as $key) {
+            if (isset($extra[$key])) {
+                $context[$key] = is_bool($extra[$key]) ? $extra[$key] : sanitize_text_field((string) $extra[$key]);
+            }
+        }
+
+        $event_type = sanitize_key($extra['event_type'] ?? ($payload['stage'] === 'google_auth_check' || strpos($payload['error_code'], 'google_') === 0 ? 'google_auth_error' : 'upload_error'));
+        if (!empty($extra['mark_failed'])) {
+            if ($payload['asset_id']) {
+                $this->db->update_asset($payload['asset_id'], array('upload_status' => 'failed'));
+            }
+            if (!empty($extra['job_id'])) {
+                $this->db->update_job(absint($extra['job_id']), array('status' => 'failed', 'error_message' => $payload['message_en']));
+            }
+        }
+        $this->logger->log($event_type, $payload['message_en'], $context, absint($extra['job_id'] ?? 0), $payload['asset_id']);
+
+        wp_send_json_error($payload, $payload['http_status'] ?: 200);
+    }
+
+    private function map_upload_error($code, $data, $message)
+    {
+        $retryable = isset($data['retryable']) ? (bool) $data['retryable'] : $this->is_retryable_upload_error($message);
+        $message_ar = __('تعذر رفع هذا الجزء مؤقتا. سيتم إعادة المحاولة تلقائيا.', 'olama-media-library');
+        $error_code = sanitize_key($code ?: 'upload_failed');
+
+        if (in_array($error_code, array('google_auth_failed'), true) || in_array(absint($data['drive_http_status'] ?? 0), array(401, 403), true)) {
+            return array(
+                'error_code' => 'google_auth_failed',
+                'message_ar' => __('انتهت صلاحية اتصال Google Drive. يرجى إعادة المصادقة مع Google ثم المحاولة مرة أخرى.', 'olama-media-library'),
+                'retryable' => false,
+            );
+        }
+
+        if ($error_code === 'google_bad_upload_request') {
+            return array(
+                'error_code' => 'google_bad_upload_request',
+                'message_ar' => __('رفض Google Drive طلب الرفع. يرجى إعادة المصادقة أو بدء رفع جديد.', 'olama-media-library'),
+                'retryable' => $retryable,
+            );
+        }
+
+        if ($error_code === 'google_range_mismatch') {
+            return array(
+                'error_code' => 'google_range_mismatch',
+                'message_ar' => __('حدث اختلاف في موضع الرفع لدى Google Drive. سيتم إعادة محاولة هذا الجزء.', 'olama-media-library'),
+                'retryable' => true,
+            );
+        }
+
+        if (strpos($error_code, 'invalid') === 0 || in_array($error_code, array('chunk_index_out_of_range', 'chunk_start_mismatch'), true)) {
+            return array(
+                'error_code' => in_array($error_code, array('chunk_start_mismatch', 'chunk_index_out_of_range'), true) ? 'invalid_content_range' : 'invalid_file',
+                'message_ar' => __('بيانات الرفع غير صحيحة. يرجى إعادة المحاولة.', 'olama-media-library'),
+                'retryable' => false,
+            );
+        }
+
+        return array(
+            'error_code' => $error_code,
+            'message_ar' => $message_ar,
+            'retryable' => $retryable,
+        );
     }
 
     private function verify_nonce()

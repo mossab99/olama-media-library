@@ -244,20 +244,42 @@ class Olama_Media_DB
         return $wpdb->insert($this->events_table, $data);
     }
 
-    public function get_events($page = 1, $per_page = 20)
+    public function get_events($page = 1, $per_page = 20, $filters = array())
     {
         global $wpdb;
         $offset = max(0, ((int) $page - 1) * (int) $per_page);
+        $where = array('1=1');
+        $params = array();
+
+        if (!empty($filters['event_type'])) {
+            $where[] = 'e.event_type = %s';
+            $params[] = sanitize_key($filters['event_type']);
+        }
+        if (!empty($filters['job_uuid'])) {
+            $where[] = 'j.job_uuid = %s';
+            $params[] = sanitize_key($filters['job_uuid']);
+        }
+        if (!empty($filters['error_code'])) {
+            $where[] = 'e.context LIKE %s';
+            $params[] = '%"error_code":"' . $wpdb->esc_like(sanitize_key($filters['error_code'])) . '"%';
+        }
+
+        $where_sql = implode(' AND ', $where);
         $items = $wpdb->get_results($wpdb->prepare(
             "SELECT e.*, a.title, a.upload_status, a.preview_status, a.approval_status
              FROM {$this->events_table} e
              LEFT JOIN {$this->assets_table} a ON e.asset_id = a.id
+             LEFT JOIN {$this->jobs_table} j ON e.job_id = j.id
+             WHERE {$where_sql}
              ORDER BY e.created_at DESC
              LIMIT %d, %d",
-            $offset,
-            $per_page
+            array_merge($params, array($offset, $per_page))
         ));
-        $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->events_table}");
+        $count_sql = "SELECT COUNT(*)
+             FROM {$this->events_table} e
+             LEFT JOIN {$this->jobs_table} j ON e.job_id = j.id
+             WHERE {$where_sql}";
+        $total = (int) $wpdb->get_var($params ? $wpdb->prepare($count_sql, $params) : $count_sql);
 
         return array(
             'items' => $items,

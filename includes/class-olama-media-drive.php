@@ -7,6 +7,8 @@ class Olama_Media_Drive
 {
     private $service;
     private $root_folder_id;
+    private $last_error_code = '';
+    private $last_error_message = '';
 
     public function __construct()
     {
@@ -31,6 +33,9 @@ class Olama_Media_Drive
                 }
                 $settings['access_token'] = $new_token;
                 update_option('academy_media_library_settings', $settings);
+            } else {
+                $this->last_error_code = 'google_token_refresh_failed';
+                $this->last_error_message = sanitize_text_field($new_token['error_description'] ?? $new_token['error'] ?? __('Google token refresh failed.', 'olama-media-library'));
             }
         }
 
@@ -55,6 +60,42 @@ class Olama_Media_Drive
         $client->setPrompt('consent');
         $client->setRedirectUri(admin_url('admin.php?page=academy-media-library'));
         return $client;
+    }
+
+    public function get_auth_health()
+    {
+        $settings = get_option('academy_media_library_settings', array());
+        $health = array(
+            'is_configured' => !empty($settings['client_id']) && !empty($settings['client_secret']) && !empty($settings['root_folder_id']) && class_exists('Google_Client') && class_exists('Google_Service_Drive'),
+            'has_access_token' => !empty($settings['access_token']),
+            'has_refresh_token' => !empty($settings['refresh_token']),
+            'token_expired' => true,
+            'can_refresh' => false,
+            'last_error_code' => $this->last_error_code,
+            'last_error_message' => $this->last_error_message,
+        );
+
+        $client = $this->get_client();
+        if (!$client) {
+            $health['last_error_code'] = $health['is_configured'] ? $health['last_error_code'] : 'google_auth_missing';
+            $health['last_error_message'] = $health['last_error_message'] ?: __('Google Drive is not fully configured.', 'olama-media-library');
+            return $health;
+        }
+
+        if (!empty($settings['access_token'])) {
+            $client->setAccessToken($settings['access_token']);
+            $health['token_expired'] = (bool) $client->isAccessTokenExpired();
+        }
+
+        $health['can_refresh'] = $health['has_refresh_token'] && (!$health['token_expired'] || empty($this->last_error_code));
+        if (!$health['has_refresh_token']) {
+            $health['last_error_code'] = 'google_refresh_token_missing';
+            $health['last_error_message'] = __('Google Drive refresh token is missing.', 'olama-media-library');
+        } elseif ($this->last_error_code === 'google_token_refresh_failed') {
+            $health['can_refresh'] = false;
+        }
+
+        return $health;
     }
 
     public function authenticate($code)
@@ -217,14 +258,28 @@ class Olama_Media_Drive
     public function put_upload_chunk_streamed($resume_uri, $chunk_path, $start_byte, $end_byte, $total_size, $mime_type = 'application/octet-stream')
     {
         $chunk_size = ($end_byte - absint($start_byte)) + 1;
+        $content_range = 'bytes ' . absint($start_byte) . '-' . absint($end_byte) . '/' . absint($total_size);
         if ($chunk_size < 1) {
-            return new WP_Error('invalid_chunk_size', __('Chunk size is invalid.', 'olama-media-library'));
+            return $this->drive_upload_error('invalid_chunk_size', __('Chunk size is invalid.', 'olama-media-library'), array(
+                'chunk_size_bytes' => $chunk_size,
+                'start_byte' => absint($start_byte),
+                'end_byte' => absint($end_byte),
+                'total_size' => absint($total_size),
+                'content_range' => $content_range,
+            ));
         }
 
         if (!function_exists('curl_init')) {
             $chunk_data = file_get_contents($chunk_path);
             if ($chunk_data === false) {
-                return new WP_Error('chunk_read_failed', __('Unable to read uploaded chunk for fallback transfer.', 'olama-media-library'));
+                return $this->drive_upload_error('chunk_read_failed', __('Unable to read uploaded chunk for fallback transfer.', 'olama-media-library'), array(
+                    'transfer_method' => 'fallback_wp_http',
+                    'chunk_size_bytes' => $chunk_size,
+                    'start_byte' => absint($start_byte),
+                    'end_byte' => absint($end_byte),
+                    'total_size' => absint($total_size),
+                    'content_range' => $content_range,
+                ));
             }
 
             $result = $this->put_upload_chunk($resume_uri, $chunk_data, $start_byte, $total_size);
@@ -241,13 +296,27 @@ class Olama_Media_Drive
 
         $handle = fopen($chunk_path, 'rb');
         if (!$handle) {
-            return new WP_Error('chunk_open_failed', __('Unable to open uploaded chunk for streaming.', 'olama-media-library'));
+            return $this->drive_upload_error('chunk_open_failed', __('Unable to open uploaded chunk for streaming.', 'olama-media-library'), array(
+                'transfer_method' => 'streamed_curl',
+                'chunk_size_bytes' => $chunk_size,
+                'start_byte' => absint($start_byte),
+                'end_byte' => absint($end_byte),
+                'total_size' => absint($total_size),
+                'content_range' => $content_range,
+            ));
         }
 
         $curl = curl_init(esc_url_raw($resume_uri));
         if (!$curl) {
             fclose($handle);
-            return new WP_Error('curl_init_failed', __('Unable to initialize cURL for Drive upload.', 'olama-media-library'));
+            return $this->drive_upload_error('curl_init_failed', __('Unable to initialize cURL for Drive upload.', 'olama-media-library'), array(
+                'transfer_method' => 'streamed_curl',
+                'chunk_size_bytes' => $chunk_size,
+                'start_byte' => absint($start_byte),
+                'end_byte' => absint($end_byte),
+                'total_size' => absint($total_size),
+                'content_range' => $content_range,
+            ));
         }
 
         curl_setopt_array($curl, array(
@@ -262,7 +331,7 @@ class Olama_Media_Drive
             CURLOPT_HTTPHEADER => array(
                 'Content-Type: ' . sanitize_text_field($mime_type),
                 'Content-Length: ' . $chunk_size,
-                'Content-Range: bytes ' . absint($start_byte) . '-' . absint($end_byte) . '/' . absint($total_size),
+                'Content-Range: ' . $content_range,
             ),
         ));
 
@@ -276,16 +345,54 @@ class Olama_Media_Drive
         fclose($handle);
 
         if ($raw_response === false) {
-            return new WP_Error('drive_streaming_curl_error', sprintf('cURL error %d: %s', $curl_errno, sanitize_text_field($curl_error)));
+            return $this->drive_upload_error('drive_streaming_curl_error', sprintf('cURL error %d: %s', $curl_errno, sanitize_text_field($curl_error)), array(
+                'drive_http_status' => $http_status,
+                'curl_errno' => $curl_errno,
+                'safe_curl_error' => sanitize_text_field($curl_error),
+                'transfer_method' => 'streamed_curl',
+                'chunk_size_bytes' => $chunk_size,
+                'start_byte' => absint($start_byte),
+                'end_byte' => absint($end_byte),
+                'total_size' => absint($total_size),
+                'content_range' => $content_range,
+                'retryable' => true,
+            ));
         }
 
+        $headers_raw = substr($raw_response, 0, $header_size);
         $body = substr($raw_response, $header_size);
+        $headers = $this->parse_response_headers($headers_raw);
+        $accepted_range = $headers['range'] ?? '';
+        $expected_range = 'bytes=0-' . absint($end_byte);
+        $range_match = $accepted_range === '' || $accepted_range === $expected_range;
 
         if ($http_status === 308) {
+            if (!$range_match) {
+                return $this->drive_upload_error('google_range_mismatch', __('Google Drive accepted a different byte range than expected.', 'olama-media-library'), array(
+                    'drive_http_status' => $http_status,
+                    'curl_errno' => 0,
+                    'safe_curl_error' => '',
+                    'transfer_method' => 'streamed_curl',
+                    'chunk_size_bytes' => $chunk_size,
+                    'start_byte' => absint($start_byte),
+                    'end_byte' => absint($end_byte),
+                    'total_size' => absint($total_size),
+                    'content_range' => $content_range,
+                    'google_accepted_range' => $accepted_range,
+                    'expected_range' => $expected_range,
+                    'range_match' => false,
+                    'response_summary' => $this->safe_body_summary($body),
+                    'retryable' => true,
+                ));
+            }
+
             return array(
                 'status' => 'incomplete',
                 'transfer_method' => 'streamed_curl',
                 'http_status' => $http_status,
+                'google_accepted_range' => $accepted_range,
+                'expected_range' => $expected_range,
+                'range_match' => true,
             );
         }
 
@@ -300,10 +407,38 @@ class Olama_Media_Drive
                 'video_media_metadata' => $data['videoMediaMetadata'] ?? array(),
                 'transfer_method' => 'streamed_curl',
                 'http_status' => $http_status,
+                'google_accepted_range' => $accepted_range,
+                'expected_range' => $expected_range,
+                'range_match' => true,
             );
         }
 
-        return new WP_Error('drive_streaming_chunk_error', sprintf('Google Drive API error: %d %s', $http_status, sanitize_textarea_field($body)));
+        $error_code = 'drive_api_error';
+        $retryable = false;
+        if ($http_status === 401 || $http_status === 403) {
+            $error_code = 'google_auth_failed';
+        } elseif ($http_status === 400) {
+            $summary = strtolower($this->safe_body_summary($body));
+            $error_code = 'google_bad_upload_request';
+            $retryable = strpos($summary, 'range') !== false || strpos($summary, 'resume') !== false || strpos($summary, 'offset') !== false;
+        }
+
+        return $this->drive_upload_error($error_code, sprintf('Google Drive API error: %d', $http_status), array(
+            'drive_http_status' => $http_status,
+            'curl_errno' => $curl_errno,
+            'safe_curl_error' => sanitize_text_field($curl_error),
+            'transfer_method' => 'streamed_curl',
+            'chunk_size_bytes' => $chunk_size,
+            'start_byte' => absint($start_byte),
+            'end_byte' => absint($end_byte),
+            'total_size' => absint($total_size),
+            'content_range' => $content_range,
+            'google_accepted_range' => $accepted_range,
+            'expected_range' => $expected_range,
+            'range_match' => $range_match,
+            'response_summary' => $this->safe_body_summary($body),
+            'retryable' => $retryable,
+        ));
     }
 
     public function get_file_metadata($file_id)
@@ -401,5 +536,40 @@ class Olama_Media_Drive
     {
         $data = json_decode($exception->getMessage(), true);
         return sanitize_text_field($data['error']['message'] ?? $exception->getMessage());
+    }
+
+    private function drive_upload_error($code, $message, $data = array())
+    {
+        $safe_data = array();
+        foreach ($data as $key => $value) {
+            $key = sanitize_key($key);
+            if (is_bool($value)) {
+                $safe_data[$key] = $value;
+            } elseif (is_numeric($value)) {
+                $safe_data[$key] = $value + 0;
+            } else {
+                $safe_data[$key] = sanitize_text_field((string) $value);
+            }
+        }
+
+        return new WP_Error($code, sanitize_text_field($message), $safe_data);
+    }
+
+    private function parse_response_headers($headers_raw)
+    {
+        $headers = array();
+        foreach (preg_split('/\r\n|\n|\r/', (string) $headers_raw) as $line) {
+            if (strpos($line, ':') === false) {
+                continue;
+            }
+            list($key, $value) = explode(':', $line, 2);
+            $headers[strtolower(trim($key))] = trim($value);
+        }
+        return $headers;
+    }
+
+    private function safe_body_summary($body)
+    {
+        return sanitize_textarea_field(substr((string) $body, 0, 300));
     }
 }

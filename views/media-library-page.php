@@ -18,6 +18,16 @@ $refresh_token = $settings['refresh_token'] ?? '';
     </h2>
 
     <section id="tab-library" class="olama-media-tab active">
+        <?php if (empty($drive_auth_health['is_configured']) || empty($drive_auth_health['has_refresh_token']) || empty($drive_auth_health['can_refresh'])) : ?>
+            <div class="notice notice-error inline olama-drive-auth-warning">
+                <p>
+                    <strong><?php esc_html_e('تنبيه:', 'olama-media-library'); ?></strong>
+                    <?php esc_html_e('اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library'); ?>
+                    <a href="#settings" class="button button-small nav-tab-jump" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a>
+                </p>
+            </div>
+        <?php endif; ?>
+
         <div class="olama-media-toolbar">
             <label>
                 <span><?php esc_html_e('السنة الدراسية', 'olama-media-library'); ?></span>
@@ -68,6 +78,11 @@ $refresh_token = $settings['refresh_token'] ?? '';
 
     <section id="tab-logs" class="olama-media-tab">
         <p><button type="button" id="btn-refresh-log" class="button"><?php esc_html_e('تحديث السجلات', 'olama-media-library'); ?></button></p>
+        <p class="olama-log-filters">
+            <input type="text" id="log-filter-job-uuid" class="regular-text" placeholder="<?php esc_attr_e('Job UUID', 'olama-media-library'); ?>">
+            <input type="text" id="log-filter-event-type" class="regular-text" placeholder="<?php esc_attr_e('Event type', 'olama-media-library'); ?>">
+            <input type="text" id="log-filter-error-code" class="regular-text" placeholder="<?php esc_attr_e('Error code', 'olama-media-library'); ?>">
+        </p>
         <table class="wp-list-table widefat striped">
             <thead>
                 <tr>

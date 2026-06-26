@@ -63,6 +63,20 @@ Chunk upload still passes through WordPress AJAX, but the Drive transfer now str
 
 If the cURL extension is unavailable, the plugin falls back to the older WP HTTP transfer and logs `drive_streaming_unavailable_fallback_used`.
 
+## Phase 1.4 Upload Diagnostics
+
+Upload and finalize failures now return structured diagnostics for admins:
+
+- `error_code`: stable failure reason, such as `nonce_expired`, `auth_session_expired`, `capability_denied`, `google_refresh_token_missing`, `google_token_refresh_failed`, `google_auth_failed`, `google_bad_upload_request`, or `google_range_mismatch`.
+- `stage`: where the failure happened, such as `nonce_check`, `google_auth_check`, `drive_session_create`, `drive_chunk_upload`, or `finalize_upload`.
+- `retryable`: whether the browser should retry the same chunk/finalize step.
+- `drive_http_status`: Google Drive response status when available.
+- `job_uuid`, `asset_id`, and `failed_chunk_index`: safe identifiers for support and log filtering.
+
+Google OAuth/session problems are treated as non-retryable until the admin re-authenticates from Drive settings. Temporary transfer failures and Drive range mismatches may retry the same chunk without restarting the upload.
+
+The Logs tab includes filters for job UUID, event type, and error code. Use these with `upload_error`, `google_auth_error`, `upload_chunk_timing`, and `upload_chunk_drive_timing` events when investigating a failed upload.
+
 ## Migration
 
 Open the Media Library admin page, then the Migration tab.

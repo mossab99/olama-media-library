@@ -19,14 +19,23 @@ jQuery(function ($) {
     $('.nav-tab').on('click', function (event) {
         event.preventDefault();
         const tab = $(this).data('tab');
+        activateTab(tab);
+    });
+
+    $(document).on('click', '.nav-tab-jump', function (event) {
+        event.preventDefault();
+        activateTab($(this).data('tab'));
+    });
+
+    function activateTab(tab) {
         $('.nav-tab').removeClass('nav-tab-active');
-        $(this).addClass('nav-tab-active');
+        $(`.nav-tab[data-tab="${tab}"]`).addClass('nav-tab-active');
         $('.olama-media-tab').removeClass('active');
         $('#tab-' + tab).addClass('active');
         if (tab === 'logs') {
             loadLogs(1);
         }
-    });
+    }
 
     $('#filter-grade').on('change', function () {
         const gradeId = $(this).val();
@@ -166,8 +175,50 @@ jQuery(function ($) {
             notify(cfg.i18n.file_too_large.replace('%s', cfg.maxFileSizeHuman), 'error');
             return;
         }
-        uploadFile(file, state.currentLesson);
+        refreshUploadNonce().done(function (response) {
+            if (!response.success || !response.data || !response.data.drive_authenticated) {
+                notify((response.data && response.data.message_ar) || (response.data && response.data.auth_warning) || cfg.i18n.session_or_permission_expired, 'error');
+                return;
+            }
+            uploadFile(file, state.currentLesson);
+        }).fail(function () {
+            notify(cfg.i18n.session_or_permission_expired, 'error');
+        });
     });
+
+    function refreshUploadNonce() {
+        return $.post(cfg.ajaxurl, {
+            action: 'olama_media_refresh_upload_nonce'
+        }).done(function (response) {
+            if (response.success && response.data && response.data.nonce) {
+                cfg.nonce = response.data.nonce;
+                cfg.driveAuth = {
+                    drive_authenticated: !!response.data.drive_authenticated,
+                    has_refresh_token: !!response.data.has_refresh_token,
+                    auth_warning: response.data.auth_warning || ''
+                };
+            }
+        });
+    }
+
+    function uploadErrorMessage(data) {
+        if (typeof data === 'object' && data !== null) {
+            let message = data.message_ar || data.message || cfg.i18n.error;
+            if (cfg.canManage) {
+                const details = [
+                    data.error_code ? `error_code=${data.error_code}` : '',
+                    data.stage ? `stage=${data.stage}` : '',
+                    data.drive_http_status ? `drive_http_status=${data.drive_http_status}` : '',
+                    data.job_uuid ? `job_uuid=${data.job_uuid}` : ''
+                ].filter(Boolean).join(' | ');
+                if (details) {
+                    message += ` (${details})`;
+                }
+            }
+            return message;
+        }
+        return data || cfg.i18n.error;
+    }
 
     function uploadFile(file, lesson) {
         const chunkSize = cfg.chunkSize || (5 * 1024 * 1024);
@@ -219,24 +270,36 @@ jQuery(function ($) {
             $bar.css('background', '#2271b1');
 
             const failOrRetry = (responseData, xhrFailed = false) => {
-                const responseMessage = typeof responseData === 'object' && responseData !== null
-                    ? (responseData.message || cfg.i18n.error)
-                    : (responseData || cfg.i18n.error);
-                const retryable = xhrFailed || !(typeof responseData === 'object' && responseData !== null && responseData.retryable === false);
+                const responseMessage = uploadErrorMessage(responseData);
+                const retryable = typeof responseData === 'object' && responseData !== null && responseData.retryable === true;
 
                 if (retryable && retryAttempt < retryDelays.length) {
                     const nextAttempt = retryAttempt + 1;
-                    $text.text(cfg.i18n.retrying_chunk
-                        .replace('%1$s', index + 1)
-                        .replace('%2$s', totalChunks)
-                        .replace('%3$s', nextAttempt));
-                    window.setTimeout(() => next(nextAttempt), retryDelays[retryAttempt]);
+                    $text.text(cfg.i18n.retryable_network_error);
+                    refreshUploadNonce().done(function (nonceResponse) {
+                        if (!nonceResponse.success || !nonceResponse.data || !nonceResponse.data.drive_authenticated) {
+                            $bar.css('width', '100%').css('background', '#d63638');
+                            const nonceMessage = (nonceResponse.data && (nonceResponse.data.message_ar || nonceResponse.data.auth_warning)) || cfg.i18n.session_or_permission_expired;
+                            $text.text(nonceMessage);
+                            notify(nonceMessage, 'error');
+                            return;
+                        }
+                        $text.text(cfg.i18n.retrying_chunk
+                            .replace('%1$s', index + 1)
+                            .replace('%2$s', totalChunks)
+                            .replace('%3$s', nextAttempt));
+                        window.setTimeout(() => next(nextAttempt), retryDelays[retryAttempt]);
+                    }).fail(function () {
+                        $bar.css('width', '100%').css('background', '#d63638');
+                        $text.text(cfg.i18n.session_or_permission_expired);
+                        notify(cfg.i18n.session_or_permission_expired, 'error');
+                    });
                     return;
                 }
 
                 $bar.css('width', '100%').css('background', '#d63638');
-                $text.text(cfg.i18n.chunk_failed_final + ' ' + responseMessage);
-                notify(cfg.i18n.chunk_failed_final, 'error');
+                $text.text(responseMessage);
+                notify(responseMessage, 'error');
             };
 
             $.ajax({
@@ -277,7 +340,12 @@ jQuery(function ($) {
                     next();
                 }
             }).fail(function () {
-                failOrRetry(cfg.i18n.error, true);
+                failOrRetry({
+                    retryable: true,
+                    message_ar: cfg.i18n.retryable_network_error,
+                    error_code: 'ajax_transport_failed',
+                    stage: 'ajax_transport'
+                }, true);
             });
         };
 
@@ -310,7 +378,22 @@ jQuery(function ($) {
 
             const retryable = !(response.data && response.data.retryable === false);
             if (retryable && retryAttempt < retryDelays.length) {
-                window.setTimeout(() => finalizeUpload(assetId, jobUuid, $text, $bar, retryAttempt + 1), retryDelays[retryAttempt]);
+                refreshUploadNonce().done(function (nonceResponse) {
+                    if (!nonceResponse.success || !nonceResponse.data || !nonceResponse.data.drive_authenticated) {
+                        const nonceMessage = (nonceResponse.data && (nonceResponse.data.message_ar || nonceResponse.data.auth_warning)) || cfg.i18n.session_or_permission_expired;
+                        if ($text && $text.length) {
+                            $text.text(nonceMessage);
+                        }
+                        notify(nonceMessage, 'error');
+                        return;
+                    }
+                    window.setTimeout(() => finalizeUpload(assetId, jobUuid, $text, $bar, retryAttempt + 1), retryDelays[retryAttempt]);
+                }).fail(function () {
+                    if ($text && $text.length) {
+                        $text.text(cfg.i18n.session_or_permission_expired);
+                    }
+                    notify(cfg.i18n.session_or_permission_expired, 'error');
+                });
                 return;
             }
 
@@ -318,9 +401,9 @@ jQuery(function ($) {
                 $bar.css('width', '100%').css('background', '#dba617');
             }
             if ($text && $text.length) {
-                $text.text(cfg.i18n.finalize_failed);
+                $text.text(uploadErrorMessage(response.data) || cfg.i18n.finalize_failed);
             }
-            notify(cfg.i18n.finalize_failed, 'error');
+            notify(uploadErrorMessage(response.data) || cfg.i18n.finalize_failed, 'error');
             loadCurriculum();
         }).fail(function () {
             if (retryAttempt < retryDelays.length) {
@@ -430,7 +513,14 @@ jQuery(function ($) {
     function loadLogs(page) {
         state.logPage = page;
         $('#log-table-body').html(`<tr><td colspan="4">${esc(cfg.i18n.loading)}</td></tr>`);
-        $.get(cfg.ajaxurl, { action: 'olama_media_get_upload_log', nonce: cfg.nonce, paged: page })
+        $.get(cfg.ajaxurl, {
+            action: 'olama_media_get_upload_log',
+            nonce: cfg.nonce,
+            paged: page,
+            job_uuid: $('#log-filter-job-uuid').val() || '',
+            event_type: $('#log-filter-event-type').val() || '',
+            error_code: $('#log-filter-error-code').val() || ''
+        })
             .done(function (response) {
                 if (!response.success || !response.data.items.length) {
                     $('#log-table-body').html(`<tr><td colspan="4">${esc(cfg.i18n.no_logs)}</td></tr>`);
