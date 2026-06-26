@@ -302,13 +302,13 @@ jQuery(function ($) {
 
     function sendDirectToGoogle(file, session, payload, $progress, $bar, $text) {
         const chunkSize = normalizeDirectChunkSize(cfg.directUploadChunkSizeBytes || (16 * 1024 * 1024));
-        const totalChunks = Math.ceil(file.size / chunkSize);
         const checkpoints = { 25: false, 50: false, 75: false, 100: false };
-        let chunkIndex = 0;
+        let nextStart = 0;
 
-        const uploadChunk = (retryAttempt = 0) => {
-            const start = chunkIndex * chunkSize;
+        const uploadChunk = (retryAttempt = 0, probeRetryAttempt = 0) => {
+            const start = nextStart;
             const end = Math.min(file.size - 1, start + chunkSize - 1);
+            const chunkIndex = Math.floor(start / chunkSize);
             const blob = file.slice(start, end + 1);
             const xhr = new XMLHttpRequest();
 
@@ -340,11 +340,19 @@ jQuery(function ($) {
                 const diagnostics = directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize);
                 if (xhr.status === 308) {
                     const acceptedEnd = parseAcceptedRangeEnd(xhr);
-                    chunkIndex = acceptedEnd >= 0 ? Math.floor((acceptedEnd + 1) / chunkSize) : chunkIndex + 1;
-                    if (chunkIndex < totalChunks) {
+                    if (acceptedEnd >= start) {
+                        nextStart = Math.min(file.size, acceptedEnd + 1);
+                    } else {
+                        logDirectEvent('direct_missing_range_header', payload, file.size, start, 'direct_missing_range_header', 'Google returned 308 without a readable Range header.', 0, diagnostics);
+                        probeDirectUpload(session, payload, file, start, end, chunkIndex, chunkSize, $progress, $bar, $text, retryAttempt, probeRetryAttempt);
+                        return;
+                    }
+                    if (nextStart < file.size) {
                         uploadChunk();
                         return;
                     }
+                    probeDirectUpload(session, payload, file, start, end, chunkIndex, chunkSize, $progress, $bar, $text, retryAttempt, probeRetryAttempt, diagnostics);
+                    return;
                 }
 
                 if (xhr.status === 200 || xhr.status === 201) {
@@ -363,13 +371,18 @@ jQuery(function ($) {
                     return;
                 }
 
+                if (xhr.status === 0) {
+                    probeDirectUpload(session, payload, file, start, end, chunkIndex, chunkSize, $progress, $bar, $text, retryAttempt, probeRetryAttempt, diagnostics);
+                    return;
+                }
+
                 const errorCode = xhr.status === 0 ? 'direct_cors_or_network_failure' : (xhr.status >= 400 && xhr.status < 500 ? 'direct_session_restart_required' : 'direct_google_http_error');
                 const message = xhr.status >= 400 && xhr.status < 500 ? cfg.i18n.direct_session_restart_required : `${cfg.i18n.direct_browser_failed} (${xhr.status})`;
                 showDirectFallback($progress, $bar, $text, message, errorCode, diagnostics, xhr.status >= 400 && xhr.status < 500 ? 'direct_upload_failed' : 'direct_upload_browser_error');
             };
 
             xhr.onerror = function () {
-                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_cors_or_network_failure', {
+                probeDirectUpload(session, payload, file, start, end, chunkIndex, chunkSize, $progress, $bar, $text, retryAttempt, probeRetryAttempt, {
                     loaded_bytes: start,
                     total_bytes: file.size,
                     chunk_start: start,
@@ -379,21 +392,74 @@ jQuery(function ($) {
                     xhr_status: 0,
                     xhr_status_text: '',
                     stage: 'direct_google_put',
-                    message_en: 'Browser blocked or failed the direct Google upload request. This is likely CORS, preflight, or network rejection.'
+                    message_en: 'Browser lost the direct Google upload response or the network request failed.'
                 });
             };
             xhr.ontimeout = function () {
-                showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_timeout', directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize));
+                const diagnostics = directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize);
+                diagnostics.message_en = 'Direct upload chunk timed out; probing resumable session state.';
+                probeDirectUpload(session, payload, file, start, end, chunkIndex, chunkSize, $progress, $bar, $text, retryAttempt, probeRetryAttempt, diagnostics, 'direct_chunk_timeout');
             };
             xhr.onabort = function () {
                 showDirectFallback($progress, $bar, $text, cfg.i18n.direct_browser_failed, 'direct_browser_aborted', directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize));
             };
 
             xhr.open('PUT', session.upload_url, true);
-            xhr.timeout = 2 * 60 * 60 * 1000;
+            xhr.timeout = cfg.directUploadChunkTimeoutMs || 180000;
             xhr.setRequestHeader('Content-Type', session.mime_type || 'video/mp4');
             xhr.setRequestHeader('Content-Range', `bytes ${start}-${end}/${file.size}`);
             xhr.send(blob);
+        };
+
+        const probeDirectUpload = (sessionData, eventPayload, uploadFileRef, start, end, chunkIndex, directChunkSize, $progressRef, $barRef, $textRef, retryAttempt, probeRetryAttempt, diagnostics = {}, errorCode = 'direct_browser_network_or_response_failure') => {
+            $textRef.text(cfg.i18n.direct_probe_checking || cfg.i18n.direct_browser_failed);
+            logDirectEvent('direct_upload_browser_error', eventPayload, uploadFileRef.size, diagnostics.loaded_bytes || start, errorCode, diagnostics.message_en || 'Browser upload response failed; probing Google resumable session.', 0, diagnostics);
+            $.post(cfg.ajaxurl, {
+                action: 'olama_media_probe_direct_upload',
+                nonce: cfg.nonce,
+                job_uuid: sessionData.job_uuid || '',
+                asset_id: sessionData.asset_id || 0,
+                total_size: uploadFileRef.size
+            }).done(function (response) {
+                const probeData = response.data || {};
+                const probeDiagnostics = {
+                    ...diagnostics,
+                    last_probe_status: probeData.google_http_status || probeData.drive_http_status || 0,
+                    next_start: probeData.next_start || 0,
+                    stage: 'direct_google_put'
+                };
+
+                if (response.success && probeData.complete) {
+                    $barRef.css('width', '100%');
+                    logDirectEvent('direct_upload_completed_browser', eventPayload, uploadFileRef.size, uploadFileRef.size, '', 'Direct upload completed according to Google probe.', 100, probeDiagnostics);
+                    $textRef.text(cfg.i18n.direct_completed_finalizing);
+                    refreshUploadNonce().always(function () {
+                        finalizeDirectUpload(sessionData.asset_id, sessionData.job_uuid, '', $textRef, $barRef, $progressRef);
+                    });
+                    return;
+                }
+
+                if (response.success && probeData.next_start > start) {
+                    nextStart = Math.min(uploadFileRef.size, probeData.next_start);
+                    uploadChunk();
+                    return;
+                }
+
+                if (response.success && probeData.next_start === start && retryAttempt < 3) {
+                    window.setTimeout(() => uploadChunk(retryAttempt + 1, probeRetryAttempt + 1), [2000, 5000, 10000][retryAttempt]);
+                    return;
+                }
+
+                const probeError = probeData.error_code || errorCode;
+                const message = probeData.message_ar || cfg.i18n.direct_browser_failed;
+                showDirectFallback($progressRef, $barRef, $textRef, message, probeError, probeDiagnostics, probeData.retryable ? 'direct_upload_browser_error' : 'direct_upload_failed');
+            }).fail(function () {
+                if (probeRetryAttempt < 2) {
+                    window.setTimeout(() => probeDirectUpload(sessionData, eventPayload, uploadFileRef, start, end, chunkIndex, directChunkSize, $progressRef, $barRef, $textRef, retryAttempt, probeRetryAttempt + 1, diagnostics, errorCode), [2000, 5000, 10000][probeRetryAttempt]);
+                    return;
+                }
+                showDirectFallback($progressRef, $barRef, $textRef, cfg.i18n.direct_browser_failed, errorCode, diagnostics);
+            });
         };
 
         uploadChunk();
@@ -407,15 +473,21 @@ jQuery(function ($) {
 
     function directXhrDiagnostics(xhr, file, start, end, chunkIndex, chunkSize) {
         let responseHeaders = '';
+        let responseText = '';
         try {
             responseHeaders = xhr.getAllResponseHeaders() || '';
         } catch (error) {
             responseHeaders = '';
         }
+        try {
+            responseText = xhr.responseText || '';
+        } catch (error) {
+            responseText = '';
+        }
         return {
             xhr_status: xhr.status || 0,
             xhr_status_text: xhr.statusText || '',
-            response_text_preview: (xhr.responseText || '').slice(0, 500),
+            response_text_preview: responseText.slice(0, 500),
             response_headers_preview: responseHeaders.slice(0, 500),
             loaded_bytes: Math.min(file.size, end + 1),
             total_bytes: file.size,
@@ -475,6 +547,8 @@ jQuery(function ($) {
                 diagnostics.xhr_status || diagnostics.xhr_status === 0 ? `xhr_status=${diagnostics.xhr_status}` : '',
                 diagnostics.stage ? `stage=${diagnostics.stage}` : '',
                 Number.isInteger(diagnostics.chunk_index) ? `chunk_index=${diagnostics.chunk_index}` : '',
+                diagnostics.last_probe_status || diagnostics.last_probe_status === 0 ? `last_probe_status=${diagnostics.last_probe_status}` : '',
+                diagnostics.next_start || diagnostics.next_start === 0 ? `next_start=${diagnostics.next_start}` : '',
                 uploadedMb
             ].filter(Boolean).join(' | ');
         }

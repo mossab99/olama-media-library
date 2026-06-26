@@ -110,6 +110,23 @@ Direct browser diagnostics are logged without storing the upload URL. Useful log
 
 Incomplete reserved Drive files are logged with `direct_reserved_file_incomplete`. They are not automatically deleted in this phase; review the logs before manual cleanup.
 
+## Phase 2.2 Direct Upload Recovery
+
+Direct upload can now recover when the browser loses a late Google response, including `xhr_status = 0` near the final chunk.
+
+- WordPress stores the active resumable session URL in the upload job for server-side probing only. It is never returned after session creation and is not logged.
+- On browser response/network failure, the plugin calls `olama_media_probe_direct_upload`.
+- The probe sends `Content-Range: bytes */TOTAL_SIZE` to Google Drive.
+- `200` or `201` means Google already completed the upload, so WordPress finalizes immediately.
+- `308` means the upload is incomplete. The plugin reads Google's `Range` header and resumes from the next byte.
+- `404` means the resumable session expired and a new direct session or WordPress fallback is required.
+- Other `4xx` responses are treated as invalid sessions and are not retried blindly.
+- `5xx` probe responses are retryable.
+
+For every `308`, the browser uses Google's `Range` header strictly instead of assuming a full chunk was accepted. If the Range header is not readable, the plugin logs `direct_missing_range_header` and probes the session before deciding where to resume.
+
+Browser diagnostics now distinguish `direct_browser_network_or_response_failure` from a full CORS failure. Admin details include the chunk index, uploaded MB, `last_probe_status`, and `next_start` when available.
+
 ## Phase 1.3 Streaming Uploads
 
 Chunk upload still passes through WordPress AJAX, but the Drive transfer now streams the temporary chunk file to Google Drive with native cURL. This avoids reading the chunk into a large PHP string before sending it to Drive and should reduce PHP memory pressure compared with the previous `wp_remote_request()` string-body transfer.

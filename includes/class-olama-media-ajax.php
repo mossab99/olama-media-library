@@ -25,6 +25,7 @@ class Olama_Media_Ajax
         add_action('wp_ajax_academy_upload_media_video_chunk', array($this, 'upload_chunk'));
         add_action('wp_ajax_olama_media_finalize_upload', array($this, 'finalize_upload'));
         add_action('wp_ajax_olama_media_finalize_direct_upload', array($this, 'finalize_direct_upload'));
+        add_action('wp_ajax_olama_media_probe_direct_upload', array($this, 'probe_direct_upload'));
         add_action('wp_ajax_olama_media_log_direct_upload_event', array($this, 'log_direct_upload_event'));
         add_action('wp_ajax_olama_media_check_preview_status', array($this, 'check_preview_status'));
         add_action('wp_ajax_nopriv_olama_media_refresh_upload_nonce', array($this, 'refresh_upload_nonce'));
@@ -32,6 +33,7 @@ class Olama_Media_Ajax
         add_action('wp_ajax_nopriv_academy_upload_media_video_chunk', array($this, 'upload_chunk'));
         add_action('wp_ajax_nopriv_olama_media_finalize_upload', array($this, 'finalize_upload'));
         add_action('wp_ajax_nopriv_olama_media_finalize_direct_upload', array($this, 'finalize_direct_upload'));
+        add_action('wp_ajax_nopriv_olama_media_probe_direct_upload', array($this, 'probe_direct_upload'));
         add_action('wp_ajax_nopriv_olama_media_log_direct_upload_event', array($this, 'log_direct_upload_event'));
         add_action('wp_ajax_nopriv_olama_media_check_preview_status', array($this, 'check_preview_status'));
         add_action('wp_ajax_olama_media_save_notes', array($this, 'save_notes'));
@@ -248,6 +250,7 @@ class Olama_Media_Ajax
 
         $this->db->update_job($job_id, array(
             'status' => 'direct_session_created',
+            'drive_upload_uri' => esc_url_raw($session['upload_url']),
             'direct_upload_url_hash' => sanitize_text_field($session['upload_url_hash']),
         ));
 
@@ -858,6 +861,122 @@ class Olama_Media_Ajax
         ));
     }
 
+    public function probe_direct_upload()
+    {
+        $this->verify_upload_request('upload');
+
+        $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
+        $asset_id = absint($_POST['asset_id'] ?? 0);
+        $total_size = absint($_POST['total_size'] ?? 0);
+        $job = $job_uuid ? $this->db->get_job($job_uuid) : null;
+        $asset = $asset_id ? $this->db->get_asset($asset_id) : null;
+
+        if (!$asset && $job && $job->asset_id) {
+            $asset_id = absint($job->asset_id);
+            $asset = $this->db->get_asset($asset_id);
+        }
+
+        if (!$job || !$asset || $job->transport_method !== 'direct_google') {
+            $this->send_upload_error('invalid_job', 'direct_upload_probe', __('تعذر العثور على جلسة الرفع المباشر.', 'olama-media-library'), 'Direct upload job was not found for probe.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+            ));
+        }
+
+        if ((int) $job->created_by !== get_current_user_id() && !Olama_Media_Admin::can_manage()) {
+            $this->send_upload_error('capability_denied', 'capability_check', __('لا تملك صلاحية فحص جلسة رفع هذا الفيديو.', 'olama-media-library'), 'Current user cannot probe this direct upload job.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'http_status' => 403,
+            ));
+        }
+
+        $upload_uri = esc_url_raw($job->drive_upload_uri ?? '');
+        if (!$upload_uri) {
+            $this->send_upload_error('direct_session_missing', 'direct_upload_probe', __('تعذر العثور على جلسة Google Drive لهذا الرفع المباشر. يرجى إعادة المحاولة.', 'olama-media-library'), 'Direct upload session URL is missing from the job.', false, array(
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+            ));
+        }
+
+        $total_size = $total_size ?: absint($job->expected_file_size ?: $job->file_size);
+        $response = wp_remote_request($upload_uri, array(
+            'method' => 'PUT',
+            'headers' => array(
+                'Content-Range' => 'bytes */' . $total_size,
+                'Content-Length' => '0',
+            ),
+            'body' => '',
+            'timeout' => 60,
+        ));
+
+        $http_status = is_wp_error($response) ? 0 : absint(wp_remote_retrieve_response_code($response));
+        $range_header = is_wp_error($response) ? '' : sanitize_text_field(wp_remote_retrieve_header($response, 'range'));
+        $next_start = 0;
+        $complete = false;
+        $error_code = '';
+        $retryable = false;
+
+        if (is_wp_error($response)) {
+            $error_code = 'direct_probe_transport_error';
+            $retryable = true;
+        } elseif ($http_status === 200 || $http_status === 201) {
+            $complete = true;
+            $next_start = $total_size;
+        } elseif ($http_status === 308) {
+            $next_start = $this->next_start_from_range($range_header);
+        } elseif ($http_status === 404) {
+            $error_code = 'direct_session_expired';
+        } elseif ($http_status >= 400 && $http_status < 500) {
+            $error_code = 'direct_session_invalid';
+        } elseif ($http_status >= 500) {
+            $error_code = 'direct_probe_server_error';
+            $retryable = true;
+        } else {
+            $error_code = 'direct_probe_unexpected_status';
+            $retryable = true;
+        }
+
+        $context = array(
+            'job_uuid' => $job_uuid,
+            'asset_id' => $asset_id,
+            'google_http_status' => $http_status,
+            'range_header' => $range_header,
+            'next_start' => $next_start,
+            'total_size' => $total_size,
+            'complete' => $complete,
+            'error_code' => $error_code,
+            'transport_method' => 'direct_google',
+        );
+        $this->logger->log('direct_upload_probe', $error_code ? 'Direct upload probe returned an error state.' : 'Direct upload probe completed.', $context, absint($job->id), $asset_id);
+
+        if ($error_code) {
+            wp_send_json_error(array(
+                'error_code' => $error_code,
+                'message_ar' => $error_code === 'direct_session_expired'
+                    ? __('انتهت صلاحية جلسة الرفع المباشر. يرجى إعادة المحاولة أو استخدام الرفع عبر WordPress.', 'olama-media-library')
+                    : __('تعذر التحقق من جلسة الرفع المباشر. يمكنك إعادة المحاولة أو استخدام الرفع عبر WordPress.', 'olama-media-library'),
+                'message_en' => is_wp_error($response) ? $response->get_error_message() : 'Direct upload probe failed.',
+                'retryable' => $retryable,
+                'stage' => 'direct_upload_probe',
+                'job_uuid' => $job_uuid,
+                'asset_id' => $asset_id,
+                'http_status' => 200,
+                'drive_http_status' => $http_status,
+                'next_start' => $next_start,
+                'complete' => false,
+            ));
+        }
+
+        wp_send_json_success(array(
+            'complete' => $complete,
+            'next_start' => $next_start,
+            'total_size' => $total_size,
+            'google_http_status' => $http_status,
+            'range_header' => $range_header,
+        ));
+    }
+
     public function log_direct_upload_event()
     {
         $this->verify_upload_request('upload');
@@ -869,6 +988,7 @@ class Olama_Media_Ajax
             'direct_upload_selected',
             'direct_upload_started',
             'direct_upload_progress_checkpoint',
+            'direct_missing_range_header',
             'direct_upload_browser_error',
             'direct_upload_completed_browser',
             'direct_upload_failed',
@@ -1181,6 +1301,14 @@ class Olama_Media_Ajax
         }
 
         return true;
+    }
+
+    private function next_start_from_range($range_header)
+    {
+        if (preg_match('/bytes=0-(\d+)/i', (string) $range_header, $matches)) {
+            return absint($matches[1]) + 1;
+        }
+        return 0;
     }
 
     private function validate_uploaded_chunk_file($chunk_file)
