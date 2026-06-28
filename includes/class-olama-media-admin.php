@@ -87,8 +87,12 @@ class Olama_Media_Admin
             return;
         }
 
-        wp_enqueue_style('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/css/media-library-admin.css', array(), OLAMA_MEDIA_LIBRARY_VERSION);
-        wp_enqueue_script('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/js/media-library-admin.js', array('jquery'), OLAMA_MEDIA_LIBRARY_VERSION, true);
+        $style_path = OLAMA_MEDIA_LIBRARY_PATH . 'assets/css/media-library-admin.css';
+        $script_path = OLAMA_MEDIA_LIBRARY_PATH . 'assets/js/media-library-admin.js';
+        $style_version = file_exists($style_path) ? (string) filemtime($style_path) : OLAMA_MEDIA_LIBRARY_VERSION;
+        $script_version = file_exists($script_path) ? (string) filemtime($script_path) : OLAMA_MEDIA_LIBRARY_VERSION;
+        wp_enqueue_style('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/css/media-library-admin.css', array(), $style_version);
+        wp_enqueue_script('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/js/media-library-admin.js', array('jquery'), $script_version, true);
         wp_enqueue_script('heartbeat');
 
         $settings = get_option('academy_media_library_settings', array());
