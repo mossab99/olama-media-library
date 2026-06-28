@@ -49,7 +49,7 @@ class Olama_Media_Ajax
     public function get_subjects()
     {
         $this->verify_nonce();
-        $this->require_manage();
+        $this->require_upload();
         $grade_id = absint($_REQUEST['grade_id'] ?? 0);
         wp_send_json_success($this->curriculum->get_subjects($grade_id));
     }
@@ -57,7 +57,7 @@ class Olama_Media_Ajax
     public function load_curriculum()
     {
         $this->verify_nonce();
-        $this->require_manage();
+        $this->require_upload();
 
         $year_id = absint($_REQUEST['academic_year_id'] ?? 0);
         $semester_id = absint($_REQUEST['semester_id'] ?? 0);
@@ -1158,7 +1158,7 @@ class Olama_Media_Ajax
     public function save_settings()
     {
         $this->verify_nonce();
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || Olama_Media_Admin::is_teacher()) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
 
@@ -1192,7 +1192,7 @@ class Olama_Media_Ajax
     public function test_connection()
     {
         $this->verify_nonce();
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || Olama_Media_Admin::is_teacher()) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
         $result = (new Olama_Media_Drive())->test_connection();
@@ -1213,7 +1213,7 @@ class Olama_Media_Ajax
     public function migrate_legacy()
     {
         $this->verify_nonce();
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') || Olama_Media_Admin::is_teacher()) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
         $dry_run = !empty($_POST['dry_run']);

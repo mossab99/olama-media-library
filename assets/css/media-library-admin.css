@@ -299,3 +299,9 @@
         grid-template-columns: 1fr;
     }
 }
+.olama-upload-only .nav-tab[data-tab="logs"],
+.olama-upload-only .nav-tab[data-tab="migration"],
+.olama-upload-only .nav-tab[data-tab="settings"],
+.olama-upload-only .nav-tab-jump[data-tab="settings"] {
+    display: none;
+}

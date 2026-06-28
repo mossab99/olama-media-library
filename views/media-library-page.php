@@ -5,9 +5,10 @@ if (!defined('ABSPATH')) {
 
 $drive = new Olama_Media_Drive();
 $refresh_token = $settings['refresh_token'] ?? '';
+$can_administer = current_user_can('manage_options') && !Olama_Media_Admin::is_teacher();
 ?>
 
-<div class="wrap academy-media-library-wrap olama-media-library-wrap" dir="rtl">
+<div class="wrap academy-media-library-wrap olama-media-library-wrap<?php echo $can_administer ? '' : ' olama-upload-only'; ?>" dir="rtl">
     <h1><?php esc_html_e('مكتبة الوسائط', 'olama-media-library'); ?></h1>
 
     <h2 class="nav-tab-wrapper">
@@ -89,6 +90,7 @@ $refresh_token = $settings['refresh_token'] ?? '';
         </div>
     </section>
 
+    <?php if ($can_administer) : ?>
     <section id="tab-logs" class="olama-media-tab">
         <p><button type="button" id="btn-refresh-log" class="button"><?php esc_html_e('تحديث السجلات', 'olama-media-library'); ?></button></p>
         <p class="olama-log-filters">
@@ -190,6 +192,7 @@ $refresh_token = $settings['refresh_token'] ?? '';
             <?php endif; ?>
         </div>
     </section>
+    <?php endif; ?>
 </div>
 
 <div id="video-preview-modal" class="olama-media-modal" hidden>
