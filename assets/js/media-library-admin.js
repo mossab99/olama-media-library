@@ -1458,4 +1458,28 @@ jQuery(function ($) {
         $.post(cfg.ajaxurl, { action: 'olama_media_migrate_legacy', nonce: cfg.nonce, dry_run: dryRun })
             .done((response) => $('#migration-result').text(JSON.stringify(response.data || response, null, 2)));
     });
+
+    $('#btn-drive-sync-dry-run, #btn-drive-sync').on('click', function () {
+        const dryRun = this.id === 'btn-drive-sync-dry-run' ? 1 : 0;
+        const payload = {
+            action: 'olama_media_sync_drive',
+            nonce: cfg.nonce,
+            dry_run: dryRun,
+            academic_year_id: $('#filter-year-id').val() || '',
+            semester_id: $('#filter-semester').val() || '',
+            grade_id: $('#filter-grade').val() || '',
+            subject_id: $('#filter-subject').val() || ''
+        };
+        $('#drive-sync-result').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, payload)
+            .done(function (response) {
+                $('#drive-sync-result').text(JSON.stringify(response.data || response, null, 2));
+                if (response.success && !dryRun) {
+                    $('#btn-load-curriculum').trigger('click');
+                }
+            })
+            .fail(function () {
+                $('#drive-sync-result').text(cfg.i18n.error);
+            });
+    });
 });

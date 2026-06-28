@@ -37,6 +37,8 @@ Uploaded to Drive does not mean ready for preview or approved for students.
 
 Normal curriculum loading reads the local database only. It does not call Google Drive.
 
+Administrators can use the Drive sync tool in the Migration tab to reconcile videos that already exist in the configured curriculum folders. It performs exact normalized filename matching against lesson titles, supports a dry run, refuses ambiguous matches, and is safe to repeat.
+
 Drive API calls happen during:
 
 - upload session creation

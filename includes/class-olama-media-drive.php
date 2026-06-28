@@ -582,6 +582,95 @@ class Olama_Media_Drive
         }
     }
 
+    /**
+     * Find an existing folder path without creating any folders.
+     *
+     * @param string[] $path_parts Folder names relative to the configured root.
+     * @return string|WP_Error Empty string means that the path does not exist.
+     */
+    public function find_nested_folder($path_parts)
+    {
+        if (!$this->service) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+        if (!$this->root_folder_id) {
+            return new WP_Error('missing_root', __('Root Folder ID is missing.', 'olama-media-library'));
+        }
+
+        $parent_id = $this->root_folder_id;
+        foreach ((array) $path_parts as $folder_name) {
+            $folder_name = trim(wp_strip_all_tags((string) $folder_name));
+            if ($folder_name === '') {
+                continue;
+            }
+
+            try {
+                $query = "name = '" . str_replace("'", "\\'", $folder_name) . "' and '" . str_replace("'", "\\'", $parent_id) . "' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+                $response = $this->service->files->listFiles(array(
+                    'q' => $query,
+                    'fields' => 'files(id,name)',
+                    'pageSize' => 2,
+                    'supportsAllDrives' => true,
+                    'includeItemsFromAllDrives' => true,
+                ));
+                $folders = method_exists($response, 'getFiles') ? $response->getFiles() : ($response->files ?? array());
+                if (count((array) $folders) !== 1) {
+                    return '';
+                }
+                $parent_id = $folders[0]->id;
+            } catch (Exception $e) {
+                return new WP_Error('drive_folder_lookup_error', $this->extract_error($e));
+            }
+        }
+
+        return $parent_id;
+    }
+
+    /** Return all non-trashed video files directly inside a folder. */
+    public function list_video_files($folder_id)
+    {
+        if (!$this->service || !$folder_id) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+
+        $files = array();
+        $page_token = null;
+        try {
+            do {
+                $args = array(
+                    'q' => "'" . str_replace("'", "\\'", $folder_id) . "' in parents and trashed = false and mimeType contains 'video/'",
+                    'fields' => 'nextPageToken,files(id,name,mimeType,size,parents,webViewLink,webContentLink,thumbnailLink,videoMediaMetadata)',
+                    'pageSize' => 1000,
+                    'supportsAllDrives' => true,
+                    'includeItemsFromAllDrives' => true,
+                );
+                if ($page_token) {
+                    $args['pageToken'] = $page_token;
+                }
+                $response = $this->service->files->listFiles($args);
+                $page_files = method_exists($response, 'getFiles') ? $response->getFiles() : ($response->files ?? array());
+                foreach ((array) $page_files as $file) {
+                    $files[] = array(
+                        'id' => sanitize_text_field($file->id),
+                        'name' => sanitize_text_field($file->name),
+                        'mime_type' => sanitize_text_field($file->mimeType),
+                        'size' => absint($file->size),
+                        'parents' => array_map('sanitize_text_field', (array) $file->parents),
+                        'web_view_link' => esc_url_raw($file->webViewLink),
+                        'web_content_link' => esc_url_raw($file->webContentLink),
+                        'thumbnail_link' => esc_url_raw($file->thumbnailLink),
+                        'video_media_metadata' => $file->videoMediaMetadata,
+                    );
+                }
+                $page_token = method_exists($response, 'getNextPageToken') ? $response->getNextPageToken() : ($response->nextPageToken ?? null);
+            } while ($page_token);
+        } catch (Exception $e) {
+            return new WP_Error('drive_file_list_error', $this->extract_error($e));
+        }
+
+        return $files;
+    }
+
     public function ensure_file_permissions($file_id)
     {
         if (!$this->service || !$file_id) {

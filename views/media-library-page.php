@@ -115,6 +115,13 @@ $can_administer = current_user_can('manage_options') && !Olama_Media_Admin::is_t
 
     <section id="tab-migration" class="olama-media-tab">
         <div class="olama-media-panel">
+            <h2><?php esc_html_e('Sync existing Google Drive videos', 'olama-media-library'); ?></h2>
+            <p><?php esc_html_e('Select the curriculum filters in the Media tab first. The dry run previews exact filename matches; Sync then restores missing local media links without uploading or duplicating files.', 'olama-media-library'); ?></p>
+            <button type="button" class="button" id="btn-drive-sync-dry-run"><?php esc_html_e('Preview Drive sync', 'olama-media-library'); ?></button>
+            <button type="button" class="button button-primary" id="btn-drive-sync"><?php esc_html_e('Sync matched videos', 'olama-media-library'); ?></button>
+            <pre id="drive-sync-result" class="olama-media-result"></pre>
+        </div>
+        <div class="olama-media-panel">
             <h2><?php esc_html_e('ترحيل السجلات القديمة', 'olama-media-library'); ?></h2>
             <p><?php esc_html_e('يمكن تشغيل الفحص الجاف أولا لمعرفة عدد السجلات التي سيتم إنشاؤها أو تحديثها. العملية آمنة ويمكن تكرارها بدون تكرار السجلات.', 'olama-media-library'); ?></p>
             <button type="button" class="button" id="btn-migration-dry-run"><?php esc_html_e('فحص جاف', 'olama-media-library'); ?></button>
