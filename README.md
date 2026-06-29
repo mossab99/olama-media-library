@@ -2,6 +2,10 @@
 
 Standalone media library plugin for Olama School curriculum videos.
 
+## Curriculum Video Coverage Report
+
+Administrators can open the coverage report to review every lesson in an academic year and semester. The report can be narrowed by grade and subject, marks uploaded and missing videos, and calculates coverage for each curriculum, subject, grade, and the full filtered curriculum set. A lesson is covered when it has a linked asset whose Drive upload completed successfully.
+
 ## Purpose
 
 `olama-media-library` owns media upload, Google Drive integration, upload jobs, media statuses, approval, notes, diagnostics, and migration from the old bundled media module.

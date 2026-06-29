@@ -278,6 +278,18 @@ class Olama_Media_Admin
             'status_pending' => __('بانتظار الاعتماد', 'olama-media-library'),
             'status_approved' => __('معتمد', 'olama-media-library'),
             'status_rejected' => __('مرفوض', 'olama-media-library'),
+            'coverage_all_subjects' => __('All subjects', 'olama-media-library'),
+            'coverage_select_semester' => __('Select a semester first.', 'olama-media-library'),
+            'coverage_lessons' => __('lessons', 'olama-media-library'),
+            'coverage_full_set' => __('Full curriculum set', 'olama-media-library'),
+            'coverage_by_grade' => __('Coverage by grade', 'olama-media-library'),
+            'coverage_by_subject' => __('Coverage by subject', 'olama-media-library'),
+            'coverage_curriculum' => __('Curriculum coverage', 'olama-media-library'),
+            'coverage_unit' => __('Unit', 'olama-media-library'),
+            'coverage_lesson' => __('Lesson', 'olama-media-library'),
+            'coverage_video' => __('Video coverage', 'olama-media-library'),
+            'coverage_uploaded' => __('Video uploaded', 'olama-media-library'),
+            'coverage_missing' => __('Video missing', 'olama-media-library'),
         );
     }
 

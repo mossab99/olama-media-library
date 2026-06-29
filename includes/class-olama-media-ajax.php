@@ -18,7 +18,9 @@ class Olama_Media_Ajax
 
         add_action('wp_ajax_olama_get_subjects', array($this, 'get_subjects'), 5);
         add_action('wp_ajax_olama_media_get_subjects', array($this, 'get_subjects'));
+        add_action('wp_ajax_olama_media_get_semesters', array($this, 'get_semesters'));
         add_action('wp_ajax_academy_load_media_curriculum', array($this, 'load_curriculum'));
+        add_action('wp_ajax_olama_media_video_coverage', array($this, 'video_coverage'));
         add_action('wp_ajax_olama_media_start_upload_job', array($this, 'start_upload_job'));
         add_action('wp_ajax_olama_media_refresh_upload_nonce', array($this, 'refresh_upload_nonce'));
         add_action('wp_ajax_olama_media_start_direct_upload', array($this, 'start_direct_upload'));
@@ -55,6 +57,13 @@ class Olama_Media_Ajax
         wp_send_json_success($this->curriculum->get_subjects($grade_id));
     }
 
+    public function get_semesters()
+    {
+        $this->verify_nonce();
+        $this->require_manage();
+        wp_send_json_success($this->curriculum->get_semesters(absint($_REQUEST['academic_year_id'] ?? 0)));
+    }
+
     public function load_curriculum()
     {
         $this->verify_nonce();
@@ -75,6 +84,26 @@ class Olama_Media_Ajax
         }
 
         wp_send_json_success($data);
+    }
+
+    public function video_coverage()
+    {
+        $this->verify_nonce();
+        $this->require_manage();
+        $semester_id = absint($_REQUEST['semester_id'] ?? 0);
+        if (!$semester_id) {
+            wp_send_json_error(__('Select a semester first.', 'olama-media-library'));
+        }
+
+        $rows = $this->db->get_video_coverage(
+            $semester_id,
+            absint($_REQUEST['grade_id'] ?? 0),
+            absint($_REQUEST['subject_id'] ?? 0)
+        );
+        if (is_wp_error($rows)) {
+            wp_send_json_error($rows->get_error_message());
+        }
+        wp_send_json_success(array('rows' => $rows));
     }
 
     public function start_upload_job()

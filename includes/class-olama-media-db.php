@@ -168,6 +168,49 @@ class Olama_Media_DB
         return $units;
     }
 
+    /** Return one row per lesson for curriculum video coverage reporting. */
+    public function get_video_coverage($semester_id, $grade_id = 0, $subject_id = 0)
+    {
+        global $wpdb;
+        $units = $wpdb->prefix . 'olama_curriculum_units';
+        $lessons = $wpdb->prefix . 'olama_curriculum_lessons';
+        $grades = $wpdb->prefix . 'olama_grades';
+        $subjects = $wpdb->prefix . 'olama_subjects';
+
+        foreach (array($units, $lessons, $grades, $subjects) as $table) {
+            if (!$this->table_exists($table)) {
+                return new WP_Error('missing_curriculum_tables', __('Curriculum tables are not available.', 'olama-media-library'));
+            }
+        }
+
+        $where = array('u.semester_id = %d');
+        $params = array(absint($semester_id));
+        if ($grade_id) {
+            $where[] = 'u.grade_id = %d';
+            $params[] = absint($grade_id);
+        }
+        if ($subject_id) {
+            $where[] = 'u.subject_id = %d';
+            $params[] = absint($subject_id);
+        }
+
+        $sql = "SELECT g.id grade_id, g.grade_name, g.grade_level, s.id subject_id, s.subject_name,
+                       u.id unit_id, u.unit_number, u.unit_name,
+                       l.id lesson_id, l.lesson_number, l.lesson_title,
+                       MAX(CASE WHEN a.upload_status = 'uploaded_to_drive' AND COALESCE(a.drive_file_id, '') <> '' THEN 1 ELSE 0 END) has_video
+                FROM {$units} u
+                INNER JOIN {$lessons} l ON l.unit_id = u.id
+                INNER JOIN {$grades} g ON g.id = u.grade_id
+                INNER JOIN {$subjects} s ON s.id = u.subject_id
+                LEFT JOIN {$this->assets_table} a ON a.lesson_id = l.id
+                WHERE " . implode(' AND ', $where) . "
+                GROUP BY g.id, g.grade_name, g.grade_level, s.id, s.subject_name, u.id, u.unit_number, u.unit_name, l.id, l.lesson_number, l.lesson_title
+                ORDER BY CAST(g.grade_level AS UNSIGNED), g.grade_name, s.subject_name,
+                         CAST(u.unit_number AS UNSIGNED), u.unit_number, CAST(l.lesson_number AS UNSIGNED), l.lesson_number";
+
+        return $wpdb->get_results($wpdb->prepare($sql, $params));
+    }
+
     public function upsert_asset($data)
     {
         global $wpdb;

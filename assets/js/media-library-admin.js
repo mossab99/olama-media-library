@@ -40,6 +40,8 @@ jQuery(function ($) {
         $('#tab-' + tab).addClass('active');
         if (tab === 'logs') {
             loadLogs(1);
+        } else if (tab === 'coverage' && !$('#coverage-report').data('loaded')) {
+            loadCoverage();
         }
     }
 
@@ -70,6 +72,69 @@ jQuery(function ($) {
     });
 
     $('#btn-load-curriculum').on('click', loadCurriculum);
+
+    $('#coverage-grade').on('change', function () {
+        const gradeId = $(this).val(), $subject = $('#coverage-subject');
+        $subject.html(`<option value="">${esc(cfg.i18n.coverage_all_subjects)}</option>`);
+        if (!gradeId) { $subject.prop('disabled', true); return; }
+        $subject.prop('disabled', true);
+        $.get(cfg.ajaxurl, { action: 'olama_get_subjects', nonce: cfg.nonce, grade_id: gradeId }).done(function (response) {
+            let html = `<option value="">${esc(cfg.i18n.coverage_all_subjects)}</option>`;
+            if (response.success) response.data.forEach((s) => { html += `<option value="${esc(s.id)}">${esc(s.subject_name)}</option>`; });
+            $subject.html(html).prop('disabled', false);
+        });
+    });
+
+    $('#coverage-year').on('change', function () {
+        const $semester = $('#coverage-semester').prop('disabled', true).html(`<option>${esc(cfg.i18n.loading)}</option>`);
+        $.get(cfg.ajaxurl, { action: 'olama_media_get_semesters', nonce: cfg.nonce, academic_year_id: $(this).val() })
+            .done(function (response) {
+                let html = '';
+                if (response.success) response.data.forEach((s) => { html += `<option value="${esc(s.id)}">${esc(s.semester_name)}</option>`; });
+                $semester.html(html).prop('disabled', false);
+            });
+    });
+
+    $('#btn-load-coverage').on('click', loadCoverage);
+    function coveragePercent(done, total) { return total ? Math.round(done / total * 1000) / 10 : 0; }
+    function coverageStat(label, done, total) {
+        const percent = coveragePercent(done, total);
+        return `<div class="olama-coverage-stat"><span>${esc(label)}</span><strong>${percent}%</strong><small>${done} / ${total} ${esc(cfg.i18n.coverage_lessons)}</small><div class="olama-coverage-track"><i style="width:${percent}%"></i></div></div>`;
+    }
+    function loadCoverage() {
+        const semester = $('#coverage-semester').val(), $report = $('#coverage-report');
+        if (!semester) { notify(cfg.i18n.coverage_select_semester, 'error'); return; }
+        $report.html(`<p>${esc(cfg.i18n.loading)}</p>`); $('#btn-load-coverage').prop('disabled', true);
+        $.get(cfg.ajaxurl, { action: 'olama_media_video_coverage', nonce: cfg.nonce, semester_id: semester, grade_id: $('#coverage-grade').val() || '', subject_id: $('#coverage-subject').val() || '' })
+            .done(function (response) {
+                if (!response.success) { $report.html(`<div class="notice notice-error inline"><p>${esc(response.data || cfg.i18n.error)}</p></div>`); return; }
+                renderCoverage(response.data.rows || []); $report.data('loaded', true);
+            }).always(() => $('#btn-load-coverage').prop('disabled', false));
+    }
+    function renderCoverage(rows) {
+        const $report = $('#coverage-report');
+        if (!rows.length) { $report.html(`<div class="notice notice-warning inline"><p>${esc(cfg.i18n.no_curriculum)}</p></div>`); return; }
+        const curricula = {}, grades = {}, subjects = {}; let covered = 0;
+        rows.forEach((row) => {
+            const yes = Number(row.has_video) === 1, ck = `${row.grade_id}:${row.subject_id}`, sk = row.subject_name;
+            covered += yes ? 1 : 0;
+            curricula[ck] ||= { label: `${row.grade_name} — ${row.subject_name}`, rows: [], covered: 0 };
+            curricula[ck].rows.push(row); curricula[ck].covered += yes ? 1 : 0;
+            grades[row.grade_id] ||= { label: row.grade_name, total: 0, covered: 0 };
+            subjects[sk] ||= { label: row.subject_name, total: 0, covered: 0 };
+            grades[row.grade_id].total++; subjects[sk].total++;
+            grades[row.grade_id].covered += yes ? 1 : 0; subjects[sk].covered += yes ? 1 : 0;
+        });
+        let html = `<div class="olama-coverage-overall">${coverageStat(cfg.i18n.coverage_full_set, covered, rows.length)}</div><h3>${esc(cfg.i18n.coverage_by_grade)}</h3><div class="olama-coverage-stats">`;
+        Object.values(grades).forEach((x) => { html += coverageStat(x.label, x.covered, x.total); });
+        html += `</div><h3>${esc(cfg.i18n.coverage_by_subject)}</h3><div class="olama-coverage-stats">`;
+        Object.values(subjects).forEach((x) => { html += coverageStat(x.label, x.covered, x.total); }); html += '</div>';
+        Object.values(curricula).forEach((c) => {
+            html += `<div class="olama-coverage-curriculum"><div class="olama-coverage-heading"><h3>${esc(c.label)}</h3>${coverageStat(cfg.i18n.coverage_curriculum, c.covered, c.rows.length)}</div><table class="wp-list-table widefat striped"><thead><tr><th>${esc(cfg.i18n.coverage_unit)}</th><th>#</th><th>${esc(cfg.i18n.coverage_lesson)}</th><th>${esc(cfg.i18n.coverage_video)}</th></tr></thead><tbody>`;
+            c.rows.forEach((row) => { const yes = Number(row.has_video) === 1; html += `<tr class="${yes ? 'has-video' : 'missing-video'}"><td>${esc(row.unit_number)}. ${esc(row.unit_name)}</td><td>${esc(row.lesson_number)}</td><td>${esc(row.lesson_title)}</td><td><span class="olama-coverage-status">${yes ? '✓ ' + esc(cfg.i18n.coverage_uploaded) : '✕ ' + esc(cfg.i18n.coverage_missing)}</span></td></tr>`; });
+            html += '</tbody></table></div>';
+        }); $report.html(html);
+    }
 
     function filters() {
         return {

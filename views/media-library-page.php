@@ -5,13 +5,14 @@ if (!defined('ABSPATH')) {
 
 $drive = new Olama_Media_Drive();
 $refresh_token = $settings['refresh_token'] ?? '';
-$can_administer = current_user_can('manage_options') && !Olama_Media_Admin::is_teacher();
+$can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teacher();
 ?>
 
 <div class="wrap academy-media-library-wrap olama-media-library-wrap<?php echo $can_administer ? '' : ' olama-upload-only'; ?>" dir="rtl">
     <h1><?php esc_html_e('مكتبة الوسائط', 'olama-media-library'); ?></h1>
 
     <h2 class="nav-tab-wrapper">
+        <?php if ($can_administer) : ?><a href="#coverage" class="nav-tab" data-tab="coverage"><?php esc_html_e('Curriculum Video Coverage Report', 'olama-media-library'); ?></a><?php endif; ?>
         <a href="#library" class="nav-tab nav-tab-active" data-tab="library"><?php esc_html_e('رفع الفيديوهات', 'olama-media-library'); ?></a>
         <a href="#logs" class="nav-tab" data-tab="logs"><?php esc_html_e('السجلات والتشخيص', 'olama-media-library'); ?></a>
         <a href="#migration" class="nav-tab" data-tab="migration"><?php esc_html_e('الترحيل', 'olama-media-library'); ?></a>
@@ -91,6 +92,39 @@ $can_administer = current_user_can('manage_options') && !Olama_Media_Admin::is_t
     </section>
 
     <?php if ($can_administer) : ?>
+    <section id="tab-coverage" class="olama-media-tab">
+        <div class="olama-media-panel">
+            <h2><?php esc_html_e('Curriculum Video Coverage Report', 'olama-media-library'); ?></h2>
+            <p><?php esc_html_e('Track uploaded and missing lesson videos across the complete curriculum.', 'olama-media-library'); ?></p>
+            <div class="olama-media-toolbar olama-coverage-toolbar">
+                <label><span><?php esc_html_e('Academic year', 'olama-media-library'); ?></span>
+                    <select id="coverage-year">
+                        <?php foreach ($years as $year) : ?>
+                            <option value="<?php echo esc_attr($year->id); ?>" <?php selected($active_year->id ?? 0, $year->id); ?>><?php echo esc_html($year->year_name); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label><span><?php esc_html_e('Semester', 'olama-media-library'); ?></span>
+                    <select id="coverage-semester">
+                        <?php foreach ($semesters as $semester) : ?>
+                            <option value="<?php echo esc_attr($semester->id); ?>" <?php selected($active_semester->id ?? 0, $semester->id); ?>><?php echo esc_html($semester->semester_name); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label><span><?php esc_html_e('Grade', 'olama-media-library'); ?></span>
+                    <select id="coverage-grade"><option value=""><?php esc_html_e('All grades', 'olama-media-library'); ?></option>
+                        <?php foreach ($grades as $grade) : ?><option value="<?php echo esc_attr($grade->id); ?>"><?php echo esc_html($grade->grade_name); ?></option><?php endforeach; ?>
+                    </select>
+                </label>
+                <label><span><?php esc_html_e('Subject', 'olama-media-library'); ?></span>
+                    <select id="coverage-subject" disabled><option value=""><?php esc_html_e('All subjects', 'olama-media-library'); ?></option></select>
+                </label>
+                <button type="button" id="btn-load-coverage" class="button button-primary"><?php esc_html_e('Generate report', 'olama-media-library'); ?></button>
+            </div>
+            <div id="coverage-report"><div class="notice notice-info inline"><p><?php esc_html_e('Generate the report to view curriculum coverage.', 'olama-media-library'); ?></p></div></div>
+        </div>
+    </section>
+
     <section id="tab-logs" class="olama-media-tab">
         <p><button type="button" id="btn-refresh-log" class="button"><?php esc_html_e('تحديث السجلات', 'olama-media-library'); ?></button></p>
         <p class="olama-log-filters">

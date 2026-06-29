@@ -261,6 +261,22 @@
     margin-right: 8px;
 }
 
+.olama-coverage-toolbar { grid-template-columns: repeat(4, minmax(150px, 1fr)) auto; }
+.olama-coverage-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.olama-coverage-overall { max-width: 420px; margin-bottom: 20px; }
+.olama-coverage-stat { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; padding: 12px; border: 1px solid #dcdcde; border-radius: 5px; background: #fff; }
+.olama-coverage-stat strong { color: #2271b1; font-size: 22px; }
+.olama-coverage-stat small { grid-column: 1 / -1; color: #646970; }
+.olama-coverage-track { grid-column: 1 / -1; height: 6px; overflow: hidden; border-radius: 5px; background: #dcdcde; }
+.olama-coverage-track i { display: block; height: 100%; background: #00a32a; }
+.olama-coverage-curriculum { margin-top: 24px; }
+.olama-coverage-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.olama-coverage-heading .olama-coverage-stat { min-width: 250px; }
+.olama-coverage-curriculum td { vertical-align: middle; }
+.olama-coverage-curriculum .has-video .olama-coverage-status { color: #08752c; font-weight: 600; }
+.olama-coverage-curriculum .missing-video { background: #fff4f2; }
+.olama-coverage-curriculum .missing-video .olama-coverage-status { color: #b32d2e; font-weight: 600; }
+
 .olama-media-modal {
     position: fixed;
     inset: 0;
@@ -298,6 +314,8 @@
     .olama-media-toolbar {
         grid-template-columns: 1fr;
     }
+    .olama-coverage-heading { align-items: stretch; flex-direction: column; }
+    .olama-coverage-heading .olama-coverage-stat { min-width: 0; }
 }
 .olama-upload-only .nav-tab[data-tab="logs"],
 .olama-upload-only .nav-tab[data-tab="migration"],
