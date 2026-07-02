@@ -113,6 +113,11 @@ class Olama_Media_Ajax
         if (is_wp_error($rows)) {
             wp_send_json_error($rows->get_error_message());
         }
+        $video_counts = (new Olama_Media_V2_Repository())->get_active_link_counts_for_lessons(wp_list_pluck($rows, 'lesson_id'));
+        foreach ($rows as $row) {
+            $row->video_count = absint($video_counts[absint($row->lesson_id)] ?? 0);
+            $row->has_video = $row->video_count > 0 ? 1 : 0;
+        }
         wp_send_json_success(array('rows' => $rows));
     }
 

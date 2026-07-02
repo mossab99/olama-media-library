@@ -134,7 +134,7 @@ jQuery(function ($) {
         Object.values(subjects).forEach((x) => { html += coverageStat(x.label, x.covered, x.total); }); html += '</div>';
         Object.values(curricula).forEach((c) => {
             html += `<div class="olama-coverage-curriculum"><div class="olama-coverage-heading"><h3>${esc(c.label)}</h3>${coverageStat(cfg.i18n.coverage_curriculum, c.covered, c.rows.length)}</div><table class="wp-list-table widefat striped"><thead><tr><th>${esc(cfg.i18n.coverage_unit)}</th><th>#</th><th>${esc(cfg.i18n.coverage_lesson)}</th><th>${esc(cfg.i18n.coverage_video)}</th></tr></thead><tbody>`;
-            c.rows.forEach((row) => { const yes = Number(row.has_video) === 1; html += `<tr class="${yes ? 'has-video' : 'missing-video'}"><td>${esc(row.unit_number)}. ${esc(row.unit_name)}</td><td>${esc(row.lesson_number)}</td><td>${esc(row.lesson_title)}</td><td><span class="olama-coverage-status">${yes ? '✓ ' + esc(cfg.i18n.coverage_uploaded) : '✕ ' + esc(cfg.i18n.coverage_missing)}</span></td></tr>`; });
+            c.rows.forEach((row) => { const yes = Number(row.has_video) === 1, count = Number(row.video_count || 0); html += `<tr class="${yes ? 'has-video' : 'missing-video'}"><td>${esc(row.unit_number)}. ${esc(row.unit_name)}</td><td>${esc(row.lesson_number)}</td><td>${esc(row.lesson_title)}</td><td><span class="olama-coverage-status">${yes ? '✓ ' + esc(cfg.i18n.coverage_uploaded) + ` (${count})` : '✕ ' + esc(cfg.i18n.coverage_missing)}</span></td></tr>`; });
             html += '</tbody></table></div>';
         }); $report.html(html);
     }

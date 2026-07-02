@@ -149,6 +149,24 @@ class Olama_Media_V2_Repository
         ));
     }
 
+    public function get_active_link_counts_for_lessons($lesson_ids)
+    {
+        global $wpdb;
+        $lesson_ids = array_values(array_unique(array_filter(array_map('absint', (array) $lesson_ids))));
+        if (!$lesson_ids) { return array(); }
+        $placeholders = implode(',', array_fill(0, count($lesson_ids), '%d'));
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT l.lesson_id,COUNT(DISTINCT l.drive_file_id) video_count
+             FROM {$this->links} l INNER JOIN {$this->files} f ON f.drive_file_id=l.drive_file_id
+             WHERE l.lesson_id IN ({$placeholders}) AND l.link_status='active' AND f.scan_status='active'
+             GROUP BY l.lesson_id",
+            $lesson_ids
+        ));
+        $counts = array();
+        foreach ($rows as $row) { $counts[absint($row->lesson_id)] = absint($row->video_count); }
+        return $counts;
+    }
+
     public function get_curriculum_with_v2_links($academic_year_id, $semester_id, $grade_id, $subject_id)
     {
         $db = new Olama_Media_DB();
