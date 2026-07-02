@@ -1265,9 +1265,29 @@ class Olama_Media_Ajax
     public function v2_scan_drive()
     {
         $this->verify_nonce(); $this->require_manage();
-        $result = (new Olama_Media_Drive_Indexer())->scan(array(
-            'dry_run'=>!empty($_POST['dry_run']), 'max_depth'=>absint($_POST['max_depth'] ?? 10),
-        ));
+        $options = array('dry_run'=>!empty($_POST['dry_run']), 'max_depth'=>absint($_POST['max_depth'] ?? 10));
+        $ids = array_map('absint', array($_POST['academic_year_id'] ?? 0, $_POST['semester_id'] ?? 0, $_POST['grade_id'] ?? 0, $_POST['subject_id'] ?? 0));
+        $full_scan = !empty($_POST['full_scan']);
+        if (!$full_scan && in_array(0, $ids, true)) {
+            wp_send_json_error(__('Select the academic year, semester, grade, and subject before scanning Drive.', 'olama-media-library'));
+        }
+        if (!$full_scan) {
+            $names = $this->curriculum->get_names($ids[0], $ids[1], $ids[2], $ids[3]);
+            $drive = new Olama_Media_Drive();
+            $candidate_paths = array(
+                array($names['academic_year'], $names['semester'], $names['grade'], $names['subject']),
+                array($names['semester'], $names['grade'], $names['subject']),
+                array($names['grade'], $names['subject']),
+                array($names['subject']),
+            );
+            foreach ($candidate_paths as $path) {
+                $folder_id = $drive->find_nested_folder($path);
+                if (is_wp_error($folder_id)) { wp_send_json_error($folder_id->get_error_message()); }
+                if ($folder_id) { $options['start_folder_id'] = $folder_id; $options['path_parts'] = $path; break; }
+            }
+            if (empty($options['start_folder_id'])) { wp_send_json_error(__('The selected subject folder was not found in Drive.', 'olama-media-library')); }
+        }
+        $result = (new Olama_Media_Drive_Indexer(isset($drive) ? $drive : null))->scan($options);
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 

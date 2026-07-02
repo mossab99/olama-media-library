@@ -169,7 +169,7 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
         <div class="olama-v2-grid">
             <div class="olama-media-panel">
                 <h2><?php esc_html_e('فهرس Google Drive', 'olama-media-library'); ?></h2>
-                <p><?php esc_html_e('يفحص جميع المجلدات والفيديوهات دون ربطها بسجلات المنهاج القديمة.', 'olama-media-library'); ?></p>
+                <p><?php esc_html_e('يفحص زر Drive المادة المحددة فقط لسرعة التنفيذ. إعادة بناء الفهرس هي العملية الكاملة لجميع المجلدات.', 'olama-media-library'); ?></p>
                 <button type="button" class="button button-primary" id="btn-v2-scan"><?php esc_html_e('فحص Drive', 'olama-media-library'); ?></button>
                 <button type="button" class="button" id="btn-v2-scan-dry"><?php esc_html_e('فحص تجريبي', 'olama-media-library'); ?></button>
                 <button type="button" class="button" id="btn-v2-rebuild"><?php esc_html_e('إعادة بناء فهرس Drive', 'olama-media-library'); ?></button>
@@ -177,7 +177,7 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
             </div>
             <div class="olama-media-panel">
                 <h2><?php esc_html_e('مطابقة المادة', 'olama-media-library'); ?></h2>
-                <p><?php esc_html_e('تستخدم اختيارات السنة والفصل والصف والمادة الموجودة في تبويب رفع الفيديوهات.', 'olama-media-library'); ?></p>
+                <p><?php esc_html_e('تستخدم اختيارات السنة والفصل والصف والمادة الموجودة في تبويب رفع الفيديوهات. الربط التلقائي يعيد بناء الروابط المعلقة التي أنشأها النظام فقط، ولا يحذف الروابط المعتمدة أو اليدوية.', 'olama-media-library'); ?></p>
                 <button type="button" class="button" id="btn-v2-match-preview"><?php esc_html_e('معاينة الربط', 'olama-media-library'); ?></button>
                 <button type="button" class="button button-primary" id="btn-v2-match-apply"><?php esc_html_e('ربط تلقائي', 'olama-media-library'); ?></button>
                 <button type="button" class="button" id="btn-v2-match-force"><?php esc_html_e('إعادة ربط آمن', 'olama-media-library'); ?></button>

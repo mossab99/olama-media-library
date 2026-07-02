@@ -37,10 +37,16 @@ class Olama_Media_V2_Repository
         return (int) $wpdb->insert_id;
     }
 
-    public function mark_missing_drive_files_not_seen_since($run_started_at)
+    public function mark_missing_drive_files_not_seen_since($run_started_at, $path_prefix = '')
     {
         global $wpdb;
-        return (int) $wpdb->query($wpdb->prepare("UPDATE {$this->files} SET scan_status='missing', updated_at=%s WHERE last_seen_at < %s AND scan_status='active'", current_time('mysql'), $run_started_at));
+        $sql = "UPDATE {$this->files} SET scan_status='missing', updated_at=%s WHERE last_seen_at < %s AND scan_status='active'";
+        $params = array(current_time('mysql'), $run_started_at);
+        if ($path_prefix !== '') {
+            $sql .= ' AND drive_path LIKE %s';
+            $params[] = $wpdb->esc_like($path_prefix) . '/%';
+        }
+        return (int) $wpdb->query($wpdb->prepare($sql, $params));
     }
 
     public function get_drive_file_by_file_id($drive_file_id)
@@ -120,6 +126,18 @@ class Olama_Media_V2_Repository
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->links} WHERE drive_file_id=%s LIMIT 1", sanitize_text_field($drive_file_id)));
     }
 
+    public function clear_pending_generated_links_for_scope($academic_year_id, $semester_id, $grade_id, $subject_id)
+    {
+        global $wpdb;
+        return (int) $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$this->links}
+             WHERE academic_year_id=%d AND semester_id=%d AND grade_id=%d AND subject_id=%d
+               AND approval_status='pending'
+               AND match_method IN ('filename_lesson_part','filename_lesson_number','folder_and_title')",
+            absint($academic_year_id), absint($semester_id), absint($grade_id), absint($subject_id)
+        ));
+    }
+
     public function get_links_for_lesson($lesson_id)
     {
         global $wpdb;
@@ -169,7 +187,7 @@ class Olama_Media_V2_Repository
     public function get_review_queue($filters = array())
     {
         global $wpdb;
-        $where = array("l.link_status='active'", "(l.approval_status='pending' OR l.match_confidence < 90)");
+        $where = array("l.link_status IN ('active','unlinked')", "(l.approval_status='pending' OR l.match_confidence < 90)");
         $params = array();
         foreach (array('academic_year_id','semester_id','grade_id','subject_id','unit_id','lesson_id') as $key) {
             if (!empty($filters[$key])) { $where[] = "l.{$key}=%d"; $params[] = absint($filters[$key]); }
@@ -187,13 +205,13 @@ class Olama_Media_V2_Repository
     public function approve_link($link_id, $user_id)
     {
         global $wpdb;
-        return false !== $wpdb->update($this->links, array('approval_status'=>'approved','approved_by'=>absint($user_id),'approved_at'=>current_time('mysql'),'updated_at'=>current_time('mysql')), array('id'=>absint($link_id)));
+        return false !== $wpdb->update($this->links, array('approval_status'=>'approved','link_status'=>'active','approved_by'=>absint($user_id),'approved_at'=>current_time('mysql'),'updated_at'=>current_time('mysql')), array('id'=>absint($link_id)));
     }
 
     public function reject_link($link_id, $user_id, $notes = '')
     {
         global $wpdb;
-        return false !== $wpdb->update($this->links, array('approval_status'=>'rejected','approved_by'=>absint($user_id),'notes'=>sanitize_textarea_field($notes),'updated_at'=>current_time('mysql')), array('id'=>absint($link_id)));
+        return false !== $wpdb->update($this->links, array('approval_status'=>'rejected','link_status'=>'ignored','approved_by'=>absint($user_id),'notes'=>sanitize_textarea_field($notes),'updated_at'=>current_time('mysql')), array('id'=>absint($link_id)));
     }
 
     public function unlink_drive_file($link_id)

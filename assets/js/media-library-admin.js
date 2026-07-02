@@ -1587,7 +1587,8 @@ jQuery(function ($) {
     }
 
     $('#btn-v2-scan, #btn-v2-scan-dry, #btn-v2-rebuild').on('click', function () {
-        v2Post('olama_media_v2_scan_drive', { dry_run: this.id === 'btn-v2-scan-dry' ? 1 : 0, max_depth: 10 }, $('#v2-scan-result')).done(loadV2Runs);
+        if (this.id === 'btn-v2-rebuild' && !window.confirm('This scans the complete Drive root and may take several minutes. Continue?')) return;
+        v2Post('olama_media_v2_scan_drive', { ...filters(), dry_run: this.id === 'btn-v2-scan-dry' ? 1 : 0, full_scan: this.id === 'btn-v2-rebuild' ? 1 : 0, max_depth: 10 }, $('#v2-scan-result')).done(loadV2Runs);
     });
 
     $('#btn-v2-match-preview, #btn-v2-match-apply, #btn-v2-match-force').on('click', function () {

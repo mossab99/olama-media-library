@@ -22,16 +22,17 @@ class Olama_Media_Drive_Indexer
         $dry_run = !empty($options['dry_run']);
         $max_depth = min(20, max(1, absint($options['max_depth'] ?? 10)));
         $this->run_started_at = current_time('mysql');
-        $this->stats = array('files_scanned'=>0,'files_new'=>0,'files_updated'=>0,'files_missing'=>0,'errors'=>0);
+        $this->stats = array('folders_scanned'=>0,'files_scanned'=>0,'files_new'=>0,'files_updated'=>0,'files_missing'=>0,'errors'=>0);
         $run_id = $this->repository->create_sync_run(array('run_type'=>'drive_scan','dry_run'=>$dry_run,'started_at'=>$this->run_started_at));
-        $root = $this->drive->get_root_folder_id();
+        $root = sanitize_text_field($options['start_folder_id'] ?? '') ?: $this->drive->get_root_folder_id();
         if (!$root) {
             $this->stats['errors']++;
             $this->repository->finish_sync_run($run_id, 'failed', $this->stats);
             return new WP_Error('missing_root', __('Root Folder ID is missing.', 'olama-media-library'));
         }
         $root_info = $this->drive->test_connection();
-        $root_path = is_wp_error($root_info) ? array() : array(sanitize_text_field($root_info['name'] ?? ''));
+        $configured_root_path = is_wp_error($root_info) ? array() : array(sanitize_text_field($root_info['name'] ?? ''));
+        $root_path = !empty($options['path_parts']) ? array_merge($configured_root_path, array_map('sanitize_text_field', (array) $options['path_parts'])) : $configured_root_path;
         $result = $this->scan_folder_recursive($root, $root_path, $run_id, $max_depth, 0, $dry_run);
         if (is_wp_error($result)) {
             $this->stats['errors']++;
@@ -40,7 +41,7 @@ class Olama_Media_Drive_Indexer
             return $result;
         }
         if (!$dry_run) {
-            $this->stats['files_missing'] = $this->repository->mark_missing_drive_files_not_seen_since($this->run_started_at);
+            $this->stats['files_missing'] = $this->repository->mark_missing_drive_files_not_seen_since($this->run_started_at, implode('/', $root_path));
         }
         $this->stats['run_id'] = $run_id;
         $this->repository->log_sync_event($run_id, 'drive_scan_completed', 'info', 'Drive scan completed.', $this->stats);
@@ -52,6 +53,7 @@ class Olama_Media_Drive_Indexer
     {
         if (isset($this->visited[$folder_id]) || $depth > $max_depth) { return array(); }
         $this->visited[$folder_id] = true;
+        $this->stats['folders_scanned']++;
         $children = $this->drive->list_folder_children($folder_id);
         if (is_wp_error($children)) { return $children; }
         foreach ($children as $file) {
