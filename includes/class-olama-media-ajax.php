@@ -1275,6 +1275,7 @@ class Olama_Media_Ajax
         $names = $this->curriculum->get_names($year_id, $semester_id, $grade_id, $subject_id);
         $base_path = array($names['academic_year'], $names['semester'], $names['grade'], $names['subject']);
         $report = array(
+            'sync_engine' => '1.2.1-arabic-filenames',
             'dry_run' => $dry_run,
             'folders_checked' => 0,
             'files_found' => 0,
@@ -1430,7 +1431,17 @@ class Olama_Media_Ajax
         $number = trim((string) ($lesson->lesson_number ?? ''));
         $standard_key = $this->normalize_match_text('Lesson ' . $number . ' ' . ($lesson->lesson_title ?? ''));
         $arabic_key = $this->normalize_match_text("\u{062F}\u{0631}\u{0633} " . $number . ' ' . ($lesson->lesson_title ?? ''));
-        return $file_key !== '' && in_array($file_key, array($title_key, $standard_key, $arabic_key), true);
+        $without_arabic_prefix = preg_replace('/^\s*\x{062F}\x{0631}\x{0633}\s*[\p{N}]+\s*/u', '', $basename);
+        $without_english_prefix = preg_replace('/^\s*lesson\s*[\p{N}]+\s*/iu', '', $basename);
+        $prefixless_keys = array(
+            $this->normalize_match_text($without_arabic_prefix),
+            $this->normalize_match_text($without_english_prefix),
+        );
+
+        return $file_key !== '' && (
+            in_array($file_key, array($title_key, $standard_key, $arabic_key), true)
+            || in_array($title_key, $prefixless_keys, true)
+        );
     }
 
     private function normalize_match_text($value)
