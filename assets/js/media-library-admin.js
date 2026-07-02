@@ -191,6 +191,7 @@ jQuery(function ($) {
 
             (unit.lessons || []).forEach((lesson) => {
                 const videoLinks = lesson.video_links || [];
+                const showLegacyActions = videoLinks.length === 0;
                 const uploadStatus = lesson.upload_status || 'none';
                 const previewStatus = lesson.preview_status || 'not_checked';
                 const approvalStatus = lesson.approval_status || 'pending';
@@ -216,11 +217,11 @@ jQuery(function ($) {
                     <td>
                         <div class="olama-actions">
                             ${linkActions}
-                            ${hasVideo && previewStatus === 'ready' && lesson.drive_file_url ? `<button type="button" class="button btn-preview" data-url="${esc(lesson.drive_file_url)}" data-title="${esc(lesson.lesson_title)}">${esc(cfg.i18n.preview)}</button>` : ''}
-                            ${downloadUrl ? `<a class="button" target="_blank" href="${esc(downloadUrl)}">${esc(cfg.i18n.download)}</a>` : ''}
-                            ${needsFinalize ? `<button type="button" class="button btn-finalize-upload" data-job-uuid="${esc(lesson.job_uuid || '')}">${esc(cfg.i18n.retry_finalize)}</button>` : ''}
-                            ${lesson.media_record_id ? `<button type="button" class="button btn-check-status">${esc(cfg.i18n.check_status)}</button>` : ''}
-                            ${cfg.canApprove && lesson.media_record_id ? `<button type="button" class="button btn-approval" data-status="approved">${esc(cfg.i18n.approve)}</button><button type="button" class="button btn-approval" data-status="rejected">${esc(cfg.i18n.reject)}</button>` : ''}
+                            ${showLegacyActions && hasVideo && previewStatus === 'ready' && lesson.drive_file_url ? `<button type="button" class="button btn-preview" data-url="${esc(lesson.drive_file_url)}" data-title="${esc(lesson.lesson_title)}">${esc(cfg.i18n.preview)}</button>` : ''}
+                            ${showLegacyActions && downloadUrl ? `<a class="button" target="_blank" href="${esc(downloadUrl)}">${esc(cfg.i18n.download)}</a>` : ''}
+                            ${showLegacyActions && needsFinalize ? `<button type="button" class="button btn-finalize-upload" data-job-uuid="${esc(lesson.job_uuid || '')}">${esc(cfg.i18n.retry_finalize)}</button>` : ''}
+                            ${showLegacyActions && lesson.media_record_id ? `<button type="button" class="button btn-check-status">${esc(cfg.i18n.check_status)}</button>` : ''}
+                            ${showLegacyActions && cfg.canApprove && lesson.media_record_id ? `<button type="button" class="button btn-approval" data-status="approved">${esc(cfg.i18n.approve)}</button><button type="button" class="button btn-approval" data-status="rejected">${esc(cfg.i18n.reject)}</button>` : ''}
                             <button type="button" class="button btn-upload" data-lesson-id="${esc(lesson.id)}" data-unit-id="${esc(unit.id)}" data-lesson-number="${esc(lesson.lesson_number)}" data-lesson-name="${esc(lesson.lesson_title)}" data-unit-name="${esc(unit.unit_name)}" data-record-id="${esc(lesson.media_record_id || '')}">${esc(hasVideo ? cfg.i18n.replace : cfg.i18n.upload)}</button>
                         </div>
                         <div class="olama-progress olama-upload-panel" id="progress-${esc(lesson.id)}" data-upload-panel>
