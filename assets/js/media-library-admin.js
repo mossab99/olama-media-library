@@ -1529,6 +1529,10 @@ jQuery(function ($) {
         syncDrive({ dryRun, reloadCurriculum: !dryRun });
     });
 
+    if (cfg.autoSyncDriveOnLoad) {
+        syncDrive({ dryRun: 0, reloadCurriculum: true, silent: true });
+    }
+
     function syncDrive(options) {
         const dryRun = options && options.dryRun ? 1 : 0;
         const reloadCurriculum = !options || options.reloadCurriculum !== false;
