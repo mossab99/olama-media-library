@@ -109,6 +109,121 @@ class Olama_Media_DB
             KEY asset_id (asset_id),
             KEY event_type (event_type)
         ) $charset_collate;");
+
+        $drive_files = $wpdb->prefix . 'olama_drive_files';
+        $links = $wpdb->prefix . 'olama_lesson_video_links';
+        $runs = $wpdb->prefix . 'olama_drive_sync_runs';
+        $sync_events = $wpdb->prefix . 'olama_drive_sync_events';
+
+        dbDelta("CREATE TABLE {$drive_files} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            drive_file_id VARCHAR(191) NOT NULL,
+            drive_folder_id VARCHAR(191) NULL,
+            drive_parent_ids LONGTEXT NULL,
+            drive_path TEXT NULL,
+            drive_path_hash VARCHAR(64) NULL,
+            filename VARCHAR(255) NOT NULL,
+            normalized_filename VARCHAR(255) NULL,
+            extension VARCHAR(20) NULL,
+            mime_type VARCHAR(100) NULL,
+            file_size BIGINT UNSIGNED NULL,
+            modified_time DATETIME NULL,
+            web_view_link TEXT NULL,
+            web_content_link TEXT NULL,
+            thumbnail_link TEXT NULL,
+            video_metadata LONGTEXT NULL,
+            scan_status VARCHAR(30) NOT NULL DEFAULT 'active',
+            first_seen_at DATETIME NOT NULL,
+            last_seen_at DATETIME NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY drive_file_id (drive_file_id),
+            KEY drive_folder_id (drive_folder_id),
+            KEY drive_path_hash (drive_path_hash),
+            KEY scan_status (scan_status),
+            KEY modified_time (modified_time)
+        ) $charset_collate;");
+
+        dbDelta("CREATE TABLE {$links} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            drive_file_id VARCHAR(191) NOT NULL,
+            drive_file_row_id BIGINT UNSIGNED NULL,
+            academic_year_id BIGINT UNSIGNED NULL,
+            semester_id BIGINT UNSIGNED NULL,
+            grade_id BIGINT UNSIGNED NULL,
+            subject_id BIGINT UNSIGNED NULL,
+            unit_id BIGINT UNSIGNED NULL,
+            lesson_id BIGINT UNSIGNED NOT NULL,
+            part_number INT UNSIGNED NULL,
+            sequence_order INT UNSIGNED NOT NULL DEFAULT 1,
+            match_method VARCHAR(50) NOT NULL DEFAULT 'manual',
+            match_confidence TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            approval_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            link_status VARCHAR(30) NOT NULL DEFAULT 'active',
+            notes TEXT NULL,
+            linked_by BIGINT UNSIGNED NULL,
+            approved_by BIGINT UNSIGNED NULL,
+            approved_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY drive_file_id (drive_file_id),
+            KEY lesson_id (lesson_id),
+            KEY curriculum (academic_year_id,semester_id,grade_id,subject_id),
+            KEY unit_lesson (unit_id,lesson_id),
+            KEY approval_status (approval_status),
+            KEY link_status (link_status),
+            KEY match_confidence (match_confidence)
+        ) $charset_collate;");
+
+        dbDelta("CREATE TABLE {$runs} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            run_uuid VARCHAR(100) NOT NULL,
+            run_type VARCHAR(50) NOT NULL,
+            dry_run TINYINT(1) NOT NULL DEFAULT 0,
+            status VARCHAR(30) NOT NULL DEFAULT 'running',
+            academic_year_id BIGINT UNSIGNED NULL,
+            semester_id BIGINT UNSIGNED NULL,
+            grade_id BIGINT UNSIGNED NULL,
+            subject_id BIGINT UNSIGNED NULL,
+            files_scanned INT UNSIGNED NOT NULL DEFAULT 0,
+            files_new INT UNSIGNED NOT NULL DEFAULT 0,
+            files_updated INT UNSIGNED NOT NULL DEFAULT 0,
+            files_missing INT UNSIGNED NOT NULL DEFAULT 0,
+            auto_linked INT UNSIGNED NOT NULL DEFAULT 0,
+            needs_review INT UNSIGNED NOT NULL DEFAULT 0,
+            unmatched INT UNSIGNED NOT NULL DEFAULT 0,
+            ambiguous INT UNSIGNED NOT NULL DEFAULT 0,
+            errors INT UNSIGNED NOT NULL DEFAULT 0,
+            summary LONGTEXT NULL,
+            started_at DATETIME NOT NULL,
+            finished_at DATETIME NULL,
+            created_by BIGINT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY run_uuid (run_uuid),
+            KEY run_type (run_type),
+            KEY status (status),
+            KEY curriculum (academic_year_id,semester_id,grade_id,subject_id)
+        ) $charset_collate;");
+
+        dbDelta("CREATE TABLE {$sync_events} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            run_id BIGINT UNSIGNED NULL,
+            event_type VARCHAR(100) NOT NULL,
+            severity VARCHAR(20) NOT NULL DEFAULT 'info',
+            drive_file_id VARCHAR(191) NULL,
+            lesson_id BIGINT UNSIGNED NULL,
+            message TEXT NULL,
+            context LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY run_id (run_id),
+            KEY event_type (event_type),
+            KEY severity (severity),
+            KEY drive_file_id (drive_file_id),
+            KEY lesson_id (lesson_id)
+        ) $charset_collate;");
     }
 
     public function get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id)
@@ -176,6 +291,8 @@ class Olama_Media_DB
         $lessons = $wpdb->prefix . 'olama_curriculum_lessons';
         $grades = $wpdb->prefix . 'olama_grades';
         $subjects = $wpdb->prefix . 'olama_subjects';
+        $v2_links = $wpdb->prefix . 'olama_lesson_video_links';
+        $drive_files = $wpdb->prefix . 'olama_drive_files';
 
         foreach (array($units, $lessons, $grades, $subjects) as $table) {
             if (!$this->table_exists($table)) {
@@ -197,12 +314,13 @@ class Olama_Media_DB
         $sql = "SELECT g.id grade_id, g.grade_name, g.grade_level, s.id subject_id, s.subject_name,
                        u.id unit_id, u.unit_number, u.unit_name,
                        l.id lesson_id, l.lesson_number, l.lesson_title,
-                       MAX(CASE WHEN a.upload_status = 'uploaded_to_drive' AND COALESCE(a.drive_file_id, '') <> '' THEN 1 ELSE 0 END) has_video
+                       MAX(CASE WHEN vl.link_status = 'active' AND df.scan_status = 'active' THEN 1 ELSE 0 END) has_video
                 FROM {$units} u
                 INNER JOIN {$lessons} l ON l.unit_id = u.id
                 INNER JOIN {$grades} g ON g.id = u.grade_id
                 INNER JOIN {$subjects} s ON s.id = u.subject_id
-                LEFT JOIN {$this->assets_table} a ON a.lesson_id = l.id
+                LEFT JOIN {$v2_links} vl ON vl.lesson_id = l.id
+                LEFT JOIN {$drive_files} df ON df.drive_file_id = vl.drive_file_id
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY g.id, g.grade_name, g.grade_level, s.id, s.subject_name, u.id, u.unit_number, u.unit_name, l.id, l.lesson_number, l.lesson_title
                 ORDER BY CAST(g.grade_level AS UNSIGNED), g.grade_name, s.subject_name,

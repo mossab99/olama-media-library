@@ -2,6 +2,12 @@
 
 Standalone media library plugin for Olama School curriculum videos.
 
+## Drive v2
+
+Version 2 separates Drive discovery from curriculum linking. Recursive scans populate `olama_drive_files`; confidence-based subject matching populates `olama_lesson_video_links`. A lesson may have multiple ordered video links, including parsed Arabic or English part numbers. Sync runs and detailed events are stored independently, and legacy media tables remain untouched for compatibility.
+
+Administrators can scan, preview/apply matches, review or manually relink files, import legacy assets, and reset only v2 data from the **Drive v2** tab. The lesson upload page uses active v2 links as its primary media source, while successful new uploads continue writing legacy records and also register their v2 manifest/link records.
+
 ## Curriculum Video Coverage Report
 
 Administrators can open the coverage report to review every lesson in an academic year and semester. The report can be narrowed by grade and subject, marks uploaded and missing videos, and calculates coverage for each curriculum, subject, grade, and the full filtered curriculum set. A lesson is covered when it has a linked asset whose Drive upload completed successfully.

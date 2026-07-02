@@ -47,6 +47,16 @@ class Olama_Media_Ajax
         add_action('wp_ajax_academy_get_upload_log', array($this, 'get_upload_log'));
         add_action('wp_ajax_olama_media_migrate_legacy', array($this, 'migrate_legacy'));
         add_action('wp_ajax_olama_media_sync_drive', array($this, 'sync_drive'));
+        add_action('wp_ajax_olama_media_v2_scan_drive', array($this, 'v2_scan_drive'));
+        add_action('wp_ajax_olama_media_v2_match_subject', array($this, 'v2_match_subject'));
+        add_action('wp_ajax_olama_media_v2_get_review_queue', array($this, 'v2_get_review_queue'));
+        add_action('wp_ajax_olama_media_v2_approve_link', array($this, 'v2_approve_link'));
+        add_action('wp_ajax_olama_media_v2_reject_link', array($this, 'v2_reject_link'));
+        add_action('wp_ajax_olama_media_v2_manual_link', array($this, 'v2_manual_link'));
+        add_action('wp_ajax_olama_media_v2_unlink', array($this, 'v2_unlink'));
+        add_action('wp_ajax_olama_media_v2_reset_index', array($this, 'v2_reset_index'));
+        add_action('wp_ajax_olama_media_v2_import_legacy', array($this, 'v2_import_legacy'));
+        add_action('wp_ajax_olama_media_v2_latest_runs', array($this, 'v2_latest_runs'));
     }
 
     public function get_subjects()
@@ -78,7 +88,7 @@ class Olama_Media_Ajax
             wp_send_json_error(__('Missing curriculum filters.', 'olama-media-library'));
         }
 
-        $data = $this->db->get_curriculum_with_assets($year_id, $semester_id, $grade_id, $subject_id);
+        $data = (new Olama_Media_V2_Repository())->get_curriculum_with_v2_links($year_id, $semester_id, $grade_id, $subject_id);
         if (is_wp_error($data)) {
             wp_send_json_error($data->get_error_message());
         }
@@ -693,6 +703,7 @@ class Olama_Media_Ajax
                 'preview_status' => 'processing',
                 'uploaded_at' => current_time('mysql'),
             ));
+            $this->register_v2_uploaded_file($asset, $drive_file_id, $metadata, $download_link);
 
             if ($job_id) {
                 $this->db->update_job($job_id, array(
@@ -862,6 +873,7 @@ class Olama_Media_Ajax
             'transport_method' => 'direct_google',
             'uploaded_at' => current_time('mysql'),
         ));
+        $this->register_v2_uploaded_file($asset, $drive_file_id, $metadata, $download_link);
         $this->db->update_job($job->id, array(
             'drive_file_id' => $drive_file_id,
             'status' => 'completed',
@@ -1248,6 +1260,137 @@ class Olama_Media_Ajax
         }
         $dry_run = !empty($_POST['dry_run']);
         wp_send_json_success($this->db->migrate_legacy($dry_run));
+    }
+
+    public function v2_scan_drive()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        $result = (new Olama_Media_Drive_Indexer())->scan(array(
+            'dry_run'=>!empty($_POST['dry_run']), 'max_depth'=>absint($_POST['max_depth'] ?? 10),
+        ));
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function v2_match_subject()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        $ids = array_map('absint', array(
+            $_POST['academic_year_id'] ?? 0, $_POST['semester_id'] ?? 0,
+            $_POST['grade_id'] ?? 0, $_POST['subject_id'] ?? 0,
+        ));
+        if (in_array(0, $ids, true)) { wp_send_json_error(__('Select all curriculum filters.', 'olama-media-library')); }
+        $result = (new Olama_Media_Matcher())->match_subject($ids[0], $ids[1], $ids[2], $ids[3], array(
+            'dry_run'=>!empty($_POST['dry_run']), 'auto_apply'=>!empty($_POST['auto_apply']),
+            'force_relink'=>!empty($_POST['force_relink']), 'save_review'=>!empty($_POST['save_review']),
+        ));
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function v2_get_review_queue()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        $filters = array();
+        foreach (array('academic_year_id','semester_id','grade_id','subject_id','unit_id','lesson_id') as $key) {
+            $filters[$key] = absint($_REQUEST[$key] ?? 0);
+        }
+        $filters['approval_status'] = sanitize_key($_REQUEST['approval_status'] ?? '');
+        $filters['link_status'] = sanitize_key($_REQUEST['link_status'] ?? '');
+        wp_send_json_success((new Olama_Media_V2_Repository())->get_review_queue($filters));
+    }
+
+    public function v2_approve_link()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        wp_send_json_success((new Olama_Media_V2_Repository())->approve_link(absint($_POST['link_id'] ?? 0), get_current_user_id()));
+    }
+
+    public function v2_reject_link()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        wp_send_json_success((new Olama_Media_V2_Repository())->reject_link(absint($_POST['link_id'] ?? 0), get_current_user_id(), wp_unslash($_POST['notes'] ?? '')));
+    }
+
+    public function v2_manual_link()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        global $wpdb;
+        $file_id = sanitize_text_field($_POST['drive_file_id'] ?? '');
+        $lesson_id = absint($_POST['lesson_id'] ?? 0);
+        $file = (new Olama_Media_V2_Repository())->get_drive_file_by_file_id($file_id);
+        $lesson = $wpdb->get_row($wpdb->prepare(
+            "SELECT l.id lesson_id,l.unit_id,u.semester_id,u.grade_id,u.subject_id,s.academic_year_id
+             FROM {$wpdb->prefix}olama_curriculum_lessons l
+             JOIN {$wpdb->prefix}olama_curriculum_units u ON u.id=l.unit_id
+             JOIN {$wpdb->prefix}olama_semesters s ON s.id=u.semester_id WHERE l.id=%d", $lesson_id
+        ));
+        if (!$file || !$lesson) { wp_send_json_error(__('Drive file or lesson was not found.', 'olama-media-library')); }
+        $repo = new Olama_Media_V2_Repository();
+        $part_number = absint($_POST['part_number'] ?? 0);
+        $link_id = $repo->upsert_lesson_video_link(array(
+            'drive_file_id'=>$file_id,'drive_file_row_id'=>absint($file->id),'academic_year_id'=>absint($lesson->academic_year_id),
+            'semester_id'=>absint($lesson->semester_id),'grade_id'=>absint($lesson->grade_id),'subject_id'=>absint($lesson->subject_id),
+            'unit_id'=>absint($lesson->unit_id),'lesson_id'=>$lesson_id,'part_number'=>$part_number ?: null,
+            'sequence_order'=>absint($_POST['sequence_order'] ?? 0) ?: ($part_number ?: $repo->next_sequence_order($lesson_id)),
+            'match_method'=>'manual','match_confidence'=>100,'approval_status'=>'pending','link_status'=>'active','linked_by'=>get_current_user_id(),
+        ));
+        wp_send_json_success(array('link_id'=>$link_id));
+    }
+
+    public function v2_unlink()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        wp_send_json_success((new Olama_Media_V2_Repository())->unlink_drive_file(absint($_POST['link_id'] ?? 0)));
+    }
+
+    public function v2_reset_index()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        if (sanitize_text_field(wp_unslash($_POST['confirmation_text'] ?? '')) !== 'RESET V2 MEDIA INDEX') {
+            wp_send_json_error(__('Confirmation text does not match.', 'olama-media-library'));
+        }
+        $scope = sanitize_key($_POST['scope'] ?? '');
+        if (!in_array($scope, array('links_only','manifest_only','all_v2'), true)) { wp_send_json_error(__('Invalid reset scope.', 'olama-media-library')); }
+        wp_send_json_success((new Olama_Media_V2_Repository())->reset_v2_index($scope));
+    }
+
+    public function v2_latest_runs()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        wp_send_json_success((new Olama_Media_V2_Repository())->get_latest_runs(20));
+    }
+
+    public function v2_import_legacy()
+    {
+        $this->verify_nonce(); $this->require_manage();
+        global $wpdb;
+        $repo = new Olama_Media_V2_Repository();
+        $normalizer = new Olama_Media_Normalizer();
+        $include_stale = !empty($_POST['include_stale']);
+        $rows = $wpdb->get_results("SELECT * FROM {$this->db->assets_table} WHERE drive_file_id IS NOT NULL AND drive_file_id<>''");
+        $report = array('imported'=>0,'skipped_missing_lesson'=>0,'duplicate_drive_files'=>0,'errors'=>0);
+        foreach ($rows as $row) {
+            $lesson_exists = $row->lesson_id && $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}olama_curriculum_lessons WHERE id=%d", $row->lesson_id));
+            if (!$lesson_exists && !$include_stale) { $report['skipped_missing_lesson']++; continue; }
+            $existing = $repo->get_drive_file_by_file_id($row->drive_file_id);
+            if ($existing) { $report['duplicate_drive_files']++; }
+            $file_row_id = $repo->upsert_drive_file(array(
+                'drive_file_id'=>$row->drive_file_id,'drive_folder_id'=>$row->drive_folder_id,'filename'=>$row->original_filename ?: $row->title,
+                'normalized_filename'=>$normalizer->normalize_filename($row->original_filename ?: $row->title),
+                'extension'=>$normalizer->extract_extension($row->original_filename),'mime_type'=>$row->mime_type,'file_size'=>$row->file_size,
+                'web_view_link'=>$row->web_view_link,'web_content_link'=>$row->web_content_link,'thumbnail_link'=>$row->thumbnail_link,
+                'scan_status'=>'active','last_seen_at'=>current_time('mysql'),
+            ));
+            if ($lesson_exists) {
+                $repo->upsert_lesson_video_link(array(
+                    'drive_file_id'=>$row->drive_file_id,'drive_file_row_id'=>$file_row_id,'academic_year_id'=>$row->academic_year_id,
+                    'semester_id'=>$row->semester_id,'grade_id'=>$row->grade_id,'subject_id'=>$row->subject_id,'unit_id'=>$row->unit_id,
+                    'lesson_id'=>$row->lesson_id,'sequence_order'=>$repo->next_sequence_order($row->lesson_id),'match_method'=>'legacy_import',
+                    'match_confidence'=>80,'approval_status'=>$row->approval_status ?: 'pending','link_status'=>'active','linked_by'=>get_current_user_id(),
+                ));
+            }
+            $report['imported']++;
+        }
+        wp_send_json_success($report);
     }
 
     public function sync_drive()
@@ -1797,6 +1940,32 @@ class Olama_Media_Ajax
             'message_ar' => $message_ar,
             'retryable' => $retryable,
         );
+    }
+
+    private function register_v2_uploaded_file($asset, $drive_file_id, $metadata, $download_link)
+    {
+        if (!$asset || empty($asset->lesson_id)) { return; }
+        $repo = new Olama_Media_V2_Repository();
+        $normalizer = new Olama_Media_Normalizer();
+        $filename = sanitize_text_field($metadata['name'] ?? $asset->original_filename ?? $asset->title);
+        $row_id = $repo->upsert_drive_file(array(
+            'drive_file_id'=>sanitize_text_field($drive_file_id),'drive_folder_id'=>sanitize_text_field($asset->drive_folder_id ?? ''),
+            'drive_parent_ids'=>wp_json_encode(array_map('sanitize_text_field', (array) ($metadata['parents'] ?? array()))),
+            'filename'=>$filename,'normalized_filename'=>$normalizer->normalize_filename($filename),
+            'extension'=>$normalizer->extract_extension($filename),'mime_type'=>sanitize_text_field($metadata['mime_type'] ?? $asset->mime_type),
+            'file_size'=>absint($metadata['size'] ?? $asset->file_size),'web_view_link'=>esc_url_raw($metadata['web_view_link'] ?? ''),
+            'web_content_link'=>esc_url_raw($download_link),'thumbnail_link'=>esc_url_raw($metadata['thumbnail_link'] ?? ''),
+            'video_metadata'=>wp_json_encode($metadata['video_media_metadata'] ?? array()),'scan_status'=>'active','last_seen_at'=>current_time('mysql'),
+        ));
+        $part = $normalizer->extract_part_number($filename);
+        $repo->upsert_lesson_video_link(array(
+            'drive_file_id'=>sanitize_text_field($drive_file_id),'drive_file_row_id'=>$row_id,
+            'academic_year_id'=>absint($asset->academic_year_id),'semester_id'=>absint($asset->semester_id),
+            'grade_id'=>absint($asset->grade_id),'subject_id'=>absint($asset->subject_id),'unit_id'=>absint($asset->unit_id),
+            'lesson_id'=>absint($asset->lesson_id),'part_number'=>$part,'sequence_order'=>$part ?: $repo->next_sequence_order($asset->lesson_id),
+            'match_method'=>'manual_upload','match_confidence'=>100,'approval_status'=>sanitize_key($asset->approval_status ?: 'pending'),
+            'link_status'=>'active','linked_by'=>get_current_user_id(),
+        ));
     }
 
     private function verify_nonce()

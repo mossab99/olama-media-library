@@ -42,6 +42,9 @@ jQuery(function ($) {
             loadLogs(1);
         } else if (tab === 'coverage' && !$('#coverage-report').data('loaded')) {
             loadCoverage();
+        } else if (tab === 'drive-v2') {
+            loadV2Review();
+            loadV2Runs();
         }
     }
 
@@ -187,6 +190,7 @@ jQuery(function ($) {
                     </tr></thead><tbody>`;
 
             (unit.lessons || []).forEach((lesson) => {
+                const videoLinks = lesson.video_links || [];
                 const uploadStatus = lesson.upload_status || 'none';
                 const previewStatus = lesson.preview_status || 'not_checked';
                 const approvalStatus = lesson.approval_status || 'pending';
@@ -196,15 +200,22 @@ jQuery(function ($) {
                     || (lesson.drive_file_id && !lesson.drive_file_url);
                 const downloadUrl = lesson.web_content_link || (lesson.drive_file_id ? `https://drive.google.com/uc?export=download&id=${encodeURIComponent(lesson.drive_file_id)}` : '');
                 const processingNote = hasVideo && previewStatus === 'processing' ? `<div class="olama-processing-note">${esc(cfg.i18n.processing_note)}</div>` : '';
+                const linksSummary = videoLinks.length ? `<div class="olama-v2-video-count">عدد الفيديوهات: ${videoLinks.length}</div>${videoLinks.map((link, index) => `<div class="olama-v2-video"><strong>${link.part_number ? `جزء ${esc(link.part_number)}` : `فيديو ${index + 1}`}</strong> ${badge(link.approval_status)} <small>${esc(link.filename)}</small></div>`).join('')}` : '';
+                const linkActions = videoLinks.map((link) => `<div class="olama-v2-link-actions">
+                    ${link.web_view_link ? `<button type="button" class="button btn-preview" data-url="${esc(link.web_view_link)}" data-title="${esc(link.filename)}">${esc(cfg.i18n.preview)}</button>` : ''}
+                    ${cfg.canApprove ? `<button type="button" class="button btn-v2-approve" data-link-id="${esc(link.link_id)}">${esc(cfg.i18n.approve)}</button><button type="button" class="button btn-v2-reject" data-link-id="${esc(link.link_id)}">${esc(cfg.i18n.reject)}</button>` : ''}
+                    ${cfg.canManage ? `<button type="button" class="button btn-v2-edit" data-file-id="${esc(link.drive_file_id)}" data-lesson-id="${esc(lesson.id)}" data-part="${esc(link.part_number || '')}">تعديل</button><button type="button" class="button btn-v2-unlink" data-link-id="${esc(link.link_id)}">إلغاء الربط</button>` : ''}
+                </div>`).join('');
 
                 html += `<tr data-asset-id="${esc(lesson.media_record_id || '')}" data-lesson-id="${esc(lesson.id)}">
                     <td>${esc(lesson.lesson_number)}</td>
                     <td>${esc(lesson.lesson_title)}</td>
-                    <td>${badge(uploadStatus)} ${badge(previewStatus)} ${badge(approvalStatus)}${processingNote}</td>
+                    <td>${badge(uploadStatus)} ${badge(previewStatus)} ${badge(approvalStatus)}${processingNote}${linksSummary}</td>
                     <td><textarea class="olama-note" rows="2" ${lesson.media_record_id ? '' : 'disabled'}>${esc(lesson.comments || '')}</textarea></td>
                     <td>${lesson.uploaded_at ? esc(lesson.uploaded_at) : '-'}</td>
                     <td>
                         <div class="olama-actions">
+                            ${linkActions}
                             ${hasVideo && previewStatus === 'ready' && lesson.drive_file_url ? `<button type="button" class="button btn-preview" data-url="${esc(lesson.drive_file_url)}" data-title="${esc(lesson.lesson_title)}">${esc(cfg.i18n.preview)}</button>` : ''}
                             ${downloadUrl ? `<a class="button" target="_blank" href="${esc(downloadUrl)}">${esc(cfg.i18n.download)}</a>` : ''}
                             ${needsFinalize ? `<button type="button" class="button btn-finalize-upload" data-job-uuid="${esc(lesson.job_uuid || '')}">${esc(cfg.i18n.retry_finalize)}</button>` : ''}
@@ -1566,4 +1577,77 @@ jQuery(function ($) {
                 }
             });
     }
+
+    function v2Post(action, data, $result) {
+        if ($result) $result.text(cfg.i18n.loading);
+        return $.post(cfg.ajaxurl, { action, nonce: cfg.nonce, ...data }).done(function (response) {
+            if ($result) $result.text(JSON.stringify(response.data || response, null, 2));
+            if (!response.success) notify(response.data || cfg.i18n.error, 'error');
+        }).fail(function () { if ($result) $result.text(cfg.i18n.error); });
+    }
+
+    $('#btn-v2-scan, #btn-v2-scan-dry, #btn-v2-rebuild').on('click', function () {
+        v2Post('olama_media_v2_scan_drive', { dry_run: this.id === 'btn-v2-scan-dry' ? 1 : 0, max_depth: 10 }, $('#v2-scan-result')).done(loadV2Runs);
+    });
+
+    $('#btn-v2-match-preview, #btn-v2-match-apply, #btn-v2-match-force').on('click', function () {
+        const data = filters();
+        if (!data.academic_year_id || !data.semester_id || !data.grade_id || !data.subject_id) { notify(cfg.i18n.select_all, 'error'); return; }
+        const preview = this.id === 'btn-v2-match-preview';
+        v2Post('olama_media_v2_match_subject', { ...data, dry_run: preview ? 1 : 0, auto_apply: preview ? 0 : 1, force_relink: this.id === 'btn-v2-match-force' ? 1 : 0, save_review: 1 }, $('#v2-match-result'))
+            .done(function (response) { if (response.success) { loadV2Review(); loadV2Runs(); if (!preview) loadCurriculum(); } });
+    });
+
+    $('#btn-v2-review-refresh').on('click', loadV2Review);
+    function loadV2Review() {
+        const data = filters();
+        $.get(cfg.ajaxurl, { action: 'olama_media_v2_get_review_queue', nonce: cfg.nonce, ...data }).done(function (response) {
+            if (!response.success || !response.data.length) { $('#v2-review-body').html('<tr><td colspan="7">-</td></tr>'); return; }
+            $('#v2-review-body').html(response.data.map((item) => `<tr>
+                <td>${esc(item.filename)}</td><td><small>${esc(item.drive_path)}</small></td><td>${esc(item.lesson_number)}. ${esc(item.lesson_title)}</td>
+                <td>${esc(item.unit_name)}</td><td>${esc(item.part_number || '-')}</td><td>${esc(item.match_confidence)}%</td><td>
+                <button class="button btn-v2-approve" data-link-id="${esc(item.id)}">اعتماد</button>
+                <button class="button btn-v2-reject" data-link-id="${esc(item.id)}">رفض</button>
+                <button class="button btn-v2-manual" data-file-id="${esc(item.drive_file_id)}">ربط يدوي</button>
+                ${item.web_view_link ? `<a class="button" target="_blank" href="${esc(item.web_view_link)}">Drive</a>` : ''}</td></tr>`).join(''));
+        });
+    }
+
+    $(document).on('click', '.btn-v2-approve', function () {
+        v2Post('olama_media_v2_approve_link', { link_id: $(this).data('link-id') }).done(function () { loadV2Review(); loadCurriculum(); });
+    });
+    $(document).on('click', '.btn-v2-reject', function () {
+        const notes = window.prompt('ملاحظات الرفض', '') || '';
+        v2Post('olama_media_v2_reject_link', { link_id: $(this).data('link-id'), notes }).done(function () { loadV2Review(); loadCurriculum(); });
+    });
+    $(document).on('click', '.btn-v2-unlink', function () {
+        v2Post('olama_media_v2_unlink', { link_id: $(this).data('link-id') }).done(loadCurriculum);
+    });
+    $(document).on('click', '.btn-v2-edit', function () {
+        const part = window.prompt('Part number (optional)', $(this).data('part') || '') || '';
+        v2Post('olama_media_v2_manual_link', { drive_file_id: $(this).data('file-id'), lesson_id: $(this).data('lesson-id'), part_number: part }).done(loadCurriculum);
+    });
+    $(document).on('click', '.btn-v2-manual', function () {
+        const lessonId = window.prompt('Lesson ID');
+        if (!lessonId) return;
+        const part = window.prompt('Part number (optional)', '') || '';
+        v2Post('olama_media_v2_manual_link', { drive_file_id: $(this).data('file-id'), lesson_id: lessonId, part_number: part }).done(loadV2Review);
+    });
+
+    $('#btn-v2-import-legacy').on('click', function () {
+        v2Post('olama_media_v2_import_legacy', { include_stale: $('#v2-include-stale').is(':checked') ? 1 : 0 }, $('#v2-import-result'));
+    });
+    $('#btn-v2-reset').on('click', function () {
+        v2Post('olama_media_v2_reset_index', { scope: $('#v2-reset-scope').val(), confirmation_text: $('#v2-reset-confirmation').val() }, $('#v2-reset-result'))
+            .done(function (response) { if (response.success) { loadV2Review(); loadV2Runs(); } });
+    });
+    function loadV2Runs() {
+        $.get(cfg.ajaxurl, { action: 'olama_media_v2_latest_runs', nonce: cfg.nonce }).done(function (response) {
+            if (!response.success) return;
+            $('#v2-runs-body').html(response.data.map((run) => `<tr><td>${esc(run.run_type)}${Number(run.dry_run) ? ' (dry)' : ''}</td><td>${esc(run.status)}</td>
+                <td>${esc(`scan ${run.files_scanned}, linked ${run.auto_linked}, review ${run.needs_review}, unmatched ${run.unmatched}, errors ${run.errors}`)}</td>
+                <td>${esc(run.started_at)}</td><td>${esc(run.finished_at || '-')} <button type="button" class="button btn-v2-run-details" data-summary="${esc(run.summary || '{}')}">Details</button></td></tr>`).join(''));
+        });
+    }
+    $(document).on('click', '.btn-v2-run-details', function () { window.alert($(this).attr('data-summary') || '{}'); });
 });

@@ -16,6 +16,7 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
         <a href="#library" class="nav-tab nav-tab-active" data-tab="library"><?php esc_html_e('رفع الفيديوهات', 'olama-media-library'); ?></a>
         <a href="#logs" class="nav-tab" data-tab="logs"><?php esc_html_e('السجلات والتشخيص', 'olama-media-library'); ?></a>
         <a href="#migration" class="nav-tab" data-tab="migration"><?php esc_html_e('الترحيل', 'olama-media-library'); ?></a>
+        <?php if ($can_administer) : ?><a href="#drive-v2" class="nav-tab" data-tab="drive-v2"><?php esc_html_e('Drive v2', 'olama-media-library'); ?></a><?php endif; ?>
         <a href="#settings" class="nav-tab" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a>
     </h2>
 
@@ -161,6 +162,56 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
             <button type="button" class="button" id="btn-migration-dry-run"><?php esc_html_e('فحص جاف', 'olama-media-library'); ?></button>
             <button type="button" class="button button-primary" id="btn-migrate-legacy"><?php esc_html_e('Migrate existing media records', 'olama-media-library'); ?></button>
             <pre id="migration-result" class="olama-media-result"></pre>
+        </div>
+    </section>
+
+    <section id="tab-drive-v2" class="olama-media-tab">
+        <div class="olama-v2-grid">
+            <div class="olama-media-panel">
+                <h2><?php esc_html_e('فهرس Google Drive', 'olama-media-library'); ?></h2>
+                <p><?php esc_html_e('يفحص جميع المجلدات والفيديوهات دون ربطها بسجلات المنهاج القديمة.', 'olama-media-library'); ?></p>
+                <button type="button" class="button button-primary" id="btn-v2-scan"><?php esc_html_e('فحص Drive', 'olama-media-library'); ?></button>
+                <button type="button" class="button" id="btn-v2-scan-dry"><?php esc_html_e('فحص تجريبي', 'olama-media-library'); ?></button>
+                <button type="button" class="button" id="btn-v2-rebuild"><?php esc_html_e('إعادة بناء فهرس Drive', 'olama-media-library'); ?></button>
+                <pre id="v2-scan-result" class="olama-media-result"></pre>
+            </div>
+            <div class="olama-media-panel">
+                <h2><?php esc_html_e('مطابقة المادة', 'olama-media-library'); ?></h2>
+                <p><?php esc_html_e('تستخدم اختيارات السنة والفصل والصف والمادة الموجودة في تبويب رفع الفيديوهات.', 'olama-media-library'); ?></p>
+                <button type="button" class="button" id="btn-v2-match-preview"><?php esc_html_e('معاينة الربط', 'olama-media-library'); ?></button>
+                <button type="button" class="button button-primary" id="btn-v2-match-apply"><?php esc_html_e('ربط تلقائي', 'olama-media-library'); ?></button>
+                <button type="button" class="button" id="btn-v2-match-force"><?php esc_html_e('إعادة ربط آمن', 'olama-media-library'); ?></button>
+                <pre id="v2-match-result" class="olama-media-result"></pre>
+            </div>
+        </div>
+
+        <div class="olama-media-panel">
+            <div class="olama-v2-heading"><h2><?php esc_html_e('قائمة المراجعة', 'olama-media-library'); ?></h2><button type="button" class="button" id="btn-v2-review-refresh"><?php esc_html_e('تحديث', 'olama-media-library'); ?></button></div>
+            <table class="wp-list-table widefat striped"><thead><tr>
+                <th><?php esc_html_e('ملف Drive', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th>
+                <th><?php esc_html_e('الدرس المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('الوحدة', 'olama-media-library'); ?></th>
+                <th><?php esc_html_e('الجزء', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراءات', 'olama-media-library'); ?></th>
+            </tr></thead><tbody id="v2-review-body"><tr><td colspan="7">-</td></tr></tbody></table>
+        </div>
+
+        <div class="olama-v2-grid">
+            <div class="olama-media-panel">
+                <h2><?php esc_html_e('استيراد السجلات القديمة', 'olama-media-library'); ?></h2>
+                <label><input type="checkbox" id="v2-include-stale"> <?php esc_html_e('تضمين الروابط القديمة غير المرتبطة بدروس حالية', 'olama-media-library'); ?></label>
+                <p><button type="button" class="button" id="btn-v2-import-legacy"><?php esc_html_e('Import existing media assets into v2', 'olama-media-library'); ?></button></p>
+                <pre id="v2-import-result" class="olama-media-result"></pre>
+            </div>
+            <div class="olama-media-panel olama-v2-danger">
+                <h2><?php esc_html_e('إعادة ضبط فهرس v2', 'olama-media-library'); ?></h2>
+                <select id="v2-reset-scope"><option value="links_only">links only</option><option value="manifest_only">manifest only</option><option value="all_v2">all v2</option></select>
+                <input type="text" id="v2-reset-confirmation" class="regular-text" placeholder="RESET V2 MEDIA INDEX">
+                <button type="button" class="button" id="btn-v2-reset"><?php esc_html_e('إعادة الضبط', 'olama-media-library'); ?></button>
+                <pre id="v2-reset-result" class="olama-media-result"></pre>
+            </div>
+        </div>
+
+        <div class="olama-media-panel"><h2><?php esc_html_e('آخر عمليات v2', 'olama-media-library'); ?></h2>
+            <table class="wp-list-table widefat striped"><thead><tr><th>Type</th><th>Status</th><th>Counts</th><th>Started</th><th>Finished</th></tr></thead><tbody id="v2-runs-body"></tbody></table>
         </div>
     </section>
 

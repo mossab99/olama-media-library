@@ -163,6 +163,47 @@ class Olama_Media_Drive
         }
     }
 
+    public function get_root_folder_id()
+    {
+        return $this->root_folder_id;
+    }
+
+    /** List every direct child for the v2 recursive indexer. */
+    public function list_folder_children($folder_id)
+    {
+        if (!$this->service || !$folder_id) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+        $items = array();
+        $page_token = null;
+        try {
+            do {
+                $args = array(
+                    'q' => "'" . str_replace("'", "\\'", $folder_id) . "' in parents and trashed=false",
+                    'fields' => 'nextPageToken,files(id,name,mimeType,size,parents,modifiedTime,trashed,webViewLink,webContentLink,thumbnailLink,videoMediaMetadata)',
+                    'pageSize' => 1000,
+                    'supportsAllDrives' => true,
+                    'includeItemsFromAllDrives' => true,
+                );
+                if ($page_token) { $args['pageToken'] = $page_token; }
+                $response = $this->service->files->listFiles($args);
+                $files = method_exists($response, 'getFiles') ? $response->getFiles() : ($response->files ?? array());
+                foreach ((array) $files as $file) {
+                    $items[] = array(
+                        'id'=>$file->id, 'name'=>$file->name, 'mime_type'=>$file->mimeType, 'size'=>$file->size,
+                        'parents'=>(array) $file->parents, 'modified_time'=>$file->modifiedTime, 'trashed'=>(bool) $file->trashed,
+                        'web_view_link'=>$file->webViewLink, 'web_content_link'=>$file->webContentLink,
+                        'thumbnail_link'=>$file->thumbnailLink, 'video_media_metadata'=>$file->videoMediaMetadata,
+                    );
+                }
+                $page_token = method_exists($response, 'getNextPageToken') ? $response->getNextPageToken() : ($response->nextPageToken ?? null);
+            } while ($page_token);
+        } catch (Exception $e) {
+            return new WP_Error('drive_file_list_error', $this->extract_error($e));
+        }
+        return $items;
+    }
+
     public function get_or_create_nested_folder($path_parts)
     {
         if (!$this->service) {

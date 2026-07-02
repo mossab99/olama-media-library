@@ -256,6 +256,15 @@
     min-height: 44px;
 }
 
+.olama-v2-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
+.olama-v2-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.olama-v2-danger { border-inline-start: 4px solid #d63638; }
+.olama-v2-danger input, .olama-v2-danger select { margin: 4px; }
+.olama-v2-video-count { margin-top: 8px; font-weight: 700; color: #135e96; }
+.olama-v2-video { margin-top: 5px; padding: 6px; border: 1px solid #c3c4c7; background: #fff; border-radius: 3px; }
+.olama-v2-video small { display: block; overflow-wrap: anywhere; }
+.olama-v2-link-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 5px; border: 1px solid #dcdcde; }
+
 .olama-media-ok {
     color: #0a6b2b;
     margin-right: 8px;
@@ -316,6 +325,7 @@
     }
     .olama-coverage-heading { align-items: stretch; flex-direction: column; }
     .olama-coverage-heading .olama-coverage-stat { min-width: 0; }
+    .olama-v2-grid { grid-template-columns: 1fr; }
 }
 .olama-upload-only .nav-tab[data-tab="logs"],
 .olama-upload-only .nav-tab[data-tab="migration"],
