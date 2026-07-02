@@ -89,8 +89,8 @@ class Olama_Media_Admin
 
         $style_path = OLAMA_MEDIA_LIBRARY_PATH . 'assets/css/media-library-admin.css';
         $script_path = OLAMA_MEDIA_LIBRARY_PATH . 'assets/js/media-library-admin.js';
-        $style_version = file_exists($style_path) ? (string) filemtime($style_path) : OLAMA_MEDIA_LIBRARY_VERSION;
-        $script_version = file_exists($script_path) ? (string) filemtime($script_path) : OLAMA_MEDIA_LIBRARY_VERSION;
+        $style_version = OLAMA_MEDIA_LIBRARY_VERSION . '-' . (file_exists($style_path) ? (string) filemtime($style_path) : '0');
+        $script_version = OLAMA_MEDIA_LIBRARY_VERSION . '-' . (file_exists($script_path) ? (string) filemtime($script_path) : '0');
         wp_enqueue_style('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/css/media-library-admin.css', array(), $style_version);
         wp_enqueue_script('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/js/media-library-admin.js', array('jquery'), $script_version, true);
         wp_enqueue_script('heartbeat');
@@ -109,6 +109,7 @@ class Olama_Media_Admin
 
         wp_localize_script('olama-media-library-admin', 'olamaMediaLibrary', array(
             'ajaxurl' => admin_url('admin-ajax.php', 'relative'),
+            'pluginVersion' => OLAMA_MEDIA_LIBRARY_VERSION,
             'nonce' => wp_create_nonce('olama_media_library_nonce'),
             'legacyNonce' => wp_create_nonce('olama_admin_nonce'),
             'canManage' => self::can_manage() && !self::is_teacher(),
@@ -125,6 +126,7 @@ class Olama_Media_Admin
                 'auth_warning' => (!$drive_auth_health['is_configured'] || !$drive_auth_health['has_refresh_token'] || !$drive_auth_health['can_refresh']) ? __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library') : '',
             ),
             'autoSyncDriveOnLoad' => false,
+            'autoSyncV2OnCurriculumLoad' => self::can_manage() && !self::is_teacher(),
             // Phase 1 still proxies chunks through PHP before sending them to Drive.
             // Keep chunks smaller for reliability until uploads move to a background/direct flow.
             'chunkSize' => min(5 * 1024 * 1024, max(1024 * 1024, (int) floor($server_limit * 0.7))),

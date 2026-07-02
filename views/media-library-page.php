@@ -87,6 +87,7 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
             </div>
         </div>
 
+        <div id="olama-v2-auto-sync-status" class="notice notice-info inline" hidden><p></p></div>
         <div id="curriculum-container" class="olama-media-lessons">
             <div class="notice notice-info inline"><p><?php esc_html_e('اختر الصف والمادة ثم حمّل الدروس. لا يتم فحص Google Drive أثناء تحميل القائمة.', 'olama-media-library'); ?></p></div>
         </div>

@@ -2,7 +2,7 @@ jQuery(function ($) {
     'use strict';
 
     const cfg = window.olamaMediaLibrary;
-    const state = { currentUploadRequest: null, logPage: 1, debugUploads: !!cfg.canManage };
+    const state = { currentUploadRequest: null, logPage: 1, debugUploads: !!cfg.canManage, v2AutoSyncKey: '' };
     const activeUploads = new Map();
 
     const esc = (value) => $('<div>').text(value == null ? '' : value).html();
@@ -148,7 +148,8 @@ jQuery(function ($) {
         };
     }
 
-    function loadCurriculum() {
+    function loadCurriculum(options) {
+        const skipV2Sync = !!(options && options.skipV2Sync === true);
         const data = filters();
         if (!data.grade_id || !data.subject_id || !data.semester_id) {
             notify(cfg.i18n.select_all, 'error');
@@ -162,10 +163,43 @@ jQuery(function ($) {
             nonce: cfg.nonce,
             ...data
         }).done(function (response) {
-            response.success ? renderCurriculum(response.data) : notify(response.data || cfg.i18n.error, 'error');
+            if (response.success) {
+                renderCurriculum(response.data);
+                if (cfg.autoSyncV2OnCurriculumLoad && !skipV2Sync) syncV2ScopeInBackground(data);
+            } else {
+                notify(response.data || cfg.i18n.error, 'error');
+            }
         }).always(function () {
             $btn.prop('disabled', false).text(cfg.i18n.load_curriculum);
         });
+    }
+
+    function syncV2ScopeInBackground(data) {
+        const key = [data.academic_year_id, data.semester_id, data.grade_id, data.subject_id].join(':');
+        if (!key || state.v2AutoSyncKey === key) return;
+        state.v2AutoSyncKey = key;
+        const $status = $('#olama-v2-auto-sync-status').removeAttr('hidden');
+        $status.removeClass('notice-error notice-success').addClass('notice-info').find('p').text('جاري فحص Google Drive وربط فيديوهات المادة في الخلفية...');
+
+        $.post(cfg.ajaxurl, { action: 'olama_media_v2_scan_drive', nonce: cfg.nonce, ...data, dry_run: 0, full_scan: 0, max_depth: 10 })
+            .then(function (scanResponse) {
+                if (!scanResponse.success) return $.Deferred().reject(scanResponse).promise();
+                return $.post(cfg.ajaxurl, { action: 'olama_media_v2_match_subject', nonce: cfg.nonce, ...data, dry_run: 0, auto_apply: 1, force_relink: 0, save_review: 1 });
+            })
+            .done(function (matchResponse) {
+                if (!matchResponse.success) {
+                    $status.removeClass('notice-info').addClass('notice-error').find('p').text(matchResponse.data || cfg.i18n.error);
+                    return;
+                }
+                $status.removeClass('notice-info').addClass('notice-success').find('p').text('اكتملت مزامنة Google Drive وتحديث روابط الفيديوهات.');
+                const currentKey = Object.values(filters()).join(':');
+                if (currentKey === key) loadCurriculum({ skipV2Sync: true });
+            })
+            .fail(function (response) {
+                const message = response && response.data ? response.data : (response && response.responseJSON && response.responseJSON.data ? response.responseJSON.data : cfg.i18n.error);
+                $status.removeClass('notice-info').addClass('notice-error').find('p').text(message);
+            })
+            .always(function () { state.v2AutoSyncKey = ''; });
     }
 
     function renderCurriculum(units) {
