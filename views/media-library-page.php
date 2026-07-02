@@ -87,13 +87,7 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
         </div>
 
         <div id="curriculum-container" class="olama-media-lessons">
-            <div class="notice notice-info inline"><p><?php 
-                if ($can_administer) {
-                    esc_html_e('اختر الصف والمادة ثم حمّل الدروس. سيتم فحص ومزامنة Google Drive تلقائياً عند التحميل.', 'olama-media-library'); 
-                } else {
-                    esc_html_e('اختر الصف والمادة ثم حمّل الدروس.', 'olama-media-library'); 
-                }
-            ?></p></div>
+            <div class="notice notice-info inline"><p><?php esc_html_e('اختر الصف والمادة ثم حمّل الدروس. لا يتم فحص Google Drive أثناء تحميل القائمة.', 'olama-media-library'); ?></p></div>
         </div>
     </section>
 

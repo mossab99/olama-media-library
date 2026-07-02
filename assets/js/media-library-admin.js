@@ -154,17 +154,6 @@ jQuery(function ($) {
 
         const $btn = $('#btn-load-curriculum');
         $btn.prop('disabled', true).text(cfg.i18n.loading);
-        
-        if (cfg.autoSyncDriveOnLoad) {
-            syncDrive({ dryRun: 0, reloadCurriculum: false, silent: true }).always(function () {
-                fetchCurriculumData(data, $btn);
-            });
-        } else {
-            fetchCurriculumData(data, $btn);
-        }
-    }
-
-    function fetchCurriculumData(data, $btn) {
         $.get(cfg.ajaxurl, {
             action: 'academy_load_media_curriculum',
             nonce: cfg.nonce,
@@ -1539,7 +1528,6 @@ jQuery(function ($) {
         const dryRun = this.id === 'btn-drive-sync-dry-run' ? 1 : 0;
         syncDrive({ dryRun, reloadCurriculum: !dryRun });
     });
-
 
     function syncDrive(options) {
         const dryRun = options && options.dryRun ? 1 : 0;

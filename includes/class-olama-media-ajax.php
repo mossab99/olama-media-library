@@ -78,6 +78,15 @@ class Olama_Media_Ajax
             wp_send_json_error(__('Missing curriculum filters.', 'olama-media-library'));
         }
 
+        // Auto-sync with Google Drive before returning data so uploaded videos are visible.
+        if ($year_id && current_user_can('manage_options') && !Olama_Media_Admin::is_teacher()) {
+            $drive = new Olama_Media_Drive();
+            $health = $drive->get_auth_health();
+            if ($health['is_configured'] && $health['has_refresh_token'] && $health['can_refresh']) {
+                $this->perform_drive_sync($year_id, $semester_id, $grade_id, $subject_id, false);
+            }
+        }
+
         $data = $this->db->get_curriculum_with_assets($year_id, $semester_id, $grade_id, $subject_id);
         if (is_wp_error($data)) {
             wp_send_json_error($data->get_error_message());
@@ -1266,12 +1275,40 @@ class Olama_Media_Ajax
             wp_send_json_error(__('Select the academic year, semester, grade, and subject first.', 'olama-media-library'));
         }
 
+        $report = $this->perform_drive_sync($year_id, $semester_id, $grade_id, $subject_id, $dry_run);
+        if (is_wp_error($report)) {
+            wp_send_json_error($report->get_error_message());
+        }
+
+        wp_send_json_success($report);
+    }
+
+    /**
+     * Perform a Google Drive sync for the given curriculum filters.
+     *
+     * Scans the Drive folder structure, matches video files to lessons by filename,
+     * and creates or updates local asset records so the UI reflects what is on Drive.
+     *
+     * @param int  $year_id
+     * @param int  $semester_id
+     * @param int  $grade_id
+     * @param int  $subject_id
+     * @param bool $dry_run  When true, no database writes are performed.
+     * @return array|WP_Error  Sync report array on success.
+     */
+    private function perform_drive_sync($year_id, $semester_id, $grade_id, $subject_id, $dry_run = false)
+    {
         $units = $this->db->get_curriculum_with_assets($year_id, $semester_id, $grade_id, $subject_id);
         if (is_wp_error($units)) {
-            wp_send_json_error($units->get_error_message());
+            return $units;
         }
 
         $drive = new Olama_Media_Drive();
+        $health = $drive->get_auth_health();
+        if (!$health['is_configured'] || !$health['has_refresh_token'] || !$health['can_refresh']) {
+            return new WP_Error('drive_not_configured', __('Google Drive is not configured or token refresh failed.', 'olama-media-library'));
+        }
+
         $names = $this->curriculum->get_names($year_id, $semester_id, $grade_id, $subject_id);
         $base_path = array($names['academic_year'], $names['semester'], $names['grade'], $names['subject']);
         $report = array(
@@ -1300,7 +1337,7 @@ class Olama_Media_Ajax
             foreach ($candidate_paths as $candidate_path) {
                 $folder_id = $drive->find_nested_folder($candidate_path);
                 if (is_wp_error($folder_id)) {
-                    wp_send_json_error($folder_id->get_error_message());
+                    return $folder_id;
                 }
                 if ($folder_id) {
                     break;
@@ -1309,7 +1346,7 @@ class Olama_Media_Ajax
             if (!$folder_id) {
                 $fallback_folders = $drive->find_folders_by_name_recursive($unit_name);
                 if (is_wp_error($fallback_folders)) {
-                    wp_send_json_error($fallback_folders->get_error_message());
+                    return $fallback_folders;
                 }
                 if (count($fallback_folders) === 1) {
                     $folder_id = $fallback_folders[0];
@@ -1328,7 +1365,7 @@ class Olama_Media_Ajax
             $report['folders_checked']++;
             $files = $drive->list_video_files($folder_id);
             if (is_wp_error($files)) {
-                wp_send_json_error($files->get_error_message());
+                return $files;
             }
             $report['files_found'] += count($files);
 
@@ -1420,7 +1457,7 @@ class Olama_Media_Ajax
         }
 
         $this->logger->log('drive_sync_completed', $dry_run ? 'Google Drive sync dry run completed.' : 'Google Drive sync completed.', $report);
-        wp_send_json_success($report);
+        return $report;
     }
 
     private function drive_filename_matches_lesson($filename, $lesson)
