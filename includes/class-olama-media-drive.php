@@ -9,6 +9,7 @@ class Olama_Media_Drive
     private $root_folder_id;
     private $last_error_code = '';
     private $last_error_message = '';
+    private $child_folder_cache = array();
 
     public function __construct()
     {
@@ -624,6 +625,83 @@ class Olama_Media_Drive
         }
 
         return $parent_id;
+    }
+
+    /** Find exact-name folders anywhere below the configured root. */
+    public function find_folders_by_name_recursive($folder_name, $max_depth = 8)
+    {
+        if (!$this->service) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+        if (!$this->root_folder_id) {
+            return new WP_Error('missing_root', __('Root Folder ID is missing.', 'olama-media-library'));
+        }
+
+        $folder_name = trim(wp_strip_all_tags((string) $folder_name));
+        if ($folder_name === '') {
+            return array();
+        }
+
+        $matches = array();
+        $queue = array(array('id' => $this->root_folder_id, 'depth' => 0));
+        $visited = array();
+        while ($queue) {
+            $current = array_shift($queue);
+            if (isset($visited[$current['id']]) || $current['depth'] >= $max_depth) {
+                continue;
+            }
+            $visited[$current['id']] = true;
+            $children = $this->list_child_folders($current['id']);
+            if (is_wp_error($children)) {
+                return $children;
+            }
+            foreach ($children as $child) {
+                if ($child['name'] === $folder_name) {
+                    $matches[] = $child['id'];
+                }
+                $queue[] = array('id' => $child['id'], 'depth' => $current['depth'] + 1);
+            }
+        }
+
+        return array_values(array_unique($matches));
+    }
+
+    private function list_child_folders($parent_id)
+    {
+        if (array_key_exists($parent_id, $this->child_folder_cache)) {
+            return $this->child_folder_cache[$parent_id];
+        }
+
+        $folders = array();
+        $page_token = null;
+        try {
+            do {
+                $args = array(
+                    'q' => "'" . str_replace("'", "\\'", $parent_id) . "' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'",
+                    'fields' => 'nextPageToken,files(id,name)',
+                    'pageSize' => 1000,
+                    'supportsAllDrives' => true,
+                    'includeItemsFromAllDrives' => true,
+                );
+                if ($page_token) {
+                    $args['pageToken'] = $page_token;
+                }
+                $response = $this->service->files->listFiles($args);
+                $page_folders = method_exists($response, 'getFiles') ? $response->getFiles() : ($response->files ?? array());
+                foreach ((array) $page_folders as $folder) {
+                    $folders[] = array(
+                        'id' => sanitize_text_field($folder->id),
+                        'name' => sanitize_text_field($folder->name),
+                    );
+                }
+                $page_token = method_exists($response, 'getNextPageToken') ? $response->getNextPageToken() : ($response->nextPageToken ?? null);
+            } while ($page_token);
+        } catch (Exception $e) {
+            return new WP_Error('drive_folder_lookup_error', $this->extract_error($e));
+        }
+
+        $this->child_folder_cache[$parent_id] = $folders;
+        return $folders;
     }
 
     /** Return all non-trashed video files directly inside a folder. */

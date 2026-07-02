@@ -1288,13 +1288,40 @@ class Olama_Media_Ajax
         );
 
         foreach ((array) $units as $unit) {
-            $folder_id = $drive->find_nested_folder(array_merge($base_path, array($unit->unit_name)));
-            if (is_wp_error($folder_id)) {
-                wp_send_json_error($folder_id->get_error_message());
+            $unit_name = sanitize_text_field($unit->unit_name);
+            $candidate_paths = array(
+                array_merge($base_path, array($unit_name)),
+                array($names['grade'], $names['subject'], $unit_name),
+                array($names['subject'], $unit_name),
+                array($unit_name),
+            );
+            $folder_id = '';
+            foreach ($candidate_paths as $candidate_path) {
+                $folder_id = $drive->find_nested_folder($candidate_path);
+                if (is_wp_error($folder_id)) {
+                    wp_send_json_error($folder_id->get_error_message());
+                }
+                if ($folder_id) {
+                    break;
+                }
             }
             if (!$folder_id) {
-                $report['missing_folders'][] = sanitize_text_field($unit->unit_name);
-                continue;
+                $fallback_folders = $drive->find_folders_by_name_recursive($unit_name);
+                if (is_wp_error($fallback_folders)) {
+                    wp_send_json_error($fallback_folders->get_error_message());
+                }
+                if (count($fallback_folders) === 1) {
+                    $folder_id = $fallback_folders[0];
+                } elseif (count($fallback_folders) > 1) {
+                    $report['ambiguous'][] = array(
+                        'unit' => $unit_name,
+                        'reason' => 'More than one Drive folder has this unit name.',
+                    );
+                    continue;
+                } else {
+                    $report['missing_folders'][] = $unit_name;
+                    continue;
+                }
             }
 
             $report['folders_checked']++;
@@ -1409,7 +1436,17 @@ class Olama_Media_Ajax
     {
         $value = wp_strip_all_tags((string) $value);
         $value = preg_replace('/[\x{064B}-\x{065F}\x{0670}\x{06D6}-\x{06ED}]/u', '', $value);
-        $value = strtr($value, array('أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ٱ' => 'ا', 'ى' => 'ي', 'ؤ' => 'و', 'ئ' => 'ي'));
+        // Normalize equivalent Arabic letters using code points to keep this source encoding-safe.
+        $value = strtr($value, array(
+            "\u{0623}" => "\u{0627}",
+            "\u{0625}" => "\u{0627}",
+            "\u{0622}" => "\u{0627}",
+            "\u{0671}" => "\u{0627}",
+            "\u{0649}" => "\u{064A}",
+            "\u{0624}" => "\u{0648}",
+            "\u{0626}" => "\u{064A}",
+            "\u{0640}" => '',
+        ));
         $value = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
         return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value));
     }
