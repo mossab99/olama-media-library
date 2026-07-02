@@ -1526,6 +1526,17 @@ jQuery(function ($) {
 
     $('#btn-drive-sync-dry-run, #btn-drive-sync').on('click', function () {
         const dryRun = this.id === 'btn-drive-sync-dry-run' ? 1 : 0;
+        syncDrive({ dryRun, reloadCurriculum: !dryRun });
+    });
+
+    if (cfg.autoSyncDriveOnLoad) {
+        syncDrive({ dryRun: 0, reloadCurriculum: true, silent: true });
+    }
+
+    function syncDrive(options) {
+        const dryRun = options && options.dryRun ? 1 : 0;
+        const reloadCurriculum = !options || options.reloadCurriculum !== false;
+        const silent = !!(options && options.silent);
         const payload = {
             action: 'olama_media_sync_drive',
             nonce: cfg.nonce,
@@ -1535,16 +1546,24 @@ jQuery(function ($) {
             grade_id: $('#filter-grade').val() || '',
             subject_id: $('#filter-subject').val() || ''
         };
-        $('#drive-sync-result').text(cfg.i18n.loading);
-        $.post(cfg.ajaxurl, payload)
+
+        if (!silent) {
+            $('#drive-sync-result').text(cfg.i18n.loading);
+        }
+
+        return $.post(cfg.ajaxurl, payload)
             .done(function (response) {
-                $('#drive-sync-result').text(JSON.stringify(response.data || response, null, 2));
-                if (response.success && !dryRun) {
+                if (!silent) {
+                    $('#drive-sync-result').text(JSON.stringify(response.data || response, null, 2));
+                }
+                if (response.success && reloadCurriculum) {
                     $('#btn-load-curriculum').trigger('click');
                 }
             })
             .fail(function () {
-                $('#drive-sync-result').text(cfg.i18n.error);
+                if (!silent) {
+                    $('#drive-sync-result').text(cfg.i18n.error);
+                }
             });
-    });
+    }
 });
