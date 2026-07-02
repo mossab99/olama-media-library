@@ -1429,7 +1429,8 @@ class Olama_Media_Ajax
         $title_key = $this->normalize_match_text($lesson->lesson_title ?? '');
         $number = trim((string) ($lesson->lesson_number ?? ''));
         $standard_key = $this->normalize_match_text('Lesson ' . $number . ' ' . ($lesson->lesson_title ?? ''));
-        return $file_key !== '' && ($file_key === $title_key || $file_key === $standard_key);
+        $arabic_key = $this->normalize_match_text("\u{062F}\u{0631}\u{0633} " . $number . ' ' . ($lesson->lesson_title ?? ''));
+        return $file_key !== '' && in_array($file_key, array($title_key, $standard_key, $arabic_key), true);
     }
 
     private function normalize_match_text($value)
