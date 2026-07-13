@@ -35,10 +35,10 @@ class Olama_Media_Matcher
         $files = array_values(array_filter($files, function ($file) use ($names) { return $this->file_is_in_curriculum_scope($file, $names); }));
         $duplicate_count = count($all_raw_in_scope) - count($files);
 
+        // Matching is intentionally non-destructive. Existing pending links stay in place
+        // until a replacement is confidently identified or an administrator changes them.
+        // Deleting them before matching made a transient ambiguity look like a missing video.
         $cleared = 0;
-        if ($auto_apply) {
-            $cleared = $this->repository->clear_pending_generated_links_for_scope($academic_year_id, $semester_id, $grade_id, $subject_id);
-        }
         $report = array('run_id'=>$run_id,'files_in_scope'=>count($files),'raw_files_in_scope'=>count($all_raw_in_scope),'duplicate_drive_files'=>$duplicate_count,'cleared_pending_links'=>$cleared,'auto_linked'=>0,'needs_review'=>0,'unmatched'=>0,'ambiguous'=>0,'already_linked'=>0,'errors'=>0,'results'=>array());
 
         foreach ($files as $file) {
@@ -50,6 +50,7 @@ class Olama_Media_Matcher
                     if ($score['confidence'] >= 70) { $candidates[] = array('file'=>$file,'lesson'=>$lesson,'unit'=>$unit) + $score; }
                 }
             }
+            $candidates = $this->deduplicate_candidates($candidates);
             usort($candidates, function ($a, $b) { return $b['confidence'] <=> $a['confidence']; });
             if (!$candidates) { $report['unmatched']++; continue; }
             $top = $candidates[0];
@@ -125,6 +126,22 @@ class Olama_Media_Matcher
             'lesson_title'=>$candidate['lesson']->lesson_title,'lesson_number'=>$candidate['lesson']->lesson_number,
             'unit_id'=>absint($candidate['unit']->id),'unit_name'=>$candidate['unit']->unit_name,
             'part_number'=>$candidate['part_number'],'confidence'=>$candidate['confidence'],'status'=>$status);
+    }
+
+    /**
+     * A lesson can be repeated by a joined media row. It is still one matching
+     * candidate and must not be treated as an ambiguity.
+     */
+    private function deduplicate_candidates($candidates)
+    {
+        $unique = array();
+        foreach ($candidates as $candidate) {
+            $key = absint($candidate['unit']->id) . ':' . absint($candidate['lesson']->id);
+            if (!isset($unique[$key]) || $candidate['confidence'] > $unique[$key]['confidence']) {
+                $unique[$key] = $candidate;
+            }
+        }
+        return array_values($unique);
     }
 
     private function save_candidate_link($candidate, $academic_year_id, $semester_id, $grade_id, $subject_id, $confidence, $link_status)

@@ -261,13 +261,25 @@ class Olama_Media_DB
                     a.original_filename, a.file_size, j.job_uuid, j.status AS job_status,
                     u.display_name AS uploader_name
              FROM {$lessons_table} l
-             LEFT JOIN {$this->assets_table} a ON a.lesson_id = l.id
+             LEFT JOIN {$this->assets_table} a ON a.id = (
+                 SELECT a2.id
+                 FROM {$this->assets_table} a2
+                 WHERE a2.lesson_id = l.id
+                 ORDER BY
+                     CASE
+                         WHEN a2.drive_file_id IS NOT NULL AND a2.drive_file_id <> '' THEN 0
+                         WHEN a2.upload_status IN ('uploading', 'processing') THEN 1
+                         ELSE 2
+                     END ASC,
+                     a2.id DESC
+                 LIMIT 1
+             )
              LEFT JOIN {$this->jobs_table} j ON j.asset_id = a.id AND j.id = (
                  SELECT MAX(j2.id) FROM {$this->jobs_table} j2 WHERE j2.asset_id = a.id
              )
              LEFT JOIN {$users_table} u ON a.uploaded_by = u.ID
              WHERE l.unit_id IN ({$placeholders})
-             ORDER BY l.unit_id ASC, CAST(l.lesson_number AS UNSIGNED) ASC, l.lesson_number ASC, a.id ASC",
+             ORDER BY l.unit_id ASC, CAST(l.lesson_number AS UNSIGNED) ASC, l.lesson_number ASC",
             $unit_ids
         ));
 
