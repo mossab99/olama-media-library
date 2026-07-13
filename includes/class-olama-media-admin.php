@@ -125,7 +125,6 @@ class Olama_Media_Admin
                 'has_refresh_token' => (bool) $drive_auth_health['has_refresh_token'],
                 'auth_warning' => (!$drive_auth_health['is_configured'] || !$drive_auth_health['has_refresh_token'] || !$drive_auth_health['can_refresh']) ? __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library') : '',
             ),
-            'autoSyncDriveOnLoad' => false,
             'autoSyncV2OnCurriculumLoad' => self::can_manage() && !self::is_teacher(),
             // Phase 1 still proxies chunks through PHP before sending them to Drive.
             // Keep chunks smaller for reliability until uploads move to a background/direct flow.

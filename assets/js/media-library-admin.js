@@ -38,13 +38,8 @@ jQuery(function ($) {
         $(`.nav-tab[data-tab="${tab}"]`).addClass('nav-tab-active');
         $('.olama-media-tab').removeClass('active');
         $('#tab-' + tab).addClass('active');
-        if (tab === 'logs') {
-            loadLogs(1);
-        } else if (tab === 'coverage' && !$('#coverage-report').data('loaded')) {
+        if (tab === 'coverage' && !$('#coverage-report').data('loaded')) {
             loadCoverage();
-        } else if (tab === 'drive-v2') {
-            loadV2Review();
-            loadV2Runs();
         }
     }
 
@@ -174,10 +169,16 @@ jQuery(function ($) {
         });
     }
 
-    function syncV2ScopeInBackground(data) {
+    function syncV2ScopeInBackground(data, options = {}) {
         const key = [data.academic_year_id, data.semester_id, data.grade_id, data.subject_id].join(':');
+        const $button = options.button ? $(options.button) : $();
+        if (!data.academic_year_id || !data.semester_id || !data.grade_id || !data.subject_id) {
+            notify(cfg.i18n.select_all, 'error');
+            return;
+        }
         if (!key || state.v2AutoSyncKey === key) return;
         state.v2AutoSyncKey = key;
+        if ($button.length) $button.prop('disabled', true).data('original-label', $button.text()).text(cfg.i18n.loading);
         const $status = $('#olama-v2-auto-sync-status').removeAttr('hidden');
         $status.removeClass('notice-error notice-success').addClass('notice-info').find('p').text('جاري فحص Google Drive وربط فيديوهات المادة في الخلفية...');
 
@@ -191,7 +192,12 @@ jQuery(function ($) {
                     $status.removeClass('notice-info').addClass('notice-error').find('p').text(matchResponse.data || cfg.i18n.error);
                     return;
                 }
-                $status.removeClass('notice-info').addClass('notice-success').find('p').text('اكتملت مزامنة Google Drive وتحديث روابط الفيديوهات.');
+                const report = matchResponse.data || {};
+                const reviewCount = Number(report.needs_review || 0) + Number(report.ambiguous || 0);
+                const summary = `اكتملت المزامنة: ${Number(report.files_in_scope || 0)} ملف، ${Number(report.auto_linked || 0)} ربط جديد، ${Number(report.already_linked || 0)} مرتبط سابقاً، ${reviewCount} بحاجة إلى مراجعة.`;
+                $status.removeClass('notice-info').addClass('notice-success').find('p').text(summary);
+                loadV2Review();
+                loadV2Runs();
                 const currentKey = Object.values(filters()).join(':');
                 if (currentKey === key) loadCurriculum({ skipV2Sync: true });
             })
@@ -199,8 +205,15 @@ jQuery(function ($) {
                 const message = response && response.data ? response.data : (response && response.responseJSON && response.responseJSON.data ? response.responseJSON.data : cfg.i18n.error);
                 $status.removeClass('notice-info').addClass('notice-error').find('p').text(message);
             })
-            .always(function () { state.v2AutoSyncKey = ''; });
+            .always(function () {
+                state.v2AutoSyncKey = '';
+                if ($button.length) $button.prop('disabled', false).text($button.data('original-label') || 'فحص ومزامنة Google Drive');
+            });
     }
+
+    $('#btn-v2-sync-now').on('click', function () {
+        syncV2ScopeInBackground(filters(), { button: this });
+    });
 
     function renderCurriculum(units) {
         const $container = $('#curriculum-container');
@@ -587,8 +600,10 @@ jQuery(function ($) {
     $(document).on('click', '.btn-show-upload-logs', function () {
         const jobUuid = $(this).data('job-uuid') || '';
         $('#log-filter-job-uuid').val(jobUuid);
-        activateTab('logs');
+        activateTab('settings');
+        $('#olama-advanced-tools').prop('open', true);
         loadLogs(1);
+        document.getElementById('olama-diagnostic-logs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
 
     function finishUpload(uploadState, status, refresh = true) {
@@ -1563,82 +1578,34 @@ jQuery(function ($) {
             });
     }
 
-    $('#btn-migration-dry-run, #btn-migrate-legacy').on('click', function () {
-        const dryRun = this.id === 'btn-migration-dry-run' ? 1 : 0;
-        $('#migration-result').text(cfg.i18n.loading);
-        $.post(cfg.ajaxurl, { action: 'olama_media_migrate_legacy', nonce: cfg.nonce, dry_run: dryRun })
-            .done((response) => $('#migration-result').text(JSON.stringify(response.data || response, null, 2)));
-    });
-
-    $('#btn-drive-sync-dry-run, #btn-drive-sync').on('click', function () {
-        const dryRun = this.id === 'btn-drive-sync-dry-run' ? 1 : 0;
-        syncDrive({ dryRun, reloadCurriculum: !dryRun });
-    });
-
-    if (cfg.autoSyncDriveOnLoad) {
-        syncDrive({ dryRun: 0, reloadCurriculum: true, silent: true });
-    }
-
-    function syncDrive(options) {
-        const dryRun = options && options.dryRun ? 1 : 0;
-        const reloadCurriculum = !options || options.reloadCurriculum !== false;
-        const silent = !!(options && options.silent);
-        const payload = {
-            action: 'olama_media_sync_drive',
-            nonce: cfg.nonce,
-            dry_run: dryRun,
-            academic_year_id: $('#filter-year-id').val() || '',
-            semester_id: $('#filter-semester').val() || '',
-            grade_id: $('#filter-grade').val() || '',
-            subject_id: $('#filter-subject').val() || ''
-        };
-
-        if (!silent) {
-            $('#drive-sync-result').text(cfg.i18n.loading);
-        }
-
-        return $.post(cfg.ajaxurl, payload)
-            .done(function (response) {
-                if (!silent) {
-                    $('#drive-sync-result').text(JSON.stringify(response.data || response, null, 2));
-                }
-                if (response.success && reloadCurriculum) {
-                    $('#btn-load-curriculum').trigger('click');
-                }
-            })
-            .fail(function () {
-                if (!silent) {
-                    $('#drive-sync-result').text(cfg.i18n.error);
-                }
-            });
-    }
-
     function v2Post(action, data, $result) {
-        if ($result) $result.text(cfg.i18n.loading);
+        if ($result) $result.removeAttr('hidden').text(cfg.i18n.loading);
         return $.post(cfg.ajaxurl, { action, nonce: cfg.nonce, ...data }).done(function (response) {
             if ($result) $result.text(JSON.stringify(response.data || response, null, 2));
             if (!response.success) notify(response.data || cfg.i18n.error, 'error');
         }).fail(function () { if ($result) $result.text(cfg.i18n.error); });
     }
 
-    $('#btn-v2-scan, #btn-v2-scan-dry, #btn-v2-rebuild').on('click', function () {
-        if (this.id === 'btn-v2-rebuild' && !window.confirm('This scans the complete Drive root and may take several minutes. Continue?')) return;
-        v2Post('olama_media_v2_scan_drive', { ...filters(), dry_run: this.id === 'btn-v2-scan-dry' ? 1 : 0, full_scan: this.id === 'btn-v2-rebuild' ? 1 : 0, max_depth: 10 }, $('#v2-scan-result')).done(loadV2Runs);
-    });
-
-    $('#btn-v2-match-preview, #btn-v2-match-apply, #btn-v2-match-force').on('click', function () {
-        const data = filters();
-        if (!data.academic_year_id || !data.semester_id || !data.grade_id || !data.subject_id) { notify(cfg.i18n.select_all, 'error'); return; }
-        const preview = this.id === 'btn-v2-match-preview';
-        v2Post('olama_media_v2_match_subject', { ...data, dry_run: preview ? 1 : 0, auto_apply: preview ? 0 : 1, force_relink: this.id === 'btn-v2-match-force' ? 1 : 0, save_review: 1 }, $('#v2-match-result'))
-            .done(function (response) { if (response.success) { loadV2Review(); loadV2Runs(); if (!preview) loadCurriculum(); } });
+    $('#btn-v2-rebuild').on('click', function () {
+        if (!window.confirm('This scans the complete Drive root and may take several minutes. Continue?')) return;
+        v2Post('olama_media_v2_scan_drive', { ...filters(), dry_run: 0, full_scan: 1, max_depth: 10 }, $('#v2-scan-result')).done(loadV2Runs);
     });
 
     $('#btn-v2-review-refresh').on('click', loadV2Review);
     function loadV2Review() {
         const data = filters();
+        const $panel = $('#olama-v2-review-panel');
+        if (!data.academic_year_id || !data.semester_id || !data.grade_id || !data.subject_id) {
+            $panel.attr('hidden', 'hidden');
+            return;
+        }
         $.get(cfg.ajaxurl, { action: 'olama_media_v2_get_review_queue', nonce: cfg.nonce, ...data }).done(function (response) {
-            if (!response.success || !response.data.length) { $('#v2-review-body').html('<tr><td colspan="7">-</td></tr>'); return; }
+            if (!response.success || !response.data.length) {
+                $('#v2-review-body').html('<tr><td colspan="7">-</td></tr>');
+                $panel.attr('hidden', 'hidden');
+                return;
+            }
+            $panel.removeAttr('hidden');
             $('#v2-review-body').html(response.data.map((item) => `<tr>
                 <td>${esc(item.filename)}</td><td><small>${esc(item.drive_path)}</small></td><td>${esc(item.lesson_number)}. ${esc(item.lesson_title)}</td>
                 <td>${esc(item.unit_name)}</td><td>${esc(item.part_number || '-')}</td><td>${esc(item.match_confidence)}%</td><td>
@@ -1670,8 +1637,29 @@ jQuery(function ($) {
         v2Post('olama_media_v2_manual_link', { drive_file_id: $(this).data('file-id'), lesson_id: lessonId, part_number: part }).done(loadV2Review);
     });
 
-    $('#btn-v2-import-legacy').on('click', function () {
-        v2Post('olama_media_v2_import_legacy', { include_stale: $('#v2-include-stale').is(':checked') ? 1 : 0 }, $('#v2-import-result'));
+    $('#btn-import-legacy-data').on('click', function () {
+        const $button = $(this).prop('disabled', true);
+        const $result = $('#maintenance-import-result').removeAttr('hidden').text(cfg.i18n.loading);
+        let legacyResult = null;
+        $.post(cfg.ajaxurl, { action: 'olama_media_migrate_legacy', nonce: cfg.nonce, dry_run: 0 })
+            .then(function (response) {
+                if (!response.success) return $.Deferred().reject(response).promise();
+                legacyResult = response.data;
+                return $.post(cfg.ajaxurl, { action: 'olama_media_v2_import_legacy', nonce: cfg.nonce, include_stale: 0 });
+            })
+            .done(function (response) {
+                if (!response.success) {
+                    $result.text(response.data || cfg.i18n.error);
+                    return;
+                }
+                $result.text(JSON.stringify({ legacy_records: legacyResult, drive_links: response.data }, null, 2));
+                loadV2Runs();
+            })
+            .fail(function (response) {
+                const message = response && response.data ? response.data : (response && response.responseJSON ? response.responseJSON.data : cfg.i18n.error);
+                $result.text(typeof message === 'string' ? message : JSON.stringify(message || cfg.i18n.error, null, 2));
+            })
+            .always(function () { $button.prop('disabled', false); });
     });
     $('#btn-v2-reset').on('click', function () {
         v2Post('olama_media_v2_reset_index', { scope: $('#v2-reset-scope').val(), confirmation_text: $('#v2-reset-confirmation').val() }, $('#v2-reset-result'))
@@ -1685,5 +1673,11 @@ jQuery(function ($) {
                 <td>${esc(run.started_at)}</td><td>${esc(run.finished_at || '-')} <button type="button" class="button btn-v2-run-details" data-summary="${esc(run.summary || '{}')}">Details</button></td></tr>`).join(''));
         });
     }
+    $('#olama-advanced-tools').on('toggle', function () {
+        if (this.open) {
+            loadLogs(1);
+            loadV2Runs();
+        }
+    });
     $(document).on('click', '.btn-v2-run-details', function () { window.alert($(this).attr('data-summary') || '{}'); });
 });

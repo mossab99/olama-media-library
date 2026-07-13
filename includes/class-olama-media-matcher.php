@@ -39,7 +39,7 @@ class Olama_Media_Matcher
         // until a replacement is confidently identified or an administrator changes them.
         // Deleting them before matching made a transient ambiguity look like a missing video.
         $cleared = 0;
-        $report = array('run_id'=>$run_id,'files_in_scope'=>count($files),'raw_files_in_scope'=>count($all_raw_in_scope),'duplicate_drive_files'=>$duplicate_count,'cleared_pending_links'=>$cleared,'auto_linked'=>0,'needs_review'=>0,'unmatched'=>0,'ambiguous'=>0,'already_linked'=>0,'errors'=>0,'results'=>array());
+        $report = array('run_id'=>$run_id,'files_in_scope'=>count($files),'raw_files_in_scope'=>count($all_raw_in_scope),'duplicate_drive_files'=>$duplicate_count,'cleared_pending_links'=>$cleared,'auto_linked'=>0,'needs_review'=>0,'unmatched'=>0,'ambiguous'=>0,'already_linked'=>0,'rejected_skipped'=>0,'errors'=>0,'results'=>array());
 
         foreach ($files as $file) {
             $candidates = array();
@@ -54,6 +54,20 @@ class Olama_Media_Matcher
             usort($candidates, function ($a, $b) { return $b['confidence'] <=> $a['confidence']; });
             if (!$candidates) { $report['unmatched']++; continue; }
             $top = $candidates[0];
+            $existing = $this->repository->get_link_by_drive_file_id($file->drive_file_id);
+            if ($existing && absint($existing->lesson_id) === absint($top['lesson']->id) && $existing->link_status === 'active') {
+                $report['already_linked']++;
+                continue;
+            }
+            if ($existing && !$force && ($existing->link_status === 'ignored' || $existing->approval_status === 'rejected')) {
+                $report['rejected_skipped']++;
+                continue;
+            }
+            if ($existing && $existing->link_status === 'active' && !$force) {
+                $report['needs_review']++;
+                $report['results'][] = $this->result_row($top, 'existing_link_conflict');
+                continue;
+            }
             $high = array_values(array_filter($candidates, function ($candidate) { return $candidate['confidence'] >= 90; }));
             if (count($high) > 1 && $high[0]['confidence'] === $high[1]['confidence']) {
                 $report['ambiguous']++;
@@ -61,16 +75,6 @@ class Olama_Media_Matcher
                 if (!$dry_run && !empty($options['save_review'])) {
                     $this->save_candidate_link($top, $academic_year_id, $semester_id, $grade_id, $subject_id, min(89, $top['confidence']), 'unlinked');
                 }
-                continue;
-            }
-            $existing = $this->repository->get_link_by_drive_file_id($file->drive_file_id);
-            if ($existing && absint($existing->lesson_id) === absint($top['lesson']->id) && $existing->link_status === 'active') {
-                $report['already_linked']++;
-                continue;
-            }
-            if ($existing && $existing->link_status === 'active' && !$force) {
-                $report['needs_review']++;
-                $report['results'][] = $this->result_row($top, 'existing_link_conflict');
                 continue;
             }
             $status = $top['confidence'] >= 90 ? 'auto_link' : 'needs_review';
