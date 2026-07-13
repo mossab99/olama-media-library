@@ -26,13 +26,20 @@ class Olama_Media_Matcher
         $units = (new Olama_Media_DB())->get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id);
         if (is_wp_error($units)) { $this->repository->finish_sync_run($run_id, 'failed', array('errors'=>1)); return $units; }
         $names = $this->curriculum->get_names($academic_year_id, $semester_id, $grade_id, $subject_id);
+
+        // get_active_drive_files() already deduplicates by drive_path_hash (keeps newest per path).
+        // We also count raw duplicates for reporting transparency.
+        $all_raw = $this->repository->get_all_active_drive_files_raw();
+        $all_raw_in_scope = array_values(array_filter($all_raw, function ($file) use ($names) { return $this->file_is_in_curriculum_scope($file, $names); }));
         $files = $this->repository->get_active_drive_files();
         $files = array_values(array_filter($files, function ($file) use ($names) { return $this->file_is_in_curriculum_scope($file, $names); }));
+        $duplicate_count = count($all_raw_in_scope) - count($files);
+
         $cleared = 0;
         if ($auto_apply) {
             $cleared = $this->repository->clear_pending_generated_links_for_scope($academic_year_id, $semester_id, $grade_id, $subject_id);
         }
-        $report = array('run_id'=>$run_id,'files_in_scope'=>count($files),'cleared_pending_links'=>$cleared,'auto_linked'=>0,'needs_review'=>0,'unmatched'=>0,'ambiguous'=>0,'already_linked'=>0,'errors'=>0,'results'=>array());
+        $report = array('run_id'=>$run_id,'files_in_scope'=>count($files),'raw_files_in_scope'=>count($all_raw_in_scope),'duplicate_drive_files'=>$duplicate_count,'cleared_pending_links'=>$cleared,'auto_linked'=>0,'needs_review'=>0,'unmatched'=>0,'ambiguous'=>0,'already_linked'=>0,'errors'=>0,'results'=>array());
 
         foreach ($files as $file) {
             $candidates = array();
@@ -46,7 +53,7 @@ class Olama_Media_Matcher
             usort($candidates, function ($a, $b) { return $b['confidence'] <=> $a['confidence']; });
             if (!$candidates) { $report['unmatched']++; continue; }
             $top = $candidates[0];
-            $high = array_filter($candidates, function ($candidate) { return $candidate['confidence'] >= 90; });
+            $high = array_values(array_filter($candidates, function ($candidate) { return $candidate['confidence'] >= 90; }));
             if (count($high) > 1 && $high[0]['confidence'] === $high[1]['confidence']) {
                 $report['ambiguous']++;
                 $report['results'][] = $this->result_row($top, 'ambiguous');
