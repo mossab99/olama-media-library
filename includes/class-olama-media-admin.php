@@ -21,19 +21,7 @@ class Olama_Media_Admin
 
     public static function can_manage()
     {
-        if (self::is_teacher()) {
-            return false;
-        }
-        if (class_exists('Olama_School_Permissions') && method_exists('Olama_School_Permissions', 'can')) {
-            return Olama_School_Permissions::can('olama_access_media_library') || current_user_can('manage_options');
-        }
-        return current_user_can('manage_options');
-    }
-
-    public static function is_teacher()
-    {
-        $user = wp_get_current_user();
-        return $user->exists() && in_array('teacher', (array) $user->roles, true);
+        return current_user_can('manage_options') || current_user_can('olama_access_media_library');
     }
 
     public static function can_access()
@@ -43,24 +31,12 @@ class Olama_Media_Admin
 
     public static function can_upload()
     {
-        if (self::is_teacher()) {
-            return true;
-        }
-        if (class_exists('Olama_School_Permissions') && method_exists('Olama_School_Permissions', 'can')) {
-            return Olama_School_Permissions::can('olama_media_upload_video') || current_user_can('manage_options');
-        }
-        return current_user_can('manage_options');
+        return current_user_can('manage_options') || current_user_can('olama_media_upload_video');
     }
 
     public static function can_approve()
     {
-        if (self::is_teacher()) {
-            return false;
-        }
-        if (class_exists('Olama_School_Permissions') && method_exists('Olama_School_Permissions', 'can')) {
-            return Olama_School_Permissions::can('olama_media_approve_video') || current_user_can('manage_options');
-        }
-        return current_user_can('manage_options');
+        return current_user_can('manage_options') || current_user_can('olama_media_approve_video');
     }
 
     public function register_menu()
@@ -73,7 +49,7 @@ class Olama_Media_Admin
         add_menu_page(
             __('Olama Media Library', 'olama-media-library'),
             $title,
-            'read',
+            'olama_access_media_library',
             'academy-media-library',
             array($this, 'render_page'),
             'dashicons-format-video',
@@ -112,7 +88,7 @@ class Olama_Media_Admin
             'pluginVersion' => OLAMA_MEDIA_LIBRARY_VERSION,
             'nonce' => wp_create_nonce('olama_media_library_nonce'),
             'legacyNonce' => wp_create_nonce('olama_admin_nonce'),
-            'canManage' => self::can_manage() && !self::is_teacher(),
+            'canManage' => current_user_can('manage_options') || current_user_can('olama_media_drive_settings'),
             'canApprove' => self::can_approve(),
             'maxFileSize' => $max_size,
             'maxFileSizeHuman' => size_format($max_size),
@@ -125,7 +101,7 @@ class Olama_Media_Admin
                 'has_refresh_token' => (bool) $drive_auth_health['has_refresh_token'],
                 'auth_warning' => (!$drive_auth_health['is_configured'] || !$drive_auth_health['has_refresh_token'] || !$drive_auth_health['can_refresh']) ? __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library') : '',
             ),
-            'autoSyncV2OnCurriculumLoad' => self::can_manage() && !self::is_teacher(),
+            'autoSyncV2OnCurriculumLoad' => current_user_can('manage_options') || current_user_can('olama_media_drive_settings'),
             // Phase 1 still proxies chunks through PHP before sending them to Drive.
             // Keep chunks smaller for reliability until uploads move to a background/direct flow.
             'chunkSize' => min(5 * 1024 * 1024, max(1024 * 1024, (int) floor($server_limit * 0.7))),
@@ -138,7 +114,7 @@ class Olama_Media_Admin
         if (empty($_GET['page']) || $_GET['page'] !== 'academy-media-library' || empty($_GET['code'])) {
             return;
         }
-        if (!current_user_can('manage_options') || self::is_teacher()) {
+        if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
             return;
         }
 

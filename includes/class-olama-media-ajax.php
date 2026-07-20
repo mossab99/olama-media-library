@@ -1205,7 +1205,7 @@ class Olama_Media_Ajax
     public function save_settings()
     {
         $this->verify_nonce();
-        if (!current_user_can('manage_options') || Olama_Media_Admin::is_teacher()) {
+        if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
 
@@ -1239,7 +1239,7 @@ class Olama_Media_Ajax
     public function test_connection()
     {
         $this->verify_nonce();
-        if (!current_user_can('manage_options') || Olama_Media_Admin::is_teacher()) {
+        if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
         $result = (new Olama_Media_Drive())->test_connection();
@@ -1260,7 +1260,7 @@ class Olama_Media_Ajax
     public function migrate_legacy()
     {
         $this->verify_nonce();
-        if (!current_user_can('manage_options') || Olama_Media_Admin::is_teacher()) {
+        if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
         $dry_run = !empty($_POST['dry_run']);
@@ -1421,7 +1421,7 @@ class Olama_Media_Ajax
     public function sync_drive()
     {
         $this->verify_nonce();
-        if (!current_user_can('manage_options') || Olama_Media_Admin::is_teacher()) {
+        if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
 

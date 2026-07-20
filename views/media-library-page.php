@@ -5,7 +5,7 @@ if (!defined('ABSPATH')) {
 
 $drive = new Olama_Media_Drive();
 $refresh_token = $settings['refresh_token'] ?? '';
-$can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teacher();
+$can_administer = current_user_can('manage_options') || current_user_can('olama_media_drive_settings');
 ?>
 
 <div class="wrap academy-media-library-wrap olama-media-library-wrap<?php echo $can_administer ? '' : ' olama-upload-only'; ?>" dir="rtl">
@@ -14,7 +14,7 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
     <h2 class="nav-tab-wrapper">
         <?php if ($can_administer) : ?><a href="#coverage" class="nav-tab" data-tab="coverage"><?php esc_html_e('Curriculum Video Coverage Report', 'olama-media-library'); ?></a><?php endif; ?>
         <a href="#library" class="nav-tab nav-tab-active" data-tab="library"><?php esc_html_e('رفع الفيديوهات', 'olama-media-library'); ?></a>
-        <a href="#settings" class="nav-tab" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a>
+        <?php if ($can_administer) : ?><a href="#settings" class="nav-tab" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a><?php endif; ?>
     </h2>
 
     <section id="tab-library" class="olama-media-tab active">
@@ -23,7 +23,7 @@ $can_administer = Olama_Media_Admin::can_manage() && !Olama_Media_Admin::is_teac
                 <p>
                     <strong><?php esc_html_e('تنبيه:', 'olama-media-library'); ?></strong>
                     <?php esc_html_e('اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library'); ?>
-                    <a href="#settings" class="button button-small nav-tab-jump" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a>
+                    <?php if ($can_administer) : ?><a href="#settings" class="button button-small nav-tab-jump" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a><?php endif; ?>
                 </p>
             </div>
         <?php endif; ?>
