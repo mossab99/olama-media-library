@@ -14,49 +14,36 @@ class Olama_Media_Curriculum_Adapter
 
     public function get_academic_years()
     {
-        if (class_exists('Olama_School_Academic') && method_exists('Olama_School_Academic', 'get_years')) {
-            return Olama_School_Academic::get_years();
+        if (function_exists('olama_core') && method_exists(olama_core(), 'academic_calendar')) {
+            return olama_core()->academic_calendar()->years();
         }
-
-        global $wpdb;
-        return $wpdb->get_results("SELECT * FROM {$wpdb->prefix}olama_academic_years ORDER BY start_date DESC");
+        return array();
     }
 
     public function get_active_year()
     {
-        if (class_exists('Olama_School_Academic') && method_exists('Olama_School_Academic', 'get_active_year')) {
-            return Olama_School_Academic::get_active_year();
+        if (function_exists('olama_core') && method_exists(olama_core(), 'academic_context')) {
+            return olama_core()->academic_context()->current_year();
         }
-
-        global $wpdb;
-        return $wpdb->get_row("SELECT * FROM {$wpdb->prefix}olama_academic_years WHERE is_active = 1 LIMIT 1");
+        return null;
     }
 
     public function get_semesters($academic_year_id)
     {
-        global $wpdb;
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}olama_semesters WHERE academic_year_id = %d ORDER BY start_date ASC",
-            absint($academic_year_id)
-        ));
+        return function_exists('olama_core') && method_exists(olama_core(), 'academic_calendar')
+            ? olama_core()->academic_calendar()->semesters(absint($academic_year_id))
+            : array();
     }
 
     public function get_active_semester($academic_year_id = null)
     {
-        if (class_exists('Olama_School_Academic') && method_exists('Olama_School_Academic', 'get_active_semester')) {
-            return Olama_School_Academic::get_active_semester($academic_year_id);
+        if (function_exists('olama_core') && method_exists(olama_core(), 'academic_context')) {
+            $context = olama_core()->academic_context()->current();
+            if ($context && (!$academic_year_id || (int) $context->academic_year_id === (int) $academic_year_id)) {
+                return olama_core()->academic_context()->current_semester();
+            }
         }
-
-        global $wpdb;
-        if (!$academic_year_id) {
-            $year = $this->get_active_year();
-            $academic_year_id = $year ? $year->id : 0;
-        }
-
-        return $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}olama_semesters WHERE academic_year_id = %d AND is_active = 1 LIMIT 1",
-            absint($academic_year_id)
-        ));
+        return null;
     }
 
     public function get_grades()
