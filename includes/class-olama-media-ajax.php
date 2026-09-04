@@ -1279,6 +1279,7 @@ class Olama_Media_Ajax
         if (!$full_scan) {
             $names = $this->curriculum->get_names($ids[0], $ids[1], $ids[2], $ids[3]);
             $drive = new Olama_Media_Drive();
+            $subject_name = sanitize_text_field($names['subject'] ?? '');
             $candidate_paths = array(
                 array($names['academic_year'], $names['semester'], $names['grade'], $names['subject']),
                 array($names['semester'], $names['grade'], $names['subject']),
@@ -1289,6 +1290,32 @@ class Olama_Media_Ajax
                 $folder_id = $drive->find_nested_folder($path);
                 if (is_wp_error($folder_id)) { wp_send_json_error($folder_id->get_error_message()); }
                 if ($folder_id) { $options['start_folder_id'] = $folder_id; $options['path_parts'] = $path; break; }
+            }
+
+            // A Root Folder ID may point at the subject folder itself. In that
+            // layout there is no child folder with the same subject name.
+            if (empty($options['start_folder_id'])) {
+                $root = $drive->test_connection();
+                if (is_wp_error($root)) { wp_send_json_error($root->get_error_message()); }
+                $normalizer = new Olama_Media_Normalizer();
+                if ($normalizer->normalize_text($root['name'] ?? '') === $normalizer->normalize_text($subject_name)) {
+                    $options['start_folder_id'] = sanitize_text_field($root['id'] ?? '');
+                    $options['path_parts'] = array();
+                }
+            }
+
+            // Drive folders are not always organized as year/semester/grade.
+            // Search below the configured root, but accept the result only when
+            // the selected subject name identifies one unambiguous folder.
+            if (empty($options['start_folder_id']) && $subject_name !== '') {
+                $subject_folders = $drive->find_folders_by_name_recursive($subject_name, $options['max_depth']);
+                if (is_wp_error($subject_folders)) { wp_send_json_error($subject_folders->get_error_message()); }
+                if (count($subject_folders) === 1) {
+                    $options['start_folder_id'] = $subject_folders[0];
+                    $options['path_parts'] = array($subject_name);
+                } elseif (count($subject_folders) > 1) {
+                    wp_send_json_error(__('More than one folder matches the selected subject in Drive. Organize the subject under the configured root or narrow the Root Folder ID.', 'olama-media-library'));
+                }
             }
             if (empty($options['start_folder_id'])) { wp_send_json_error(__('The selected subject folder was not found in Drive.', 'olama-media-library')); }
         }

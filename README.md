@@ -1,5 +1,9 @@
 # Olama Media Library
 
+## Guardian video library service (2.1.0)
+
+`Olama_Media_Guardian_Library::for_curriculum()` exposes a minimal read model for family/student portals. It returns only active, approved curriculum video links (plus approved, ready legacy assets) for an explicit academic year, semester, grade, and subject list. It excludes pending matches, Drive identifiers, uploader data, notes, jobs, and diagnostics.
+
 Standalone media library plugin for Olama School curriculum videos.
 
 ## Drive v2

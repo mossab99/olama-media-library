@@ -164,11 +164,14 @@ class Olama_Media_Matcher
     private function file_is_in_curriculum_scope($file, $names)
     {
         $segments = $this->normalized_path_segments($file->drive_path);
-        foreach (array('academic_year','semester','grade','subject') as $key) {
-            $expected = $this->normalizer->normalize_text($names[$key] ?? '');
-            if ($expected !== '' && !in_array($expected, $segments, true)) { return false; }
-        }
-        return true;
+        $subject = $this->normalizer->normalize_text($names['subject'] ?? '');
+
+        // Scoped scans may start at year/semester/grade/subject, at subject,
+        // or at a configured root which is itself the subject. Requiring every
+        // curriculum label discarded valid files from the shorter layouts.
+        // The subject segment plus the separate unit-folder check below keeps
+        // matching constrained without imposing one Drive hierarchy.
+        return $subject !== '' && in_array($subject, $segments, true);
     }
 
     private function file_is_in_unit($file, $unit)
