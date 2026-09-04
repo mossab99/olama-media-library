@@ -41,9 +41,9 @@ class Olama_Media_Library_Plugin
 
     public function maybe_update_schema()
     {
-        if (get_option('olama_media_library_db_version') !== OLAMA_MEDIA_LIBRARY_VERSION) {
+        if (get_option('olama_media_library_db_version') !== OLAMA_MEDIA_LIBRARY_DB_VERSION) {
             $this->db->create_tables();
-            update_option('olama_media_library_db_version', OLAMA_MEDIA_LIBRARY_VERSION);
+            update_option('olama_media_library_db_version', OLAMA_MEDIA_LIBRARY_DB_VERSION);
         }
     }
 

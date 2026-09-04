@@ -49,6 +49,9 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_v2_reset_index', array($this, 'v2_reset_index'));
         add_action('wp_ajax_olama_media_v2_import_legacy', array($this, 'v2_import_legacy'));
         add_action('wp_ajax_olama_media_v2_latest_runs', array($this, 'v2_latest_runs'));
+        add_action('wp_ajax_olama_media_drive_discovery_start', array($this, 'drive_discovery_start'));
+        add_action('wp_ajax_olama_media_drive_discovery_batch', array($this, 'drive_discovery_batch'));
+        add_action('wp_ajax_olama_media_drive_discovery_status', array($this, 'drive_discovery_status'));
     }
 
     public function get_subjects()
@@ -1703,6 +1706,38 @@ class Olama_Media_Ajax
         );
     }
 
+    public function drive_discovery_start()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $result = (new Olama_Media_Drive_Discovery())->start();
+        is_wp_error($result)
+            ? wp_send_json_error($result->get_error_message())
+            : wp_send_json_success(array('run_uuid' => $result->run_uuid, 'status' => $result->status));
+    }
+
+    public function drive_discovery_batch()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $run_uuid = sanitize_text_field(wp_unslash($_POST['run_uuid'] ?? ''));
+        if ($run_uuid === '') { wp_send_json_error(__('Drive inventory run ID is required.', 'olama-media-library')); }
+        $result = (new Olama_Media_Drive_Discovery())->batch($run_uuid);
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function drive_discovery_status()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $run_uuid = sanitize_text_field(wp_unslash($_REQUEST['run_uuid'] ?? ''));
+        $repository = new Olama_Media_Drive_Inventory_Repository();
+        $run = $repository->get_run_by_uuid($run_uuid);
+        if (!$run) { wp_send_json_error(__('Drive inventory run was not found.', 'olama-media-library')); }
+        $result = $repository->report($run->id);
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
     /**
      * Reuse an existing curriculum branch before creating a canonical path.
      *
@@ -2132,6 +2167,13 @@ class Olama_Media_Ajax
     private function require_manage()
     {
         if (!Olama_Media_Admin::can_manage()) {
+            wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403);
+        }
+    }
+
+    private function require_drive_administration()
+    {
+        if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403);
         }
     }

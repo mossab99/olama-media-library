@@ -1673,6 +1673,54 @@ jQuery(function ($) {
             })
             .always(function () { $button.prop('disabled', false); });
     });
+
+    $('#btn-drive-inventory').on('click', function () {
+        const $button = $(this).prop('disabled', true);
+        const $progress = $('#drive-inventory-progress').removeAttr('hidden').find('p').text(cfg.i18n.inventory_starting);
+        const $result = $('#drive-inventory-result').removeAttr('hidden').text('');
+        $.post(cfg.ajaxurl, { action: 'olama_media_drive_discovery_start', nonce: cfg.nonce })
+            .done(function (response) {
+                if (!response.success) {
+                    $progress.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                    $button.prop('disabled', false);
+                    return;
+                }
+                runInventoryBatch(response.data.run_uuid, $button, $progress, $result);
+            })
+            .fail(function () {
+                $progress.text(cfg.i18n.error);
+                $button.prop('disabled', false);
+            });
+    });
+
+    function runInventoryBatch(runUuid, $button, $progress, $result) {
+        $.post(cfg.ajaxurl, { action: 'olama_media_drive_discovery_batch', nonce: cfg.nonce, run_uuid: runUuid })
+            .done(function (response) {
+                if (!response.success) {
+                    $progress.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                    $button.prop('disabled', false);
+                    return;
+                }
+                const report = response.data || {};
+                const run = report.run || {};
+                $progress.text(`${cfg.i18n.inventory_scanning} folders: ${run.folders_observed || 0}, files: ${run.files_observed || 0}, shortcuts: ${run.shortcuts_observed || 0}`);
+                $result.text(JSON.stringify(report, null, 2));
+                if (run.status === 'completed') {
+                    $progress.text(cfg.i18n.inventory_complete);
+                    $button.prop('disabled', false);
+                    return;
+                }
+                if (run.status === 'failed') {
+                    $button.prop('disabled', false);
+                    return;
+                }
+                window.setTimeout(function () { runInventoryBatch(runUuid, $button, $progress, $result); }, 250);
+            })
+            .fail(function () {
+                $progress.text(cfg.i18n.error);
+                $button.prop('disabled', false);
+            });
+    }
     $('#btn-v2-reset').on('click', function () {
         v2Post('olama_media_v2_reset_index', { scope: $('#v2-reset-scope').val(), confirmation_text: $('#v2-reset-confirmation').val() }, $('#v2-reset-result'))
             .done(function (response) { if (response.success) { loadV2Review(); loadV2Runs(); } });

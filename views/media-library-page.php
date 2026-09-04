@@ -233,6 +233,13 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
 
             <div class="olama-v2-grid">
                 <div class="olama-media-panel">
+                    <h2><?php esc_html_e('جرد Google Drive للقراءة فقط', 'olama-media-library'); ?></h2>
+                    <p><?php esc_html_e('يجمع معرفات المجلدات والملفات والمسارات ويكشف المجلدات المتكررة. لا ينقل أو ينشئ أو يحذف أي عنصر، ولا يغير روابط الدروس الحالية.', 'olama-media-library'); ?></p>
+                    <button type="button" class="button button-primary" id="btn-drive-inventory"><?php esc_html_e('بدء الجرد الآمن', 'olama-media-library'); ?></button>
+                    <div id="drive-inventory-progress" class="notice notice-info inline" hidden><p></p></div>
+                    <pre id="drive-inventory-result" class="olama-media-result" hidden></pre>
+                </div>
+                <div class="olama-media-panel">
                     <h2><?php esc_html_e('إعادة بناء فهرس Google Drive', 'olama-media-library'); ?></h2>
                     <p><?php esc_html_e('يفحص جميع المجلدات. استخدمه فقط عند طلب الدعم الفني.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-v2-rebuild" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('إعادة بناء الفهرس', 'olama-media-library'); ?></button>

@@ -114,6 +114,13 @@ class Olama_Media_DB
         $links = $wpdb->prefix . 'olama_lesson_video_links';
         $runs = $wpdb->prefix . 'olama_drive_sync_runs';
         $sync_events = $wpdb->prefix . 'olama_drive_sync_events';
+        $drive_folders = $wpdb->prefix . 'olama_drive_folders';
+        $drive_maps = $wpdb->prefix . 'olama_curriculum_drive_map';
+        $mapping_candidates = $wpdb->prefix . 'olama_drive_mapping_candidates';
+        $scan_runs = $wpdb->prefix . 'olama_drive_scan_runs';
+        $scan_observations = $wpdb->prefix . 'olama_drive_scan_observations';
+        $scan_queue = $wpdb->prefix . 'olama_drive_scan_queue';
+        $sync_locks = $wpdb->prefix . 'olama_drive_sync_locks';
 
         dbDelta("CREATE TABLE {$drive_files} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -133,6 +140,14 @@ class Olama_Media_DB
             thumbnail_link TEXT NULL,
             video_metadata LONGTEXT NULL,
             scan_status VARCHAR(30) NOT NULL DEFAULT 'active',
+            academic_year_id BIGINT UNSIGNED NULL,
+            semester_id BIGINT UNSIGNED NULL,
+            grade_id BIGINT UNSIGNED NULL,
+            subject_id BIGINT UNSIGNED NULL,
+            unit_id BIGINT UNSIGNED NULL,
+            last_seen_scan_id BIGINT UNSIGNED NULL,
+            consecutive_absent_scans INT UNSIGNED NOT NULL DEFAULT 0,
+            presence_status VARCHAR(30) NOT NULL DEFAULT 'present',
             first_seen_at DATETIME NOT NULL,
             last_seen_at DATETIME NOT NULL,
             created_at DATETIME NOT NULL,
@@ -142,6 +157,8 @@ class Olama_Media_DB
             KEY drive_folder_id (drive_folder_id),
             KEY drive_path_hash (drive_path_hash),
             KEY scan_status (scan_status),
+            KEY curriculum (academic_year_id,semester_id,grade_id,subject_id),
+            KEY presence_status (presence_status),
             KEY modified_time (modified_time)
         ) $charset_collate;");
 
@@ -224,6 +241,142 @@ class Olama_Media_DB
             KEY drive_file_id (drive_file_id),
             KEY lesson_id (lesson_id)
         ) $charset_collate;");
+
+        // Phase 1 tables are additive. Discovery writes only to scan runs,
+        // observations, and queue; authoritative folder/file state is untouched.
+        dbDelta("CREATE TABLE {$drive_folders} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            drive_folder_id VARCHAR(191) NOT NULL,
+            parent_drive_folder_id VARCHAR(191) NULL,
+            folder_name VARCHAR(255) NOT NULL,
+            normalized_name VARCHAR(255) NULL,
+            path_snapshot TEXT NULL,
+            root_config_hash VARCHAR(64) NULL,
+            presence_status VARCHAR(30) NOT NULL DEFAULT 'present',
+            last_seen_scan_id BIGINT UNSIGNED NULL,
+            consecutive_absent_scans INT UNSIGNED NOT NULL DEFAULT 0,
+            metadata_json LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY drive_folder_id (drive_folder_id),
+            KEY parent_drive_folder_id (parent_drive_folder_id),
+            KEY normalized_name (normalized_name),
+            KEY presence_status (presence_status)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$drive_maps} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            scope_key VARCHAR(191) NOT NULL,
+            scope_type VARCHAR(30) NOT NULL,
+            academic_year_id BIGINT UNSIGNED NULL,
+            semester_id BIGINT UNSIGNED NULL,
+            grade_id BIGINT UNSIGNED NULL,
+            subject_id BIGINT UNSIGNED NULL,
+            unit_id BIGINT UNSIGNED NULL,
+            drive_folder_id VARCHAR(191) NOT NULL,
+            mapping_status VARCHAR(30) NOT NULL DEFAULT 'proposed',
+            root_config_hash VARCHAR(64) NULL,
+            confirmed_by BIGINT UNSIGNED NULL,
+            confirmed_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY scope_key (scope_key),
+            KEY drive_folder_id (drive_folder_id),
+            KEY mapping_status (mapping_status)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$mapping_candidates} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            discovery_run_id BIGINT UNSIGNED NOT NULL,
+            scope_key VARCHAR(191) NOT NULL,
+            drive_folder_id VARCHAR(191) NOT NULL,
+            confidence TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            reasons LONGTEXT NULL,
+            conflict_reason TEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY run_scope_folder (discovery_run_id,scope_key,drive_folder_id),
+            KEY scope_key (scope_key),
+            KEY drive_folder_id (drive_folder_id)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$scan_runs} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            run_uuid VARCHAR(100) NOT NULL,
+            run_type VARCHAR(40) NOT NULL DEFAULT 'inventory_discovery',
+            status VARCHAR(30) NOT NULL DEFAULT 'scanning',
+            root_folder_id VARCHAR(191) NOT NULL,
+            root_name VARCHAR(255) NULL,
+            root_config_hash VARCHAR(64) NOT NULL,
+            folders_observed INT UNSIGNED NOT NULL DEFAULT 0,
+            files_observed INT UNSIGNED NOT NULL DEFAULT 0,
+            shortcuts_observed INT UNSIGNED NOT NULL DEFAULT 0,
+            errors INT UNSIGNED NOT NULL DEFAULT 0,
+            summary LONGTEXT NULL,
+            started_at DATETIME NOT NULL,
+            finished_at DATETIME NULL,
+            created_by BIGINT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY run_uuid (run_uuid),
+            KEY status (status),
+            KEY root_config_hash (root_config_hash)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$scan_observations} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            scan_run_id BIGINT UNSIGNED NOT NULL,
+            drive_item_id VARCHAR(191) NOT NULL,
+            item_type VARCHAR(20) NOT NULL,
+            resolved_target_id VARCHAR(191) NULL,
+            parent_drive_folder_id VARCHAR(191) NULL,
+            item_name VARCHAR(255) NOT NULL,
+            normalized_name VARCHAR(255) NULL,
+            mime_type VARCHAR(100) NULL,
+            file_size BIGINT UNSIGNED NULL,
+            modified_time DATETIME NULL,
+            path_snapshot TEXT NULL,
+            web_view_link TEXT NULL,
+            metadata_json LONGTEXT NULL,
+            observed_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY run_item (scan_run_id,drive_item_id),
+            KEY scan_run_id (scan_run_id),
+            KEY parent_drive_folder_id (parent_drive_folder_id),
+            KEY item_type (item_type),
+            KEY normalized_name (normalized_name)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$scan_queue} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            scan_run_id BIGINT UNSIGNED NOT NULL,
+            drive_folder_id VARCHAR(191) NOT NULL,
+            parent_drive_folder_id VARCHAR(191) NULL,
+            path_snapshot TEXT NULL,
+            depth INT UNSIGNED NOT NULL DEFAULT 0,
+            page_token TEXT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            attempts INT UNSIGNED NOT NULL DEFAULT 0,
+            last_error TEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY run_folder (scan_run_id,drive_folder_id),
+            KEY run_status (scan_run_id,status)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$sync_locks} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            lock_key VARCHAR(191) NOT NULL,
+            run_id BIGINT UNSIGNED NULL,
+            acquired_at DATETIME NOT NULL,
+            heartbeat_at DATETIME NOT NULL,
+            expires_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY lock_key (lock_key),
+            KEY expires_at (expires_at)
+        ) ENGINE=InnoDB $charset_collate;");
     }
 
     public function get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id)

@@ -204,6 +204,55 @@ class Olama_Media_Drive
         return $items;
     }
 
+    /**
+     * Read one bounded page of Drive children for the persistent discovery queue.
+     * This method performs no Drive mutation.
+     */
+    public function list_folder_children_page($folder_id, $page_token = '', $page_size = 200)
+    {
+        if (!$this->service || !$folder_id) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+
+        try {
+            $args = array(
+                'q' => "'" . str_replace("'", "\\'", $folder_id) . "' in parents and trashed=false",
+                'fields' => 'nextPageToken,files(id,name,mimeType,size,parents,driveId,modifiedTime,trashed,webViewLink,shortcutDetails(targetId,targetMimeType))',
+                'pageSize' => min(500, max(25, absint($page_size))),
+                'supportsAllDrives' => true,
+                'includeItemsFromAllDrives' => true,
+            );
+            if ($page_token !== '') {
+                $args['pageToken'] = sanitize_text_field($page_token);
+            }
+            $response = $this->service->files->listFiles($args);
+            $files = method_exists($response, 'getFiles') ? $response->getFiles() : ($response->files ?? array());
+            $items = array();
+            foreach ((array) $files as $file) {
+                $shortcut = method_exists($file, 'getShortcutDetails') ? $file->getShortcutDetails() : ($file->shortcutDetails ?? null);
+                $items[] = array(
+                    'id' => sanitize_text_field($file->id),
+                    'name' => sanitize_text_field($file->name),
+                    'mime_type' => sanitize_text_field($file->mimeType),
+                    'size' => absint($file->size),
+                    'parents' => array_map('sanitize_text_field', (array) $file->parents),
+                    'drive_id' => sanitize_text_field($file->driveId ?? ''),
+                    'modified_time' => sanitize_text_field($file->modifiedTime ?? ''),
+                    'trashed' => (bool) $file->trashed,
+                    'web_view_link' => esc_url_raw($file->webViewLink ?? ''),
+                    'shortcut_target_id' => sanitize_text_field($shortcut->targetId ?? ''),
+                    'shortcut_target_mime_type' => sanitize_text_field($shortcut->targetMimeType ?? ''),
+                );
+            }
+            return array(
+                'items' => $items,
+                'next_page_token' => sanitize_text_field(method_exists($response, 'getNextPageToken') ? (string) $response->getNextPageToken() : (string) ($response->nextPageToken ?? '')),
+            );
+        } catch (Exception $e) {
+            return new WP_Error('drive_inventory_list_error', $this->extract_error($e));
+        }
+    }
+
     public function get_or_create_nested_folder($path_parts)
     {
         if (!$this->service) {
