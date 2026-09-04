@@ -6,6 +6,8 @@ if (!defined('ABSPATH')) {
 $drive = new Olama_Media_Drive();
 $refresh_token = $settings['refresh_token'] ?? '';
 $can_administer = current_user_can('manage_options') || current_user_can('olama_media_drive_settings');
+$drive_upload_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+$drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC);
 ?>
 
 <div class="wrap academy-media-library-wrap olama-media-library-wrap<?php echo $can_administer ? '' : ' olama-upload-only'; ?>" dir="rtl">
@@ -18,6 +20,11 @@ $can_administer = current_user_can('manage_options') || current_user_can('olama_
     </h2>
 
     <section id="tab-library" class="olama-media-tab active">
+        <?php if (Olama_Media_Feature_Flags::phase_zero_active()) : ?>
+            <div class="notice notice-warning inline">
+                <p><strong><?php esc_html_e('وضع الحماية:', 'olama-media-library'); ?></strong> <?php esc_html_e('تم إيقاف رفع الملفات ومزامنة Google Drive وإنشاء المجلدات مؤقتاً إلى حين اكتمال ربط مجلدات المنهج بشكل آمن.', 'olama-media-library'); ?></p>
+            </div>
+        <?php endif; ?>
         <?php if (empty($drive_auth_health['is_configured']) || empty($drive_auth_health['has_refresh_token']) || empty($drive_auth_health['can_refresh'])) : ?>
             <div class="notice notice-error inline olama-drive-auth-warning">
                 <p>
@@ -77,7 +84,7 @@ $can_administer = current_user_can('manage_options') || current_user_can('olama_
                     <strong><?php esc_html_e('مزامنة Google Drive', 'olama-media-library'); ?></strong>
                     <span><?php esc_html_e('يفحص مجلد المادة المحددة ويربط الفيديوهات بالدروس تلقائياً.', 'olama-media-library'); ?></span>
                 </div>
-                <button type="button" id="btn-v2-sync-now" class="button button-primary"><?php esc_html_e('فحص ومزامنة Google Drive', 'olama-media-library'); ?></button>
+                <button type="button" id="btn-v2-sync-now" class="button button-primary" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('فحص ومزامنة Google Drive', 'olama-media-library'); ?></button>
             </div>
         <?php endif; ?>
 
@@ -228,7 +235,7 @@ $can_administer = current_user_can('manage_options') || current_user_can('olama_
                 <div class="olama-media-panel">
                     <h2><?php esc_html_e('إعادة بناء فهرس Google Drive', 'olama-media-library'); ?></h2>
                     <p><?php esc_html_e('يفحص جميع المجلدات. استخدمه فقط عند طلب الدعم الفني.', 'olama-media-library'); ?></p>
-                    <button type="button" class="button" id="btn-v2-rebuild"><?php esc_html_e('إعادة بناء الفهرس', 'olama-media-library'); ?></button>
+                    <button type="button" class="button" id="btn-v2-rebuild" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('إعادة بناء الفهرس', 'olama-media-library'); ?></button>
                     <pre id="v2-scan-result" class="olama-media-result" hidden></pre>
                 </div>
                 <div class="olama-media-panel">

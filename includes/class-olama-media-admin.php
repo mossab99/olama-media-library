@@ -82,6 +82,8 @@ class Olama_Media_Admin
         }
         $direct_threshold_mb = max(1, absint($settings['olama_media_direct_upload_threshold_mb'] ?? $settings['direct_upload_threshold_mb'] ?? 20));
         $direct_chunk_size_mb = max(1, absint($settings['olama_media_direct_chunk_size_mb'] ?? 16));
+        $drive_upload_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC);
 
         wp_localize_script('olama-media-library-admin', 'olamaMediaLibrary', array(
             'ajaxurl' => admin_url('admin-ajax.php', 'relative'),
@@ -96,12 +98,19 @@ class Olama_Media_Admin
             'directUploadThresholdBytes' => $direct_threshold_mb * 1024 * 1024,
             'directUploadChunkSizeBytes' => $this->normalize_direct_chunk_size($direct_chunk_size_mb * 1024 * 1024),
             'directUploadChunkTimeoutMs' => 180000,
+            'driveFeatures' => array(
+                'uploadEnabled' => $drive_upload_enabled,
+                'syncEnabled' => $drive_sync_enabled,
+                'folderCreationEnabled' => Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION),
+                'legacySyncEnabled' => Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::LEGACY_SYNC),
+                'phaseZeroActive' => Olama_Media_Feature_Flags::phase_zero_active(),
+            ),
             'driveAuth' => array(
                 'drive_authenticated' => $drive_auth_health['is_configured'] && $drive_auth_health['has_refresh_token'] && $drive_auth_health['can_refresh'],
                 'has_refresh_token' => (bool) $drive_auth_health['has_refresh_token'],
                 'auth_warning' => (!$drive_auth_health['is_configured'] || !$drive_auth_health['has_refresh_token'] || !$drive_auth_health['can_refresh']) ? __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library') : '',
             ),
-            'autoSyncV2OnCurriculumLoad' => current_user_can('manage_options') || current_user_can('olama_media_drive_settings'),
+            'autoSyncV2OnCurriculumLoad' => $drive_sync_enabled && (current_user_can('manage_options') || current_user_can('olama_media_drive_settings')),
             // Phase 1 still proxies chunks through PHP before sending them to Drive.
             // Keep chunks smaller for reliability until uploads move to a background/direct flow.
             'chunkSize' => min(5 * 1024 * 1024, max(1024 * 1024, (int) floor($server_limit * 0.7))),
@@ -220,6 +229,8 @@ class Olama_Media_Admin
             'save' => __('حفظ', 'olama-media-library'),
             'notes' => __('ملاحظات', 'olama-media-library'),
             'error' => __('حدث خطأ.', 'olama-media-library'),
+            'phase_zero_upload_disabled' => __('تم إيقاف الرفع مؤقتاً أثناء ترحيل مكتبة الوسائط بشكل آمن.', 'olama-media-library'),
+            'phase_zero_sync_disabled' => __('تم إيقاف مزامنة Google Drive مؤقتاً أثناء ترحيل مكتبة الوسائط بشكل آمن.', 'olama-media-library'),
             'no_curriculum' => __('لا توجد دروس لهذه الاختيارات.', 'olama-media-library'),
             'no_logs' => __('لا توجد سجلات بعد.', 'olama-media-library'),
             'file_too_large' => __('حجم الملف أكبر من المسموح: %s', 'olama-media-library'),

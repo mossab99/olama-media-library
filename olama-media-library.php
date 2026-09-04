@@ -18,6 +18,21 @@ define('OLAMA_MEDIA_LIBRARY_FILE', __FILE__);
 define('OLAMA_MEDIA_LIBRARY_PATH', plugin_dir_path(__FILE__));
 define('OLAMA_MEDIA_LIBRARY_URL', plugin_dir_url(__FILE__));
 
+// Phase 0 safety freeze. These may be defined before the plugin loads, but
+// production should keep all four disabled until their rollout gates pass.
+if (!defined('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED')) {
+    define('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED', false);
+}
+if (!defined('OLAMA_MEDIA_DRIVE_SYNC_ENABLED')) {
+    define('OLAMA_MEDIA_DRIVE_SYNC_ENABLED', false);
+}
+if (!defined('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED')) {
+    define('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED', false);
+}
+if (!defined('OLAMA_MEDIA_LEGACY_SYNC_ENABLED')) {
+    define('OLAMA_MEDIA_LEGACY_SYNC_ENABLED', false);
+}
+
 $olama_school_autoload = WP_PLUGIN_DIR . '/olama-school/vendor/autoload.php';
 if (file_exists($olama_school_autoload)) {
     require_once $olama_school_autoload;
@@ -25,6 +40,7 @@ if (file_exists($olama_school_autoload)) {
 
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-logger.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-db.php';
+require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-feature-flags.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-curriculum-adapter.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-normalizer.php';

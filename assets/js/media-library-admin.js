@@ -170,6 +170,10 @@ jQuery(function ($) {
     }
 
     function syncV2ScopeInBackground(data, options = {}) {
+        if (!cfg.driveFeatures || !cfg.driveFeatures.syncEnabled) {
+            notify(cfg.i18n.phase_zero_sync_disabled, 'error');
+            return;
+        }
         const key = [data.academic_year_id, data.semester_id, data.grade_id, data.subject_id].join(':');
         const $button = options.button ? $(options.button) : $();
         if (!data.academic_year_id || !data.semester_id || !data.grade_id || !data.subject_id) {
@@ -269,7 +273,7 @@ jQuery(function ($) {
                             ${showLegacyActions && needsFinalize ? `<button type="button" class="button btn-finalize-upload" data-job-uuid="${esc(lesson.job_uuid || '')}">${esc(cfg.i18n.retry_finalize)}</button>` : ''}
                             ${showLegacyActions && lesson.media_record_id ? `<button type="button" class="button btn-check-status">${esc(cfg.i18n.check_status)}</button>` : ''}
                             ${showLegacyActions && cfg.canApprove && lesson.media_record_id ? `<button type="button" class="button btn-approval" data-status="approved">${esc(cfg.i18n.approve)}</button><button type="button" class="button btn-approval" data-status="rejected">${esc(cfg.i18n.reject)}</button>` : ''}
-                            <button type="button" class="button btn-upload" data-lesson-id="${esc(lesson.id)}" data-unit-id="${esc(unit.id)}" data-lesson-number="${esc(lesson.lesson_number)}" data-lesson-name="${esc(lesson.lesson_title)}" data-unit-name="${esc(unit.unit_name)}" data-record-id="${esc(lesson.media_record_id || '')}">${esc(hasVideo ? cfg.i18n.replace : cfg.i18n.upload)}</button>
+                            <button type="button" class="button btn-upload" data-lesson-id="${esc(lesson.id)}" data-unit-id="${esc(unit.id)}" data-lesson-number="${esc(lesson.lesson_number)}" data-lesson-name="${esc(lesson.lesson_title)}" data-unit-name="${esc(unit.unit_name)}" data-record-id="${esc(lesson.media_record_id || '')}" ${cfg.driveFeatures && cfg.driveFeatures.uploadEnabled ? '' : 'disabled'}>${esc(hasVideo ? cfg.i18n.replace : cfg.i18n.upload)}</button>
                         </div>
                         <div class="olama-progress olama-upload-panel" id="progress-${esc(lesson.id)}" data-upload-panel>
                             <div class="olama-upload-summary" data-upload-summary></div>
@@ -292,6 +296,10 @@ jQuery(function ($) {
     }
 
     $(document).on('click', '.btn-upload', function () {
+        if (!cfg.driveFeatures || !cfg.driveFeatures.uploadEnabled) {
+            notify(cfg.i18n.phase_zero_upload_disabled, 'error');
+            return;
+        }
         state.currentUploadRequest = {
             lesson: $(this).data(),
             button: this,
@@ -1587,6 +1595,10 @@ jQuery(function ($) {
     }
 
     $('#btn-v2-rebuild').on('click', function () {
+        if (!cfg.driveFeatures || !cfg.driveFeatures.syncEnabled) {
+            notify(cfg.i18n.phase_zero_sync_disabled, 'error');
+            return;
+        }
         if (!window.confirm('This scans the complete Drive root and may take several minutes. Continue?')) return;
         v2Post('olama_media_v2_scan_drive', { ...filters(), dry_run: 0, full_scan: 1, max_depth: 10 }, $('#v2-scan-result')).done(loadV2Runs);
     });

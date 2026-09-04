@@ -213,7 +213,21 @@ class Olama_Media_Drive
             return new WP_Error('missing_root', __('Root Folder ID is missing.', 'olama-media-library'));
         }
 
-        $parent_id = $this->root_folder_id;
+        return $this->get_or_create_nested_folder_from($this->root_folder_id, $path_parts);
+    }
+
+    /** Create or reuse a folder path below a server-resolved parent folder. */
+    public function get_or_create_nested_folder_from($parent_id, $path_parts)
+    {
+        if (!$this->service) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+
+        $parent_id = sanitize_text_field($parent_id);
+        if ($parent_id === '') {
+            return new WP_Error('missing_parent', __('Google Drive parent folder ID is missing.', 'olama-media-library'));
+        }
+
         foreach ($path_parts as $folder_name) {
             $folder_name = trim(wp_strip_all_tags((string) $folder_name));
             if ($folder_name === '') {
@@ -229,6 +243,9 @@ class Olama_Media_Drive
 
     public function init_resumable_upload($filename, $mime_type, $folder_id, $total_size)
     {
+        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
         if (!$this->service) {
             return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
         }
@@ -256,6 +273,9 @@ class Olama_Media_Drive
 
     public function create_direct_resumable_upload_session($metadata, $mime_type, $file_size)
     {
+        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
         if (!$this->service) {
             return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
         }
@@ -297,6 +317,9 @@ class Olama_Media_Drive
 
     public function create_metadata_file($name, $parent_id, $mime_type)
     {
+        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
         if (!$this->service) {
             return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
         }
@@ -327,6 +350,9 @@ class Olama_Media_Drive
 
     public function create_direct_resumable_update_session($file_id, $mime_type, $file_size)
     {
+        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
         if (!$this->service) {
             return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
         }
@@ -369,6 +395,9 @@ class Olama_Media_Drive
 
     public function put_upload_chunk($resume_uri, $chunk_data, $start_byte, $total_size)
     {
+        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
         $end_byte = absint($start_byte) + strlen($chunk_data) - 1;
         $response = wp_remote_request(esc_url_raw($resume_uri), array(
             'method' => 'PUT',
@@ -412,6 +441,9 @@ class Olama_Media_Drive
 
     public function put_upload_chunk_streamed($resume_uri, $chunk_path, $start_byte, $end_byte, $total_size, $mime_type = 'application/octet-stream')
     {
+        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
         $chunk_size = ($end_byte - absint($start_byte)) + 1;
         $content_range = 'bytes ' . absint($start_byte) . '-' . absint($end_byte) . '/' . absint($total_size);
         if ($chunk_size < 1) {
@@ -792,6 +824,12 @@ class Olama_Media_Drive
 
     public function ensure_file_permissions($file_id)
     {
+        $mutation_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)
+            || Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC)
+            || Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::LEGACY_SYNC);
+        if (!$mutation_enabled) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
         if (!$this->service || !$file_id) {
             return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
         }
@@ -835,12 +873,20 @@ class Olama_Media_Drive
             $response = $this->service->files->listFiles(array(
                 'q' => $query,
                 'fields' => 'files(id,name)',
-                'pageSize' => 1,
+                'pageSize' => 2,
                 'supportsAllDrives' => true,
                 'includeItemsFromAllDrives' => true,
             ));
-            if (!empty($response->files)) {
-                return $response->files[0]->id;
+            $folders = method_exists($response, 'getFiles') ? $response->getFiles() : ($response->files ?? array());
+            if (count((array) $folders) > 1) {
+                return new WP_Error('drive_folder_ambiguous', sprintf(__('More than one Google Drive folder named "%s" exists at the same location. Merge or rename the duplicate folders before uploading.', 'olama-media-library'), $folder_name));
+            }
+            if (!empty($folders)) {
+                return $folders[0]->id;
+            }
+
+            if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION)) {
+                return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION);
             }
 
             $folder = $this->service->files->create(new Google_Service_Drive_DriveFile(array(

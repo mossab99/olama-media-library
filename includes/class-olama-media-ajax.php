@@ -30,14 +30,6 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_probe_direct_upload', array($this, 'probe_direct_upload'));
         add_action('wp_ajax_olama_media_log_direct_upload_event', array($this, 'log_direct_upload_event'));
         add_action('wp_ajax_olama_media_check_preview_status', array($this, 'check_preview_status'));
-        add_action('wp_ajax_nopriv_olama_media_refresh_upload_nonce', array($this, 'refresh_upload_nonce'));
-        add_action('wp_ajax_nopriv_olama_media_start_direct_upload', array($this, 'start_direct_upload'));
-        add_action('wp_ajax_nopriv_academy_upload_media_video_chunk', array($this, 'upload_chunk'));
-        add_action('wp_ajax_nopriv_olama_media_finalize_upload', array($this, 'finalize_upload'));
-        add_action('wp_ajax_nopriv_olama_media_finalize_direct_upload', array($this, 'finalize_direct_upload'));
-        add_action('wp_ajax_nopriv_olama_media_probe_direct_upload', array($this, 'probe_direct_upload'));
-        add_action('wp_ajax_nopriv_olama_media_log_direct_upload_event', array($this, 'log_direct_upload_event'));
-        add_action('wp_ajax_nopriv_olama_media_check_preview_status', array($this, 'check_preview_status'));
         add_action('wp_ajax_olama_media_save_notes', array($this, 'save_notes'));
         add_action('wp_ajax_academy_update_media_status', array($this, 'update_media_status'));
         add_action('wp_ajax_olama_media_delete_asset', array($this, 'delete_asset'));
@@ -124,6 +116,7 @@ class Olama_Media_Ajax
     public function start_upload_job()
     {
         $this->verify_upload_request('upload');
+        $this->require_drive_upload_enabled();
 
         $job_uuid = sanitize_key($_POST['file_uuid'] ?? wp_generate_uuid4());
         $filename = sanitize_file_name($_POST['filename'] ?? '');
@@ -165,9 +158,15 @@ class Olama_Media_Ajax
             $auth_warning = __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library');
         }
 
+        $upload_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        if (!$upload_enabled) {
+            $auth_warning = Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD)->get_error_message();
+        }
+
         wp_send_json_success(array(
             'nonce' => wp_create_nonce('olama_media_library_nonce'),
-            'drive_authenticated' => $health['is_configured'] && $health['has_refresh_token'] && $health['can_refresh'],
+            'drive_authenticated' => $upload_enabled && $health['is_configured'] && $health['has_refresh_token'] && $health['can_refresh'],
+            'drive_upload_enabled' => $upload_enabled,
             'has_refresh_token' => (bool) $health['has_refresh_token'],
             'auth_warning' => $auth_warning,
         ));
@@ -177,6 +176,7 @@ class Olama_Media_Ajax
     {
         $handler_start = microtime(true);
         $this->verify_upload_request('upload');
+        $this->require_drive_upload_enabled();
 
         $job_uuid = sanitize_key($_POST['file_uuid'] ?? wp_generate_uuid4());
         $filename = sanitize_file_name($_POST['file_name'] ?? $_POST['filename'] ?? '');
@@ -218,7 +218,7 @@ class Olama_Media_Ajax
             ));
         }
 
-        $folder_id = $drive->get_or_create_nested_folder($meta['path']);
+        $folder_id = $this->resolve_upload_folder($drive, $meta['path']);
         if (is_wp_error($folder_id)) {
             $this->send_wp_upload_error($folder_id, 'drive_session_create', array(
                 'job_uuid' => $job_uuid,
@@ -335,6 +335,7 @@ class Olama_Media_Ajax
 
         $stage_start = microtime(true);
         $this->verify_upload_request('upload');
+        $this->require_drive_upload_enabled();
 
         $file_uuid = sanitize_key($_POST['file_uuid'] ?? '');
         $chunk_index = absint($_POST['chunk_index'] ?? 0);
@@ -438,7 +439,7 @@ class Olama_Media_Ajax
                     ));
                 }
 
-                $folder_id = $drive->get_or_create_nested_folder($meta['path']);
+                $folder_id = $this->resolve_upload_folder($drive, $meta['path']);
                 if (is_wp_error($folder_id)) {
                     $this->send_wp_upload_error($folder_id, 'drive_session_create', array(
                         'failed_chunk_index' => $chunk_index,
@@ -639,6 +640,7 @@ class Olama_Media_Ajax
         $timings = array();
 
         $this->verify_upload_request('upload');
+        $this->require_drive_upload_enabled();
 
         $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
         $asset_id = absint($_POST['asset_id'] ?? 0);
@@ -768,6 +770,7 @@ class Olama_Media_Ajax
     {
         $handler_start = microtime(true);
         $this->verify_upload_request('upload');
+        $this->require_drive_upload_enabled();
 
         $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
         $asset_id = absint($_POST['asset_id'] ?? 0);
@@ -911,6 +914,7 @@ class Olama_Media_Ajax
     public function probe_direct_upload()
     {
         $this->verify_upload_request('upload');
+        $this->require_drive_upload_enabled();
 
         $job_uuid = sanitize_key($_POST['job_uuid'] ?? '');
         $asset_id = absint($_POST['asset_id'] ?? 0);
@@ -1270,6 +1274,7 @@ class Olama_Media_Ajax
     public function v2_scan_drive()
     {
         $this->verify_nonce(); $this->require_manage();
+        $this->require_drive_sync_enabled(Olama_Media_Feature_Flags::DRIVE_SYNC);
         $options = array('dry_run'=>!empty($_POST['dry_run']), 'max_depth'=>absint($_POST['max_depth'] ?? 10));
         $ids = array_map('absint', array($_POST['academic_year_id'] ?? 0, $_POST['semester_id'] ?? 0, $_POST['grade_id'] ?? 0, $_POST['subject_id'] ?? 0));
         $full_scan = !empty($_POST['full_scan']);
@@ -1326,6 +1331,7 @@ class Olama_Media_Ajax
     public function v2_match_subject()
     {
         $this->verify_nonce(); $this->require_manage();
+        $this->require_drive_sync_enabled(Olama_Media_Feature_Flags::DRIVE_SYNC);
         $ids = array_map('absint', array(
             $_POST['academic_year_id'] ?? 0, $_POST['semester_id'] ?? 0,
             $_POST['grade_id'] ?? 0, $_POST['subject_id'] ?? 0,
@@ -1451,6 +1457,7 @@ class Olama_Media_Ajax
         if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
             wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
         }
+        $this->require_drive_sync_enabled(Olama_Media_Feature_Flags::LEGACY_SYNC);
 
         $year_id = absint($_POST['academic_year_id'] ?? 0);
         $semester_id = absint($_POST['semester_id'] ?? 0);
@@ -1696,6 +1703,65 @@ class Olama_Media_Ajax
         );
     }
 
+    /**
+     * Reuse an existing curriculum branch before creating a canonical path.
+     *
+     * The configured root may be the library root, year, semester, grade, or
+     * subject folder. Always starting with the full curriculum path can create
+     * a parallel hierarchy below a root that is already inside that hierarchy.
+     */
+    private function resolve_upload_folder($drive, $path)
+    {
+        $path = array_values(array_filter(array_map('sanitize_text_field', (array) $path), 'strlen'));
+        if (count($path) < 2) {
+            return $drive->get_or_create_nested_folder($path);
+        }
+
+        $unit_name = array_pop($path);
+        $normalizer = new Olama_Media_Normalizer();
+        $root = $drive->test_connection();
+        if (is_wp_error($root)) {
+            return $root;
+        }
+
+        // If the configured root is one of the curriculum ancestors, resolve
+        // only the portion below it (for example grade -> subject -> unit).
+        $root_name = $normalizer->normalize_text($root['name'] ?? '');
+        foreach ($path as $index => $part) {
+            if ($root_name === $normalizer->normalize_text($part)) {
+                return $drive->get_or_create_nested_folder_from(
+                    sanitize_text_field($root['id'] ?? ''),
+                    array_merge(array_slice($path, $index + 1), array($unit_name))
+                );
+            }
+        }
+
+        // Prefer any already-existing subject branch below the configured root,
+        // even when optional year/semester/grade folders differ or are omitted.
+        $subject_name = end($path);
+        $subject_paths = array($path, array_slice($path, 1), array_slice($path, 2), array_slice($path, 3));
+        foreach ($subject_paths as $subject_path) {
+            if (!$subject_path) { continue; }
+            $subject_folder = $drive->find_nested_folder($subject_path);
+            if (is_wp_error($subject_folder)) { return $subject_folder; }
+            if ($subject_folder) {
+                return $drive->get_or_create_nested_folder_from($subject_folder, array($unit_name));
+            }
+        }
+
+        $subject_folders = $drive->find_folders_by_name_recursive($subject_name, 10);
+        if (is_wp_error($subject_folders)) { return $subject_folders; }
+        if (count($subject_folders) > 1) {
+            return new WP_Error('drive_subject_ambiguous', __('More than one folder matches this subject in Google Drive. Narrow the Root Folder ID before uploading.', 'olama-media-library'));
+        }
+        if (count($subject_folders) === 1) {
+            return $drive->get_or_create_nested_folder_from($subject_folders[0], array($unit_name));
+        }
+
+        // This is a genuinely new subject, so create the canonical hierarchy.
+        return $drive->get_or_create_nested_folder(array_merge($path, array($unit_name)));
+    }
+
     private function recover_upload_meta_from_db($file_uuid, $filename, $total_size, $total_chunks)
     {
         $job = $this->db->get_job($file_uuid);
@@ -1888,6 +1954,33 @@ class Olama_Media_Ajax
         }
     }
 
+    private function require_drive_upload_enabled()
+    {
+        if (Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return;
+        }
+
+        $error = Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        $this->send_upload_error(
+            $error->get_error_code(),
+            'phase_zero_feature_gate',
+            __('تم إيقاف رفع ملفات Google Drive مؤقتاً أثناء ترحيل مكتبة الوسائط بشكل آمن.', 'olama-media-library'),
+            $error->get_error_message(),
+            false,
+            array('http_status' => 503)
+        );
+    }
+
+    private function require_drive_sync_enabled($feature)
+    {
+        if (Olama_Media_Feature_Flags::enabled($feature)) {
+            return;
+        }
+
+        $error = Olama_Media_Feature_Flags::error($feature);
+        wp_send_json_error($error->get_error_message(), 503);
+    }
+
     private function send_wp_upload_error($wp_error, $stage, $extra = array())
     {
         $data = is_wp_error($wp_error) ? (array) $wp_error->get_error_data() : array();
@@ -1976,6 +2069,14 @@ class Olama_Media_Ajax
                 'error_code' => 'google_range_mismatch',
                 'message_ar' => __('حدث اختلاف في موضع الرفع لدى Google Drive. سيتم إعادة محاولة هذا الجزء.', 'olama-media-library'),
                 'retryable' => true,
+            );
+        }
+
+        if (in_array($error_code, array('drive_folder_ambiguous', 'drive_subject_ambiguous'), true)) {
+            return array(
+                'error_code' => $error_code,
+                'message_ar' => __('يوجد أكثر من مجلد مطابق في Google Drive. يرجى دمج المجلدات المكررة أو تحديد Root Folder ID بشكل أدق قبل الرفع.', 'olama-media-library'),
+                'retryable' => false,
             );
         }
 
