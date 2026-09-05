@@ -1741,11 +1741,18 @@ jQuery(function ($) {
                 }
                 mappingScopeKey = response.data.scope_key;
                 const candidates = response.data.candidates || [];
-                $status.text(`${response.data.subject_name}: ${candidates.length} candidate(s)`);
+                $status.text(response.data.confirmation_ready
+                    ? `${response.data.subject_name}: يوجد مرشح واحد مكتمل السياق ويحتاج مراجعتك.`
+                    : `${response.data.subject_name}: لا يوجد مرشح وحيد مكتمل السياق؛ الاعتماد محظور.`);
                 $('#drive-mapping-table').removeAttr('hidden');
                 $('#drive-mapping-body').html(candidates.length ? candidates.map(function (item) {
                     const blocked = item.conflict_reason ? 'disabled' : '';
-                    return `<tr><td>${esc(item.folder_name)}<br><code>${esc(item.drive_folder_id)}</code></td><td>${esc(item.path)}</td><td>${esc(item.confidence)}%</td><td>${esc(item.conflict_reason || '-')}</td><td><button type="button" class="button btn-confirm-drive-mapping" data-candidate-id="${esc(item.candidate_id)}" ${blocked}>اعتماد</button></td></tr>`;
+                    const conflicts = {
+                        duplicate_sibling_folder_name: 'مجلدات متكررة تحت الأب نفسه',
+                        insufficient_scope_context: 'السنة أو الفصل أو الصف غير مطابق',
+                        multiple_scope_candidates: 'أكثر من مرشح يطابق السياق كاملاً'
+                    };
+                    return `<tr><td>${esc(item.folder_name)}<br><code>${esc(item.drive_folder_id)}</code></td><td>${esc(item.path)}</td><td>${esc(item.confidence)}%</td><td>${esc(conflicts[item.conflict_reason] || item.conflict_reason || '-')}</td><td><button type="button" class="button btn-confirm-drive-mapping" data-candidate-id="${esc(item.candidate_id)}" ${blocked}>اعتماد</button></td></tr>`;
                 }).join('') : '<tr><td colspan="5">لا توجد مجلدات مطابقة في الجرد المكتمل.</td></tr>');
             })
             .fail(function () { $status.text(cfg.i18n.error); })

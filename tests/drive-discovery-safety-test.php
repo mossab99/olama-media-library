@@ -23,7 +23,7 @@ require_once dirname(__DIR__) . '/includes/class-olama-media-drive-discovery.php
 require_once dirname(__DIR__) . '/includes/class-olama-media-drive-mapping.php';
 
 class DiscoveryTestNormalizer {
-    public function normalize_text($value) { return strtolower(trim((string) $value)); }
+    public function normalize_text($value) { return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', strtolower((string) $value))); }
 }
 
 class DiscoveryTestDrive {
@@ -87,6 +87,9 @@ class MappingTestWpdb {
     public $candidate_inserts = array();
     public function delete($table, $where) { return 0; }
     public function insert($table, $data) { $this->insert_id++; $this->candidate_inserts[] = $data; return 1; }
+    public function prepare($query, ...$args) { return $query; }
+    public function get_row($query) { return null; }
+    public function update($table, $data, $where) { return 1; }
 }
 class MappingTestInventory {
     public function get_latest_completed_run() {
@@ -97,8 +100,8 @@ class MappingTestInventory {
     }
     public function get_folder_observations($runId) {
         return array(
-            (object) array('drive_item_id'=>'arabic-4','item_name'=>'اللغة العربية','normalized_name'=>'اللغة العربية','path_snapshot'=>'Olama/رابع أساسي/اللغة العربية','direct_file_count'=>2,'sibling_name_count'=>1),
-            (object) array('drive_item_id'=>'arabic-5','item_name'=>'اللغة العربية','normalized_name'=>'اللغة العربية','path_snapshot'=>'Olama/خامس أساسي/اللغة العربية','direct_file_count'=>0,'sibling_name_count'=>1),
+            (object) array('drive_item_id'=>'arabic-4','item_name'=>'اللغة العربية','normalized_name'=>'اللغة العربية','path_snapshot'=>'Olama/2026-2027/First Semester/رابع أساسي/اللغة العربية','direct_file_count'=>2,'sibling_name_count'=>1),
+            (object) array('drive_item_id'=>'arabic-5','item_name'=>'اللغة العربية','normalized_name'=>'اللغة العربية','path_snapshot'=>'Olama/2026-2027/First Semester/خامس أساسي/اللغة العربية','direct_file_count'=>0,'sibling_name_count'=>1),
         );
     }
 }
@@ -113,6 +116,7 @@ $mapping = new Olama_Media_Drive_Mapping(new MappingTestInventory(), new Mapping
 $mappingResult = $mapping->generate_subject_candidates(1, 2, 4, 9);
 assert_true(!is_wp_error($mappingResult), 'Candidate generation should succeed from a completed inventory.');
 assert_true($mappingResult['candidate_count'] === 2, 'Discovery must retain multiple subject candidates for review.');
+assert_true($mappingResult['confirmation_ready'] === true, 'Only one fully scoped candidate should be eligible for confirmation.');
 assert_true($mappingResult['requires_manual_confirmation'] === true, 'Candidates must never be confirmed automatically.');
 assert_true(count($wpdb->candidate_inserts) === 2, 'Every matching folder must be staged as a separate candidate.');
 

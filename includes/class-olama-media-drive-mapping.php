@@ -33,20 +33,40 @@ class Olama_Media_Drive_Mapping
         $candidates_table = $wpdb->prefix . 'olama_drive_mapping_candidates';
         $wpdb->delete($candidates_table, array('discovery_run_id' => absint($run->id), 'scope_key' => $scope_key));
 
-        $candidate_rows = array();
+        $matches = array();
         foreach ($this->inventory->get_folder_observations($run->id) as $folder) {
             if (!$this->names_match($normalized['subject'], $folder->normalized_name)) { continue; }
             $path = $this->normalizer->normalize_text($folder->path_snapshot);
             $score = 60;
             $reasons = array('subject_name_exact');
             foreach (array('grade'=>15, 'semester'=>10, 'academic_year'=>10) as $key => $points) {
-                if ($normalized[$key] !== '' && $this->path_contains_segment($path, $normalized[$key])) {
+                if ($normalized[$key] !== '' && $this->context_matches($key, $path, $normalized[$key])) {
                     $score += $points;
                     $reasons[] = $key . '_path_match';
                 }
             }
             if (absint($folder->direct_file_count) > 0) { $score += 5; $reasons[] = 'contains_direct_files'; }
-            $conflict = absint($folder->sibling_name_count) > 1 ? 'duplicate_sibling_folder_name' : '';
+            $matches[] = array('folder'=>$folder, 'score'=>$score, 'reasons'=>$reasons);
+        }
+
+        $required_reasons = array('academic_year_path_match', 'semester_path_match', 'grade_path_match');
+        $eligible = array_filter($matches, function ($match) use ($required_reasons) {
+            return !array_diff($required_reasons, $match['reasons']) && absint($match['folder']->sibling_name_count) < 2;
+        });
+        $candidate_rows = array();
+        foreach ($matches as $match) {
+            $folder = $match['folder'];
+            $score = $match['score'];
+            $reasons = $match['reasons'];
+            if (absint($folder->sibling_name_count) > 1) {
+                $conflict = 'duplicate_sibling_folder_name';
+            } elseif (array_diff($required_reasons, $reasons)) {
+                $conflict = 'insufficient_scope_context';
+            } elseif (count($eligible) > 1) {
+                $conflict = 'multiple_scope_candidates';
+            } else {
+                $conflict = '';
+            }
             $wpdb->insert($candidates_table, array(
                 'discovery_run_id' => absint($run->id), 'scope_key' => $scope_key,
                 'drive_folder_id' => sanitize_text_field($folder->drive_item_id),
@@ -57,9 +77,11 @@ class Olama_Media_Drive_Mapping
         }
 
         usort($candidate_rows, function ($a, $b) { return $b['confidence'] <=> $a['confidence']; });
+        $confirmed_mapping_revalidated = $this->revalidate_existing_mapping($scope_key, $eligible);
         return array(
             'run_uuid' => $run->run_uuid, 'scope_key' => $scope_key,
             'subject_name' => $names['subject'], 'candidate_count' => count($candidate_rows),
+            'confirmation_ready' => count($eligible) === 1, 'confirmed_mapping_revalidated' => $confirmed_mapping_revalidated,
             'requires_manual_confirmation' => true, 'candidates' => $candidate_rows,
         );
     }
@@ -82,6 +104,11 @@ class Olama_Media_Drive_Mapping
             return new WP_Error('candidate_root_stale', __('This candidate belongs to an older Drive root configuration and cannot be confirmed.', 'olama-media-library'));
         }
         if (!empty($candidate->conflict_reason)) { return new WP_Error('candidate_conflict', __('This candidate has a folder conflict and cannot be confirmed until it is reviewed.', 'olama-media-library')); }
+        $reasons = json_decode((string) $candidate->reasons, true);
+        $required_reasons = array('academic_year_path_match', 'semester_path_match', 'grade_path_match');
+        if (!is_array($reasons) || array_diff($required_reasons, $reasons)) {
+            return new WP_Error('candidate_scope_incomplete', __('This candidate does not contain enough curriculum scope evidence to be confirmed.', 'olama-media-library'));
+        }
         if (!preg_match('/^subject:(\d+):(\d+):(\d+):(\d+)$/', $candidate->scope_key, $matches)) {
             return new WP_Error('invalid_scope_key', __('The candidate curriculum scope is invalid.', 'olama-media-library'));
         }
@@ -118,6 +145,40 @@ class Olama_Media_Drive_Mapping
     private function path_contains_segment($path, $segment)
     {
         return preg_match('/(?:^| )' . preg_quote($segment, '/') . '(?: |$)/u', $path) === 1;
+    }
+
+    private function context_matches($key, $path, $expected)
+    {
+        if ($this->path_contains_segment($path, $expected)) { return true; }
+        if ($key !== 'grade') { return false; }
+        $ordinals = array(
+            1=>array('اول','الاول','one'), 2=>array('ثاني','الثاني','two'), 3=>array('ثالث','الثالث','three'),
+            4=>array('رابع','الرابع','four'), 5=>array('خامس','الخامس','five'), 6=>array('سادس','السادس','six'),
+            7=>array('سابع','السابع','seven'), 8=>array('ثامن','الثامن','eight'), 9=>array('تاسع','التاسع','nine'),
+            10=>array('عاشر','العاشر','ten'), 11=>array('حادي عشر','الحادي عشر','eleven'), 12=>array('ثاني عشر','الثاني عشر','twelve'),
+        );
+        foreach ($ordinals as $number => $words) {
+            $expected_matches = in_array((string) $number, explode(' ', $expected), true);
+            foreach ($words as $word) { $expected_matches = $expected_matches || $this->path_contains_segment($expected, $word); }
+            if (!$expected_matches) { continue; }
+            $aliases = array('الصف ' . $words[1], 'grade ' . $number, 'grade ' . $words[count($words) - 1]);
+            foreach (array_merge($words, $aliases) as $alias) {
+                if ($this->path_contains_segment($path, $alias)) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private function revalidate_existing_mapping($scope_key, $eligible)
+    {
+        global $wpdb;
+        $maps = $wpdb->prefix . 'olama_curriculum_drive_map';
+        $existing = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$maps} WHERE scope_key=%s LIMIT 1", $scope_key));
+        if (!$existing || $existing->mapping_status !== 'confirmed') { return false; }
+        $eligible_ids = array_map(function ($match) { return (string) $match['folder']->drive_item_id; }, $eligible);
+        if (count($eligible_ids) === 1 && $eligible_ids[0] === (string) $existing->drive_folder_id) { return true; }
+        $wpdb->update($maps, array('mapping_status'=>'proposed_for_revalidation','updated_at'=>current_time('mysql')), array('id'=>absint($existing->id)));
+        return false;
     }
 
     private function candidate_payload($id, $folder, $score, $reasons, $conflict)
