@@ -69,7 +69,7 @@ class Olama_Media_Reconciliation_Preview
             $top = $candidates[0] ?? null;
             if (!$top) { $status = 'unmatched'; }
             elseif (isset($candidates[1]) && $candidates[1]['confidence'] === $top['confidence']) { $status = 'ambiguous'; }
-            elseif ($top['confidence'] >= 90) { $status = 'matched'; }
+            elseif ($top['confidence'] >= 90 && !in_array('lesson_number_mismatch', (array) $top['evidence'], true)) { $status = 'matched'; }
             else { $status = 'needs_review'; }
             $report[$status]++;
             $row = array(
@@ -78,14 +78,14 @@ class Olama_Media_Reconciliation_Preview
                 'unit_id'=>$top ? absint($top['unit']->id) : 0, 'unit_name'=>$top ? (string) $top['unit']->unit_name : '',
                 'lesson_id'=>$top ? absint($top['lesson']->id) : 0, 'lesson_number'=>$top ? (string) $top['lesson']->lesson_number : '',
                 'lesson_title'=>$top ? (string) $top['lesson']->lesson_title : '', 'confidence'=>$top ? absint($top['confidence']) : 0,
-                'part_number'=>$top ? $top['part_number'] : null,
+                'part_number'=>$top ? $top['part_number'] : null, 'evidence'=>$top ? $top['evidence'] : array(),
             );
             $now = current_time('mysql');
             $saved = $wpdb->insert($table, array(
                 'discovery_run_id'=>absint($run->id),'subject_mapping_id'=>absint($mapping->id),'drive_file_id'=>sanitize_text_field($item->drive_item_id),
                 'proposed_unit_id'=>$row['unit_id'] ?: null,'proposed_lesson_id'=>$row['lesson_id'] ?: null,'confidence'=>$row['confidence'],
                 'proposal_status'=>$status,'filename'=>sanitize_text_field($item->item_name),'path_snapshot'=>sanitize_text_field($item->path_snapshot),
-                'reasons'=>wp_json_encode(array('part_number'=>$row['part_number'])),'created_at'=>$now,'updated_at'=>$now,
+                'reasons'=>wp_json_encode(array('part_number'=>$row['part_number'],'evidence'=>$row['evidence'])),'created_at'=>$now,'updated_at'=>$now,
             ));
             if (!$saved) {
                 $wpdb->query('ROLLBACK');
