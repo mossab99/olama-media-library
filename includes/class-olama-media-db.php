@@ -161,7 +161,7 @@ class Olama_Media_DB
             KEY curriculum (academic_year_id,semester_id,grade_id,subject_id),
             KEY presence_status (presence_status),
             KEY modified_time (modified_time)
-        ) $charset_collate;");
+        ) ENGINE=InnoDB $charset_collate;");
 
         dbDelta("CREATE TABLE {$links} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -193,7 +193,7 @@ class Olama_Media_DB
             KEY approval_status (approval_status),
             KEY link_status (link_status),
             KEY match_confidence (match_confidence)
-        ) $charset_collate;");
+        ) ENGINE=InnoDB $charset_collate;");
 
         dbDelta("CREATE TABLE {$runs} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -223,7 +223,7 @@ class Olama_Media_DB
             KEY run_type (run_type),
             KEY status (status),
             KEY curriculum (academic_year_id,semester_id,grade_id,subject_id)
-        ) $charset_collate;");
+        ) ENGINE=InnoDB $charset_collate;");
 
         dbDelta("CREATE TABLE {$sync_events} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -241,7 +241,7 @@ class Olama_Media_DB
             KEY severity (severity),
             KEY drive_file_id (drive_file_id),
             KEY lesson_id (lesson_id)
-        ) $charset_collate;");
+        ) ENGINE=InnoDB $charset_collate;");
 
         // Phase 1 tables are additive. Discovery writes only to scan runs,
         // observations, and queue; authoritative folder/file state is untouched.
@@ -395,6 +395,10 @@ class Olama_Media_DB
             selected_lesson_id BIGINT UNSIGNED NULL,
             reviewed_by BIGINT UNSIGNED NULL,
             reviewed_at DATETIME NULL,
+            commit_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            committed_link_id BIGINT UNSIGNED NULL,
+            commit_run_id BIGINT UNSIGNED NULL,
+            committed_at DATETIME NULL,
             filename VARCHAR(255) NOT NULL,
             path_snapshot TEXT NULL,
             reasons LONGTEXT NULL,
@@ -404,6 +408,7 @@ class Olama_Media_DB
             UNIQUE KEY mapping_run_file (subject_mapping_id,discovery_run_id,drive_file_id),
             KEY proposal_status (proposal_status),
             KEY decision_status (decision_status),
+            KEY commit_status (commit_status),
             KEY proposed_lesson_id (proposed_lesson_id)
         ) ENGINE=InnoDB $charset_collate;");
     }

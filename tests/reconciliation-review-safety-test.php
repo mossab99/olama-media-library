@@ -18,6 +18,6 @@ assert_review_safety(strpos($service, "'drive_mutations'=>0") !== false, 'Review
 assert_review_safety(strpos($service, 'upsert_lesson_video_link') === false, 'Reconciliation staging must not write authoritative lesson links.');
 assert_review_safety(strpos($service, 'reconciliation_unit_boundary') !== false, 'Manual selection must enforce the Drive unit boundary server-side.');
 assert_review_safety(strpos($service, 'stale_reconciliation_item') !== false, 'Review must reject stale inventory generations.');
-assert_review_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.4.3'") !== false, 'Schema version must trigger the additive review migration.');
+assert_review_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.5.0'") !== false, 'Schema version must trigger the additive reconciliation migration.');
 
 echo "Reconciliation review safety tests passed.\n";

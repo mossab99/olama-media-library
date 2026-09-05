@@ -1822,6 +1822,9 @@ jQuery(function ($) {
             $('#reconciliation-summary').data('report', data);
             renderReconciliationSummary(data);
             $('#reconciliation-table').removeAttr('hidden');
+            $('#reconciliation-commit-gate').removeAttr('hidden');
+            $('#reconciliation-readiness-result, #reconciliation-commit-result').attr('hidden', 'hidden').empty();
+            $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', true);
             $('#reconciliation-body').html((data.results || []).map(function (item) {
                 const selectedLessonId = Number(item.selected_lesson_id || item.lesson_id || 0);
                 const options = lessons.filter(function (lesson) {
@@ -1831,7 +1834,10 @@ jQuery(function ($) {
                     return `<option value="${esc(lesson.lesson_id)}"${selected}>${esc(lesson.lesson_number)} ${esc(lesson.lesson_title)}</option>`;
                 }).join('');
                 const decisions = { pending: 'بانتظار المراجعة', approved: 'تم اعتماد الاقتراح مرحلياً', manual: 'تم تعيين الدرس يدوياً', rejected: 'مرفوض مرحلياً' };
-                return `<tr data-reconciliation-item="${esc(item.item_id)}" data-decision-status="${esc(item.decision_status || 'pending')}"><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>${esc(item.confidence)}%</td><td>${esc(item.status)}</td><td><select class="reconciliation-lesson"><option value="">-- اختر درساً --</option>${options}</select> <button type="button" class="button btn-reconciliation-assign">حفظ القرار المرحلي</button> <button type="button" class="button btn-reconciliation-reject">رفض مرحلي</button><br><small class="reconciliation-decision-state">${esc(decisions[item.decision_status] || item.decision_status || decisions.pending)}</small></td></tr>`;
+                const committed = item.commit_status && item.commit_status !== 'pending';
+                const disabled = committed ? ' disabled' : '';
+                const commitNote = committed ? `<br><strong>تم إنهاء هذا القرار: ${esc(item.commit_status)}</strong>` : '';
+                return `<tr data-reconciliation-item="${esc(item.item_id)}" data-decision-status="${esc(item.decision_status || 'pending')}"><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>${esc(item.confidence)}%</td><td>${esc(item.status)}</td><td><select class="reconciliation-lesson"${disabled}><option value="">-- اختر درساً --</option>${options}</select> <button type="button" class="button btn-reconciliation-assign"${disabled}>حفظ القرار المرحلي</button> <button type="button" class="button btn-reconciliation-reject"${disabled}>رفض مرحلي</button><br><small class="reconciliation-decision-state">${esc(decisions[item.decision_status] || item.decision_status || decisions.pending)}</small>${commitNote}</td></tr>`;
             }).join('') || '<tr><td colspan="6">لا توجد ملفات داخل مجلد المادة المعتمد.</td></tr>');
         }).fail(function () {
             $summary.text(cfg.i18n.error);
@@ -1879,11 +1885,67 @@ jQuery(function ($) {
             report.reviewed = report.decisions.approved + report.decisions.manual + report.decisions.rejected;
             $('#reconciliation-summary').data('report', report);
             renderReconciliationSummary(report);
+            $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', true);
+            $('#reconciliation-readiness-result').attr('hidden', 'hidden').empty();
             notify('تم حفظ القرار في جدول المعاينة فقط؛ لم تتغير مكتبة الفيديوهات أو Drive.', 'success');
         }).fail(function () {
             notify(cfg.i18n.error, 'error');
         }).always(function () {
             $row.find('button, select').prop('disabled', false);
+        });
+    });
+
+    $('#btn-reconciliation-readiness').on('click', function () {
+        if (!confirmedMappingId) return;
+        const $button = $(this).prop('disabled', true);
+        const $result = $('#reconciliation-readiness-result').removeAttr('hidden').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_reconciliation_readiness', nonce: cfg.nonce, mapping_id: confirmedMappingId
+        }).done(function (response) {
+            if (!response.success) {
+                $result.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                $button.prop('disabled', false);
+                return;
+            }
+            const data = response.data;
+            const decisions = data.decisions || {};
+            const message = `total: ${data.total}, accepted: ${data.accepted}, approved: ${decisions.approved || 0}, manual: ${decisions.manual || 0}, rejected: ${decisions.rejected || 0}, pending: ${decisions.pending || 0}, conflicts: ${(data.conflicts || []).length}, Drive mutations: 0`;
+            $result.text(data.already_committed ? `تم تنفيذ هذه المجموعة مسبقاً. ${message}` : (data.ready ? `جاهز للربط النهائي. ${message}` : `غير جاهز. ${message}`));
+            $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', !data.ready);
+        }).fail(function () {
+            $result.text(cfg.i18n.error);
+        }).always(function () {
+            $button.prop('disabled', false);
+        });
+    });
+
+    $('#btn-reconciliation-commit').on('click', function () {
+        if (!confirmedMappingId) return;
+        const phrase = $('#reconciliation-commit-confirmation').val().trim();
+        if (phrase !== 'COMMIT REVIEWED LINKS') {
+            notify('اكتب عبارة التأكيد كاملة كما هي.', 'error');
+            return;
+        }
+        if (!window.confirm('سيتم الآن إنشاء روابط الدروس المعتمدة داخل WordPress فقط. لن يتم تعديل Google Drive. هل تريد المتابعة؟')) return;
+        const $button = $(this).prop('disabled', true);
+        const $result = $('#reconciliation-commit-result').removeAttr('hidden').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_reconciliation_commit', nonce: cfg.nonce,
+            mapping_id: confirmedMappingId, confirmation_text: phrase
+        }).done(function (response) {
+            if (!response.success) {
+                $result.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                $button.prop('disabled', false);
+                return;
+            }
+            $result.text(JSON.stringify(response.data, null, 2));
+            $('#reconciliation-commit-confirmation').val('').prop('disabled', true);
+            $('#reconciliation-body').find('button, select').prop('disabled', true);
+            notify(`اكتمل الربط داخل WordPress: ${response.data.committed || 0} جديد، ${response.data.existing || 0} موجود، ${response.data.skipped || 0} متجاوز. لم يتغير Drive.`, 'success');
+            loadCurriculum();
+        }).fail(function () {
+            $result.text(cfg.i18n.error);
+            $button.prop('disabled', false);
         });
     });
     $('#btn-v2-reset').on('click', function () {

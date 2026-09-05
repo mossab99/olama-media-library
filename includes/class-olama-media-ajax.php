@@ -56,6 +56,8 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_drive_confirm_mapping', array($this, 'drive_confirm_mapping'));
         add_action('wp_ajax_olama_media_reconciliation_preview', array($this, 'drive_reconciliation_preview'));
         add_action('wp_ajax_olama_media_reconciliation_review', array($this, 'drive_reconciliation_review'));
+        add_action('wp_ajax_olama_media_reconciliation_readiness', array($this, 'drive_reconciliation_readiness'));
+        add_action('wp_ajax_olama_media_reconciliation_commit', array($this, 'drive_reconciliation_commit'));
     }
 
     public function get_subjects()
@@ -1785,6 +1787,27 @@ class Olama_Media_Ajax
             absint($_POST['item_id'] ?? 0),
             sanitize_key(wp_unslash($_POST['decision'] ?? '')),
             absint($_POST['lesson_id'] ?? 0)
+        );
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function drive_reconciliation_readiness()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $this->require_approve();
+        $result = (new Olama_Media_Reconciliation_Commit())->readiness(absint($_POST['mapping_id'] ?? 0));
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function drive_reconciliation_commit()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $this->require_approve();
+        $result = (new Olama_Media_Reconciliation_Commit())->commit(
+            absint($_POST['mapping_id'] ?? 0),
+            sanitize_text_field(wp_unslash($_POST['confirmation_text'] ?? ''))
         );
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }

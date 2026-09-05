@@ -103,7 +103,7 @@ class Olama_Media_Reconciliation_Preview
                 'lesson_title'=>$proposed_lesson ? (string) $proposed_lesson['lesson']->lesson_title : '',
                 'confidence'=>$proposed_lesson ? $candidate_confidence : 0,
                 'part_number'=>$top ? $top['part_number'] : null, 'evidence'=>$top ? $top['evidence'] : array(),
-                'decision_status'=>'pending', 'selected_unit_id'=>0, 'selected_lesson_id'=>0,
+                'decision_status'=>'pending', 'commit_status'=>'pending', 'selected_unit_id'=>0, 'selected_lesson_id'=>0,
             );
             $report['decisions']['pending']++;
             $now = current_time('mysql');
@@ -137,6 +137,9 @@ class Olama_Media_Reconciliation_Preview
         $table = $wpdb->prefix . 'olama_drive_reconciliation_items';
         $item = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", absint($item_id)));
         if (!$item) { return new WP_Error('reconciliation_item_not_found', __('The reconciliation item was not found.', 'olama-media-library')); }
+        if (sanitize_key($item->commit_status ?? 'pending') !== 'pending') {
+            return new WP_Error('reconciliation_item_committed', __('This staged decision has already been finalized and cannot be changed here.', 'olama-media-library'));
+        }
 
         $mapping = $this->mapping->get_confirmed_mapping_by_id($item->subject_mapping_id);
         $run = $this->inventory->get_latest_completed_run();
@@ -223,6 +226,7 @@ class Olama_Media_Reconciliation_Preview
                     'lesson_id'=>absint($item->proposed_lesson_id), 'lesson_number'=>$proposed ? (string) $proposed['lesson_number'] : '',
                     'lesson_title'=>$proposed ? (string) $proposed['lesson_title'] : '', 'confidence'=>absint($item->confidence),
                     'decision_status'=>$decision_status,
+                    'commit_status'=>sanitize_key($item->commit_status ?? 'pending'),
                     'selected_unit_id'=>absint($item->selected_unit_id), 'selected_lesson_id'=>absint($item->selected_lesson_id),
                 );
             }

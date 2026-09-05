@@ -258,6 +258,16 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                         <thead><tr><th><?php esc_html_e('ملف Drive', 'olama-media-library'); ?></th><th><?php esc_html_e('الوحدة المقترحة', 'olama-media-library'); ?></th><th><?php esc_html_e('الدرس المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('النتيجة', 'olama-media-library'); ?></th><th><?php esc_html_e('المراجعة المرحلية', 'olama-media-library'); ?></th></tr></thead>
                         <tbody id="reconciliation-body"></tbody>
                     </table>
+                    <div id="reconciliation-commit-gate" class="notice notice-warning inline" hidden>
+                        <p><strong><?php esc_html_e('بوابة الربط النهائي في WordPress', 'olama-media-library'); ?></strong></p>
+                        <p><?php esc_html_e('تفحص التعارضات أولاً، ثم تنشئ روابط الدروس المعتمدة داخل قاعدة بيانات WordPress بمعاملة واحدة. لا تعدّل أو تنقل أو تحذف أي عنصر في Google Drive.', 'olama-media-library'); ?></p>
+                        <button type="button" class="button" id="btn-reconciliation-readiness"><?php esc_html_e('فحص جاهزية الربط النهائي', 'olama-media-library'); ?></button>
+                        <div id="reconciliation-readiness-result" class="olama-media-result" hidden></div>
+                        <p><label for="reconciliation-commit-confirmation"><?php esc_html_e('بعد نجاح الفحص اكتب:', 'olama-media-library'); ?> <code>COMMIT REVIEWED LINKS</code></label></p>
+                        <input type="text" id="reconciliation-commit-confirmation" class="regular-text" autocomplete="off" disabled>
+                        <button type="button" class="button button-primary" id="btn-reconciliation-commit" disabled><?php esc_html_e('تنفيذ الربط النهائي', 'olama-media-library'); ?></button>
+                        <pre id="reconciliation-commit-result" class="olama-media-result" hidden></pre>
+                    </div>
                 </div>
                 <div class="olama-media-panel">
                     <h2><?php esc_html_e('إعادة بناء فهرس Google Drive', 'olama-media-library'); ?></h2>
