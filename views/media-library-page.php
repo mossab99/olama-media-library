@@ -240,6 +240,16 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     <pre id="drive-inventory-result" class="olama-media-result" hidden></pre>
                 </div>
                 <div class="olama-media-panel">
+                    <h2><?php esc_html_e('مرشّحات ربط المادة', 'olama-media-library'); ?></h2>
+                    <p><?php esc_html_e('اختر المادة في تبويب رفع الفيديوهات، ثم اعرض المجلدات المقترحة من آخر جرد مكتمل. الاعتماد يحفظ Drive ID محلياً ولا يعدّل Drive.', 'olama-media-library'); ?></p>
+                    <button type="button" class="button" id="btn-drive-mapping-candidates"><?php esc_html_e('عرض المرشّحات', 'olama-media-library'); ?></button>
+                    <div id="drive-mapping-status" class="notice notice-info inline" hidden><p></p></div>
+                    <table class="wp-list-table widefat striped" id="drive-mapping-table" hidden>
+                        <thead><tr><th><?php esc_html_e('المجلد', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('التعارض', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء', 'olama-media-library'); ?></th></tr></thead>
+                        <tbody id="drive-mapping-body"></tbody>
+                    </table>
+                </div>
+                <div class="olama-media-panel">
                     <h2><?php esc_html_e('إعادة بناء فهرس Google Drive', 'olama-media-library'); ?></h2>
                     <p><?php esc_html_e('يفحص جميع المجلدات. استخدمه فقط عند طلب الدعم الفني.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-v2-rebuild" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('إعادة بناء الفهرس', 'olama-media-library'); ?></button>

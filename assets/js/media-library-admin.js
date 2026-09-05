@@ -1721,6 +1721,52 @@ jQuery(function ($) {
                 $button.prop('disabled', false);
             });
     }
+
+    let mappingScopeKey = '';
+    $('#btn-drive-mapping-candidates').on('click', function () {
+        const data = filters();
+        const $status = $('#drive-mapping-status').removeAttr('hidden').find('p');
+        if (!data.academic_year_id || !data.semester_id || !data.grade_id || !data.subject_id) {
+            $status.text(cfg.i18n.mapping_select_scope);
+            return;
+        }
+        const $button = $(this).prop('disabled', true);
+        $status.text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, { action: 'olama_media_drive_mapping_candidates', nonce: cfg.nonce, ...data })
+            .done(function (response) {
+                if (!response.success) {
+                    $status.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                    $('#drive-mapping-table').attr('hidden', 'hidden');
+                    return;
+                }
+                mappingScopeKey = response.data.scope_key;
+                const candidates = response.data.candidates || [];
+                $status.text(`${response.data.subject_name}: ${candidates.length} candidate(s)`);
+                $('#drive-mapping-table').removeAttr('hidden');
+                $('#drive-mapping-body').html(candidates.length ? candidates.map(function (item) {
+                    const blocked = item.conflict_reason ? 'disabled' : '';
+                    return `<tr><td>${esc(item.folder_name)}<br><code>${esc(item.drive_folder_id)}</code></td><td>${esc(item.path)}</td><td>${esc(item.confidence)}%</td><td>${esc(item.conflict_reason || '-')}</td><td><button type="button" class="button btn-confirm-drive-mapping" data-candidate-id="${esc(item.candidate_id)}" ${blocked}>اعتماد</button></td></tr>`;
+                }).join('') : '<tr><td colspan="5">لا توجد مجلدات مطابقة في الجرد المكتمل.</td></tr>');
+            })
+            .fail(function () { $status.text(cfg.i18n.error); })
+            .always(function () { $button.prop('disabled', false); });
+    });
+
+    $(document).on('click', '.btn-confirm-drive-mapping', function () {
+        if (!mappingScopeKey) return;
+        const $button = $(this).prop('disabled', true);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_drive_confirm_mapping', nonce: cfg.nonce,
+            candidate_id: $button.data('candidate-id'), scope_key: mappingScopeKey
+        }).done(function (response) {
+            const message = response.success ? cfg.i18n.mapping_confirmed : (typeof response.data === 'string' ? response.data : cfg.i18n.error);
+            $('#drive-mapping-status').removeAttr('hidden').find('p').text(message);
+            if (!response.success) $button.prop('disabled', false);
+        }).fail(function () {
+            $('#drive-mapping-status').removeAttr('hidden').find('p').text(cfg.i18n.error);
+            $button.prop('disabled', false);
+        });
+    });
     $('#btn-v2-reset').on('click', function () {
         v2Post('olama_media_v2_reset_index', { scope: $('#v2-reset-scope').val(), confirmation_text: $('#v2-reset-confirmation').val() }, $('#v2-reset-result'))
             .done(function (response) { if (response.success) { loadV2Review(); loadV2Runs(); } });

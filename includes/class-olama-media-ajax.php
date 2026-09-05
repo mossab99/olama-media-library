@@ -52,6 +52,8 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_drive_discovery_start', array($this, 'drive_discovery_start'));
         add_action('wp_ajax_olama_media_drive_discovery_batch', array($this, 'drive_discovery_batch'));
         add_action('wp_ajax_olama_media_drive_discovery_status', array($this, 'drive_discovery_status'));
+        add_action('wp_ajax_olama_media_drive_mapping_candidates', array($this, 'drive_mapping_candidates'));
+        add_action('wp_ajax_olama_media_drive_confirm_mapping', array($this, 'drive_confirm_mapping'));
     }
 
     public function get_subjects()
@@ -1735,6 +1737,28 @@ class Olama_Media_Ajax
         $run = $repository->get_run_by_uuid($run_uuid);
         if (!$run) { wp_send_json_error(__('Drive inventory run was not found.', 'olama-media-library')); }
         $result = $repository->report($run->id);
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function drive_mapping_candidates()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $result = (new Olama_Media_Drive_Mapping())->generate_subject_candidates(
+            absint($_POST['academic_year_id'] ?? 0), absint($_POST['semester_id'] ?? 0),
+            absint($_POST['grade_id'] ?? 0), absint($_POST['subject_id'] ?? 0)
+        );
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function drive_confirm_mapping()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $result = (new Olama_Media_Drive_Mapping())->confirm_candidate(
+            absint($_POST['candidate_id'] ?? 0),
+            sanitize_text_field(wp_unslash($_POST['scope_key'] ?? ''))
+        );
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 

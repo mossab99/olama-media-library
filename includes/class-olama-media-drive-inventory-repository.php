@@ -178,4 +178,23 @@ class Olama_Media_Drive_Inventory_Repository
         ), ARRAY_A);
         return array('run' => $run, 'queue' => $queue, 'duplicate_sibling_folders' => $duplicates);
     }
+
+    public function get_latest_completed_run()
+    {
+        global $wpdb;
+        return $wpdb->get_row("SELECT * FROM {$this->runs} WHERE status='completed' ORDER BY id DESC LIMIT 1");
+    }
+
+    public function get_folder_observations($run_id)
+    {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT o.*,
+                (SELECT COUNT(*) FROM {$this->observations} child WHERE child.scan_run_id=o.scan_run_id AND child.parent_drive_folder_id=o.drive_item_id AND child.item_type='file') direct_file_count,
+                (SELECT COUNT(*) FROM {$this->observations} sibling WHERE sibling.scan_run_id=o.scan_run_id AND sibling.parent_drive_folder_id=o.parent_drive_folder_id AND sibling.item_type='folder' AND sibling.normalized_name=o.normalized_name) sibling_name_count
+             FROM {$this->observations} o
+             WHERE o.scan_run_id=%d AND o.item_type='folder' ORDER BY o.path_snapshot",
+            absint($run_id)
+        ));
+    }
 }

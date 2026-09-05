@@ -234,6 +234,8 @@ class Olama_Media_Admin
             'inventory_starting' => __('جاري بدء جرد Google Drive للقراءة فقط...', 'olama-media-library'),
             'inventory_scanning' => __('جاري جرد مجلدات وملفات Google Drive...', 'olama-media-library'),
             'inventory_complete' => __('اكتمل جرد Google Drive دون تعديل أي ملف أو مجلد.', 'olama-media-library'),
+            'mapping_select_scope' => __('اختر السنة والفصل والصف والمادة أولاً من تبويب رفع الفيديوهات.', 'olama-media-library'),
+            'mapping_confirmed' => __('تم اعتماد ربط المادة بالمجلد بواسطة Drive ID.', 'olama-media-library'),
             'no_curriculum' => __('لا توجد دروس لهذه الاختيارات.', 'olama-media-library'),
             'no_logs' => __('لا توجد سجلات بعد.', 'olama-media-library'),
             'file_too_large' => __('حجم الملف أكبر من المسموح: %s', 'olama-media-library'),
