@@ -25,9 +25,14 @@ $correct = $matcher->score_file_against_lesson($file, $correctTitleLesson, $unit
 
 assert_matcher($wrong['confidence'] < 90, 'A matching number with a contradictory title must never auto-match.');
 assert_matcher($wrong['title_match'] === false, 'Contradictory lesson title must be recorded.');
+assert_matcher(!in_array('lesson_title_match', $wrong['evidence'], true), 'Number-only evidence must not claim lesson identity.');
 assert_matcher($correct['confidence'] >= 90, 'A strong unique title match may outrank a stale filename lesson number.');
 assert_matcher($correct['confidence'] > $wrong['confidence'], 'Title identity must outrank filename numbering.');
 assert_matcher(in_array('lesson_number_mismatch', $correct['evidence'], true), 'Number disagreement must remain visible as evidence.');
 assert_matcher(count($matcher->auto_link_high_confidence(array($correct), 0, true)) === 0, 'A title match with a number mismatch must require human review.');
+
+$preview_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-reconciliation-preview.php');
+assert_matcher(strpos($preview_source, "elseif (!\$has_title_evidence) { \$status = 'unmatched'; }") !== false, 'Preview must classify number-only candidates as unmatched.');
+assert_matcher(strpos($preview_source, '$proposed_lesson = $has_title_evidence ? $top : null;') !== false, 'Preview must not stage a proposed lesson without title evidence.');
 
 echo "Matcher title-priority tests passed.\n";
