@@ -1819,7 +1819,8 @@ jQuery(function ($) {
             }
             const data = response.data;
             const lessons = data.curriculum_lessons || [];
-            $summary.text(`${cfg.i18n.reconciliation_complete} files: ${data.files_in_subject}, matched: ${data.matched}, review: ${data.needs_review}, ambiguous: ${data.ambiguous}, unmatched: ${data.unmatched}, reviewed: ${data.reviewed || 0}`);
+            $('#reconciliation-summary').data('report', data);
+            renderReconciliationSummary(data);
             $('#reconciliation-table').removeAttr('hidden');
             $('#reconciliation-body').html((data.results || []).map(function (item) {
                 const selectedLessonId = Number(item.selected_lesson_id || item.lesson_id || 0);
@@ -1830,7 +1831,7 @@ jQuery(function ($) {
                     return `<option value="${esc(lesson.lesson_id)}"${selected}>${esc(lesson.lesson_number)} ${esc(lesson.lesson_title)}</option>`;
                 }).join('');
                 const decisions = { pending: 'بانتظار المراجعة', approved: 'تم اعتماد الاقتراح مرحلياً', manual: 'تم تعيين الدرس يدوياً', rejected: 'مرفوض مرحلياً' };
-                return `<tr data-reconciliation-item="${esc(item.item_id)}"><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>${esc(item.confidence)}%</td><td>${esc(item.status)}</td><td><select class="reconciliation-lesson"><option value="">-- اختر درساً --</option>${options}</select> <button type="button" class="button btn-reconciliation-assign">حفظ القرار المرحلي</button> <button type="button" class="button btn-reconciliation-reject">رفض مرحلي</button><br><small class="reconciliation-decision-state">${esc(decisions[item.decision_status] || item.decision_status || decisions.pending)}</small></td></tr>`;
+                return `<tr data-reconciliation-item="${esc(item.item_id)}" data-decision-status="${esc(item.decision_status || 'pending')}"><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>${esc(item.confidence)}%</td><td>${esc(item.status)}</td><td><select class="reconciliation-lesson"><option value="">-- اختر درساً --</option>${options}</select> <button type="button" class="button btn-reconciliation-assign">حفظ القرار المرحلي</button> <button type="button" class="button btn-reconciliation-reject">رفض مرحلي</button><br><small class="reconciliation-decision-state">${esc(decisions[item.decision_status] || item.decision_status || decisions.pending)}</small></td></tr>`;
             }).join('') || '<tr><td colspan="6">لا توجد ملفات داخل مجلد المادة المعتمد.</td></tr>');
         }).fail(function () {
             $summary.text(cfg.i18n.error);
@@ -1838,6 +1839,11 @@ jQuery(function ($) {
             $button.prop('disabled', !confirmedMappingId);
         });
     });
+
+    function renderReconciliationSummary(data) {
+        const decisions = data.decisions || {};
+        $('#reconciliation-summary').find('p').text(`${cfg.i18n.reconciliation_complete} files: ${data.files_in_subject}, matched: ${data.matched}, review: ${data.needs_review}, ambiguous: ${data.ambiguous}, unmatched: ${data.unmatched}, reviewed: ${data.reviewed || 0} (approved: ${decisions.approved || 0}, manual: ${decisions.manual || 0}, rejected: ${decisions.rejected || 0}, pending: ${decisions.pending || 0})`);
+    }
 
     $(document).on('click', '.btn-reconciliation-assign, .btn-reconciliation-reject', function () {
         const $button = $(this);
@@ -1859,6 +1865,20 @@ jQuery(function ($) {
             }
             const labels = { approved: 'تم اعتماد الاقتراح مرحلياً', manual: 'تم تعيين الدرس يدوياً', rejected: 'مرفوض مرحلياً' };
             $row.find('.reconciliation-decision-state').text(labels[response.data.decision_status] || response.data.decision_status);
+            if (response.data.decision_status === 'rejected') {
+                $row.find('.reconciliation-lesson').val('');
+            }
+            const previousStatus = $row.attr('data-decision-status') || 'pending';
+            $row.attr('data-decision-status', response.data.decision_status);
+            const report = $('#reconciliation-summary').data('report') || {};
+            report.decisions = report.decisions || { pending: 0, approved: 0, manual: 0, rejected: 0 };
+            if (previousStatus !== response.data.decision_status) {
+                if (Object.prototype.hasOwnProperty.call(report.decisions, previousStatus)) report.decisions[previousStatus] = Math.max(0, Number(report.decisions[previousStatus] || 0) - 1);
+                if (Object.prototype.hasOwnProperty.call(report.decisions, response.data.decision_status)) report.decisions[response.data.decision_status] = Number(report.decisions[response.data.decision_status] || 0) + 1;
+            }
+            report.reviewed = report.decisions.approved + report.decisions.manual + report.decisions.rejected;
+            $('#reconciliation-summary').data('report', report);
+            renderReconciliationSummary(report);
             notify('تم حفظ القرار في جدول المعاينة فقط؛ لم تتغير مكتبة الفيديوهات أو Drive.', 'success');
         }).fail(function () {
             notify(cfg.i18n.error, 'error');

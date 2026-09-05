@@ -34,6 +34,7 @@ class Olama_Media_Reconciliation_Preview
             'mapping_id'=>absint($mapping->id), 'run_uuid'=>$run->run_uuid,
             'files_in_subject'=>0, 'matched'=>0, 'needs_review'=>0, 'ambiguous'=>0, 'unmatched'=>0,
             'reviewed'=>0, 'authoritative_links_changed'=>false, 'drive_mutations'=>0,
+            'decisions'=>array('pending'=>0, 'approved'=>0, 'manual'=>0, 'rejected'=>0),
             'curriculum_lessons'=>array_values($curriculum_lessons), 'results'=>array(),
         );
 
@@ -104,6 +105,7 @@ class Olama_Media_Reconciliation_Preview
                 'part_number'=>$top ? $top['part_number'] : null, 'evidence'=>$top ? $top['evidence'] : array(),
                 'decision_status'=>'pending', 'selected_unit_id'=>0, 'selected_lesson_id'=>0,
             );
+            $report['decisions']['pending']++;
             $now = current_time('mysql');
             $saved = $wpdb->insert($table, array(
                 'discovery_run_id'=>absint($run->id),'subject_mapping_id'=>absint($mapping->id),'drive_file_id'=>sanitize_text_field($item->drive_item_id),
@@ -201,7 +203,10 @@ class Olama_Media_Reconciliation_Preview
             $status = sanitize_key($item->proposal_status);
             if (isset($report[$status])) { $report[$status]++; }
             $report['files_in_subject']++;
-            if (sanitize_key($item->decision_status ?? 'pending') !== 'pending') { $report['reviewed']++; }
+            $decision_status = sanitize_key($item->decision_status ?? 'pending');
+            if (!isset($report['decisions'][$decision_status])) { $decision_status = 'pending'; }
+            $report['decisions'][$decision_status]++;
+            if ($decision_status !== 'pending') { $report['reviewed']++; }
             $proposed = $lessons[absint($item->proposed_lesson_id)] ?? null;
             $unit = $proposed ?: ($lessons[absint($item->selected_lesson_id)] ?? null);
             $unit_name = $unit ? (string) $unit['unit_name'] : '';
@@ -217,7 +222,7 @@ class Olama_Media_Reconciliation_Preview
                     'unit_id'=>absint($item->proposed_unit_id), 'unit_name'=>$unit_name,
                     'lesson_id'=>absint($item->proposed_lesson_id), 'lesson_number'=>$proposed ? (string) $proposed['lesson_number'] : '',
                     'lesson_title'=>$proposed ? (string) $proposed['lesson_title'] : '', 'confidence'=>absint($item->confidence),
-                    'decision_status'=>sanitize_key($item->decision_status ?? 'pending'),
+                    'decision_status'=>$decision_status,
                     'selected_unit_id'=>absint($item->selected_unit_id), 'selected_lesson_id'=>absint($item->selected_lesson_id),
                 );
             }
