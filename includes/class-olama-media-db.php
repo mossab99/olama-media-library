@@ -390,6 +390,11 @@ class Olama_Media_DB
             proposed_lesson_id BIGINT UNSIGNED NULL,
             confidence TINYINT UNSIGNED NOT NULL DEFAULT 0,
             proposal_status VARCHAR(30) NOT NULL,
+            decision_status VARCHAR(30) NOT NULL DEFAULT 'pending',
+            selected_unit_id BIGINT UNSIGNED NULL,
+            selected_lesson_id BIGINT UNSIGNED NULL,
+            reviewed_by BIGINT UNSIGNED NULL,
+            reviewed_at DATETIME NULL,
             filename VARCHAR(255) NOT NULL,
             path_snapshot TEXT NULL,
             reasons LONGTEXT NULL,
@@ -398,6 +403,7 @@ class Olama_Media_DB
             PRIMARY KEY (id),
             UNIQUE KEY mapping_run_file (subject_mapping_id,discovery_run_id,drive_file_id),
             KEY proposal_status (proposal_status),
+            KEY decision_status (decision_status),
             KEY proposed_lesson_id (proposed_lesson_id)
         ) ENGINE=InnoDB $charset_collate;");
     }
