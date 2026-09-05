@@ -241,7 +241,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                 </div>
                 <div class="olama-media-panel">
                     <h2><?php esc_html_e('مرشّحات ربط المادة', 'olama-media-library'); ?></h2>
-                    <p><?php esc_html_e('اختر المادة في تبويب رفع الفيديوهات، ثم اعرض المجلدات المقترحة من آخر جرد مكتمل. الاعتماد يحفظ Drive ID محلياً ولا يعدّل Drive.', 'olama-media-library'); ?></p>
+                    <p><?php esc_html_e('اختر المادة في تبويب رفع الفيديوهات، ثم اعرض المجلدات المقترحة من آخر جرد مكتمل. المرشح مكتمل السياق يُعتمد مباشرة بعد المراجعة؛ أما الحالات غير المتطابقة فتتطلب إدخال Drive ID الكامل وعبارة تأكيد. لا يعدّل هذا الإجراء Drive.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-drive-mapping-candidates"><?php esc_html_e('عرض المرشّحات', 'olama-media-library'); ?></button>
                     <div id="drive-mapping-status" class="notice notice-info inline" hidden><p></p></div>
                     <table class="wp-list-table widefat striped" id="drive-mapping-table" hidden>

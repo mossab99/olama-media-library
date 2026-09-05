@@ -1757,7 +1757,12 @@ class Olama_Media_Ajax
         $this->require_drive_administration();
         $result = (new Olama_Media_Drive_Mapping())->confirm_candidate(
             absint($_POST['candidate_id'] ?? 0),
-            sanitize_text_field(wp_unslash($_POST['scope_key'] ?? ''))
+            sanitize_text_field(wp_unslash($_POST['scope_key'] ?? '')),
+            array(
+                'manual_override' => !empty($_POST['manual_override']),
+                'confirmation_folder_id' => sanitize_text_field(wp_unslash($_POST['confirmation_folder_id'] ?? '')),
+                'confirmation_text' => sanitize_text_field(wp_unslash($_POST['confirmation_text'] ?? '')),
+            )
         );
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }

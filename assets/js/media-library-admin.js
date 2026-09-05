@@ -1746,13 +1746,15 @@ jQuery(function ($) {
                     : `${response.data.subject_name}: لا يوجد مرشح وحيد مكتمل السياق؛ الاعتماد محظور.`);
                 $('#drive-mapping-table').removeAttr('hidden');
                 $('#drive-mapping-body').html(candidates.length ? candidates.map(function (item) {
-                    const blocked = item.conflict_reason ? 'disabled' : '';
                     const conflicts = {
                         duplicate_sibling_folder_name: 'مجلدات متكررة تحت الأب نفسه',
                         insufficient_scope_context: 'السنة أو الفصل أو الصف غير مطابق',
                         multiple_scope_candidates: 'أكثر من مرشح يطابق السياق كاملاً'
                     };
-                    return `<tr><td>${esc(item.folder_name)}<br><code>${esc(item.drive_folder_id)}</code></td><td>${esc(item.path)}</td><td>${esc(item.confidence)}%</td><td>${esc(conflicts[item.conflict_reason] || item.conflict_reason || '-')}</td><td><button type="button" class="button btn-confirm-drive-mapping" data-candidate-id="${esc(item.candidate_id)}" ${blocked}>اعتماد</button></td></tr>`;
+                    const action = item.conflict_reason
+                        ? `<button type="button" class="button btn-manual-drive-mapping" data-candidate-id="${esc(item.candidate_id)}" data-folder-id="${esc(item.drive_folder_id)}">مراجعة واعتماد يدوي</button>`
+                        : `<button type="button" class="button btn-confirm-drive-mapping" data-candidate-id="${esc(item.candidate_id)}">اعتماد</button>`;
+                    return `<tr><td>${esc(item.folder_name)}<br><code>${esc(item.drive_folder_id)}</code></td><td>${esc(item.path)}</td><td>${esc(item.confidence)}%</td><td>${esc(conflicts[item.conflict_reason] || item.conflict_reason || '-')}</td><td>${action}</td></tr>`;
                 }).join('') : '<tr><td colspan="5">لا توجد مجلدات مطابقة في الجرد المكتمل.</td></tr>');
             })
             .fail(function () { $status.text(cfg.i18n.error); })
@@ -1762,10 +1764,31 @@ jQuery(function ($) {
     $(document).on('click', '.btn-confirm-drive-mapping', function () {
         if (!mappingScopeKey) return;
         const $button = $(this).prop('disabled', true);
-        $.post(cfg.ajaxurl, {
+        submitDriveMapping($button, {
             action: 'olama_media_drive_confirm_mapping', nonce: cfg.nonce,
             candidate_id: $button.data('candidate-id'), scope_key: mappingScopeKey
-        }).done(function (response) {
+        });
+    });
+
+    $(document).on('click', '.btn-manual-drive-mapping', function () {
+        if (!mappingScopeKey) return;
+        const $button = $(this);
+        const expectedId = String($button.data('folder-id') || '');
+        const scope = [$('#filter-year-id option:selected').text(), $('#filter-semester option:selected').text(), $('#filter-grade option:selected').text(), $('#filter-subject option:selected').text()].join(' / ');
+        const enteredId = window.prompt(`تحقق يدوياً من المسار مقابل:\n${scope}\n\nأدخل Drive Folder ID الكامل للمرشح المختار:`, '');
+        if (enteredId === null) return;
+        const phrase = window.prompt('للتأكيد النهائي اكتب العبارة التالية كما هي:\nCONFIRM DRIVE MAPPING', '');
+        if (phrase === null) return;
+        $button.prop('disabled', true);
+        submitDriveMapping($button, {
+            action: 'olama_media_drive_confirm_mapping', nonce: cfg.nonce,
+            candidate_id: $button.data('candidate-id'), scope_key: mappingScopeKey,
+            manual_override: 1, confirmation_folder_id: enteredId.trim(), confirmation_text: phrase.trim()
+        });
+    });
+
+    function submitDriveMapping($button, request) {
+        $.post(cfg.ajaxurl, request).done(function (response) {
             const message = response.success ? cfg.i18n.mapping_confirmed : (typeof response.data === 'string' ? response.data : cfg.i18n.error);
             $('#drive-mapping-status').removeAttr('hidden').find('p').text(message);
             if (!response.success) $button.prop('disabled', false);
@@ -1773,7 +1796,7 @@ jQuery(function ($) {
             $('#drive-mapping-status').removeAttr('hidden').find('p').text(cfg.i18n.error);
             $button.prop('disabled', false);
         });
-    });
+    }
     $('#btn-v2-reset').on('click', function () {
         v2Post('olama_media_v2_reset_index', { scope: $('#v2-reset-scope').val(), confirmation_text: $('#v2-reset-confirmation').val() }, $('#v2-reset-result'))
             .done(function (response) { if (response.success) { loadV2Review(); loadV2Runs(); } });

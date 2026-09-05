@@ -77,7 +77,7 @@ class Olama_Media_Drive_Mapping
         }
 
         usort($candidate_rows, function ($a, $b) { return $b['confidence'] <=> $a['confidence']; });
-        $confirmed_mapping_revalidated = $this->revalidate_existing_mapping($scope_key, $eligible);
+        $confirmed_mapping_revalidated = $this->revalidate_existing_mapping($scope_key, $eligible, $matches);
         return array(
             'run_uuid' => $run->run_uuid, 'scope_key' => $scope_key,
             'subject_name' => $names['subject'], 'candidate_count' => count($candidate_rows),
@@ -86,7 +86,7 @@ class Olama_Media_Drive_Mapping
         );
     }
 
-    public function confirm_candidate($candidate_id, $scope_key)
+    public function confirm_candidate($candidate_id, $scope_key, $options = array())
     {
         global $wpdb;
         $candidates = $wpdb->prefix . 'olama_drive_mapping_candidates';
@@ -103,11 +103,22 @@ class Olama_Media_Drive_Mapping
         if (!hash_equals((string) $candidate->root_config_hash, $this->current_root_config_hash())) {
             return new WP_Error('candidate_root_stale', __('This candidate belongs to an older Drive root configuration and cannot be confirmed.', 'olama-media-library'));
         }
-        if (!empty($candidate->conflict_reason)) { return new WP_Error('candidate_conflict', __('This candidate has a folder conflict and cannot be confirmed until it is reviewed.', 'olama-media-library')); }
         $reasons = json_decode((string) $candidate->reasons, true);
         $required_reasons = array('academic_year_path_match', 'semester_path_match', 'grade_path_match');
-        if (!is_array($reasons) || array_diff($required_reasons, $reasons)) {
+        $automatic_scope_complete = is_array($reasons) && !array_diff($required_reasons, $reasons) && empty($candidate->conflict_reason);
+        $manual_override = !empty($options['manual_override']);
+        if (!$automatic_scope_complete && !$manual_override) {
             return new WP_Error('candidate_scope_incomplete', __('This candidate does not contain enough curriculum scope evidence to be confirmed.', 'olama-media-library'));
+        }
+        if ($manual_override) {
+            $confirmed_folder_id = sanitize_text_field($options['confirmation_folder_id'] ?? '');
+            $confirmation_text = sanitize_text_field($options['confirmation_text'] ?? '');
+            if ($confirmed_folder_id === '' || !hash_equals((string) $candidate->drive_folder_id, $confirmed_folder_id)) {
+                return new WP_Error('manual_folder_id_mismatch', __('The manually entered Drive folder ID does not match this candidate.', 'olama-media-library'));
+            }
+            if (!hash_equals('CONFIRM DRIVE MAPPING', $confirmation_text)) {
+                return new WP_Error('manual_confirmation_invalid', __('Manual confirmation text does not match.', 'olama-media-library'));
+            }
         }
         if (!preg_match('/^subject:(\d+):(\d+):(\d+):(\d+)$/', $candidate->scope_key, $matches)) {
             return new WP_Error('invalid_scope_key', __('The candidate curriculum scope is invalid.', 'olama-media-library'));
@@ -122,6 +133,12 @@ class Olama_Media_Drive_Mapping
             'academic_year_id'=>absint($matches[1]), 'semester_id'=>absint($matches[2]),
             'grade_id'=>absint($matches[3]), 'subject_id'=>absint($matches[4]),
             'drive_folder_id'=>$candidate->drive_folder_id, 'mapping_status'=>'confirmed',
+            'confirmation_method'=>$manual_override ? 'manual_verified' : 'scoped_candidate',
+            'confirmation_evidence'=>wp_json_encode(array(
+                'candidate_id'=>absint($candidate->id), 'discovery_run_id'=>absint($candidate->discovery_run_id),
+                'reasons'=>is_array($reasons) ? $reasons : array(), 'conflict_reason'=>(string) $candidate->conflict_reason,
+                'confirmed_folder_id'=>(string) $candidate->drive_folder_id,
+            )),
             'root_config_hash'=>$candidate->root_config_hash, 'confirmed_by'=>get_current_user_id(),
             'confirmed_at'=>$now, 'updated_at'=>$now,
         );
@@ -169,7 +186,7 @@ class Olama_Media_Drive_Mapping
         return false;
     }
 
-    private function revalidate_existing_mapping($scope_key, $eligible)
+    private function revalidate_existing_mapping($scope_key, $eligible, $matches)
     {
         global $wpdb;
         $maps = $wpdb->prefix . 'olama_curriculum_drive_map';
@@ -177,6 +194,10 @@ class Olama_Media_Drive_Mapping
         if (!$existing || $existing->mapping_status !== 'confirmed') { return false; }
         $eligible_ids = array_map(function ($match) { return (string) $match['folder']->drive_item_id; }, $eligible);
         if (count($eligible_ids) === 1 && $eligible_ids[0] === (string) $existing->drive_folder_id) { return true; }
+        if (($existing->confirmation_method ?? '') === 'manual_verified') {
+            $observed_ids = array_map(function ($match) { return (string) $match['folder']->drive_item_id; }, $matches);
+            if (in_array((string) $existing->drive_folder_id, $observed_ids, true)) { return true; }
+        }
         $wpdb->update($maps, array('mapping_status'=>'proposed_for_revalidation','updated_at'=>current_time('mysql')), array('id'=>absint($existing->id)));
         return false;
     }

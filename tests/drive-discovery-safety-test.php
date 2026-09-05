@@ -122,6 +122,9 @@ assert_true(count($wpdb->candidate_inserts) === 2, 'Every matching folder must b
 
 $discovery_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-drive-discovery.php');
 $mapping_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-drive-mapping.php');
+assert_true(strpos($mapping_source, "hash_equals((string) \$candidate->drive_folder_id, \$confirmed_folder_id)") !== false, 'Manual confirmation must verify the full server-staged Drive folder ID.');
+assert_true(strpos($mapping_source, "hash_equals('CONFIRM DRIVE MAPPING', \$confirmation_text)") !== false, 'Manual confirmation must require the explicit confirmation phrase.');
+
 foreach (array('files->create', 'files->update', 'files->delete', 'permissions->create') as $mutation) {
     assert_true(strpos($discovery_source, $mutation) === false, "Discovery must not contain Drive mutation {$mutation}.");
     assert_true(strpos($mapping_source, $mutation) === false, "Mapping must not contain Drive mutation {$mutation}.");

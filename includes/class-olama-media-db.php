@@ -276,6 +276,8 @@ class Olama_Media_DB
             unit_id BIGINT UNSIGNED NULL,
             drive_folder_id VARCHAR(191) NOT NULL,
             mapping_status VARCHAR(30) NOT NULL DEFAULT 'proposed',
+            confirmation_method VARCHAR(40) NULL,
+            confirmation_evidence LONGTEXT NULL,
             root_config_hash VARCHAR(64) NULL,
             confirmed_by BIGINT UNSIGNED NULL,
             confirmed_at DATETIME NULL,
