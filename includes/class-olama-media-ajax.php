@@ -54,6 +54,7 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_drive_discovery_status', array($this, 'drive_discovery_status'));
         add_action('wp_ajax_olama_media_drive_mapping_candidates', array($this, 'drive_mapping_candidates'));
         add_action('wp_ajax_olama_media_drive_confirm_mapping', array($this, 'drive_confirm_mapping'));
+        add_action('wp_ajax_olama_media_reconciliation_preview', array($this, 'drive_reconciliation_preview'));
     }
 
     public function get_subjects()
@@ -1764,6 +1765,14 @@ class Olama_Media_Ajax
                 'confirmation_text' => sanitize_text_field(wp_unslash($_POST['confirmation_text'] ?? '')),
             )
         );
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function drive_reconciliation_preview()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $result = (new Olama_Media_Reconciliation_Preview())->generate(absint($_POST['mapping_id'] ?? 0));
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 

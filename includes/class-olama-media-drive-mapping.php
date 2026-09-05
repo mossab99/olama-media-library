@@ -78,10 +78,12 @@ class Olama_Media_Drive_Mapping
 
         usort($candidate_rows, function ($a, $b) { return $b['confidence'] <=> $a['confidence']; });
         $confirmed_mapping_revalidated = $this->revalidate_existing_mapping($scope_key, $eligible, $matches);
+        $confirmed_mapping = $this->get_confirmed_mapping_for_scope($scope_key);
         return array(
             'run_uuid' => $run->run_uuid, 'scope_key' => $scope_key,
             'subject_name' => $names['subject'], 'candidate_count' => count($candidate_rows),
             'confirmation_ready' => count($eligible) === 1, 'confirmed_mapping_revalidated' => $confirmed_mapping_revalidated,
+            'confirmed_mapping' => $confirmed_mapping ? $this->mapping_payload($confirmed_mapping) : null,
             'requires_manual_confirmation' => true, 'candidates' => $candidate_rows,
         );
     }
@@ -209,6 +211,36 @@ class Olama_Media_Drive_Mapping
             'folder_name'=>sanitize_text_field($folder->item_name), 'path'=>sanitize_text_field($folder->path_snapshot),
             'confidence'=>min(100, absint($score)), 'reasons'=>$reasons, 'conflict_reason'=>$conflict,
             'direct_file_count'=>absint($folder->direct_file_count),
+        );
+    }
+
+    public function get_confirmed_mapping_for_scope($scope_key)
+    {
+        global $wpdb;
+        $maps = $wpdb->prefix . 'olama_curriculum_drive_map';
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$maps} WHERE scope_key=%s AND mapping_status='confirmed' LIMIT 1",
+            sanitize_text_field($scope_key)
+        ));
+    }
+
+    public function get_confirmed_mapping_by_id($mapping_id)
+    {
+        global $wpdb;
+        $maps = $wpdb->prefix . 'olama_curriculum_drive_map';
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$maps} WHERE id=%d AND mapping_status='confirmed' LIMIT 1",
+            absint($mapping_id)
+        ));
+    }
+
+    private function mapping_payload($mapping)
+    {
+        return array(
+            'mapping_id'=>absint($mapping->id), 'scope_key'=>sanitize_text_field($mapping->scope_key),
+            'drive_folder_id'=>sanitize_text_field($mapping->drive_folder_id),
+            'mapping_status'=>sanitize_key($mapping->mapping_status),
+            'confirmation_method'=>sanitize_key($mapping->confirmation_method ?? ''),
         );
     }
 

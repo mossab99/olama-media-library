@@ -121,6 +121,7 @@ class Olama_Media_DB
         $scan_observations = $wpdb->prefix . 'olama_drive_scan_observations';
         $scan_queue = $wpdb->prefix . 'olama_drive_scan_queue';
         $sync_locks = $wpdb->prefix . 'olama_drive_sync_locks';
+        $reconciliation_items = $wpdb->prefix . 'olama_drive_reconciliation_items';
 
         dbDelta("CREATE TABLE {$drive_files} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -378,6 +379,26 @@ class Olama_Media_DB
             PRIMARY KEY (id),
             UNIQUE KEY lock_key (lock_key),
             KEY expires_at (expires_at)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$reconciliation_items} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            discovery_run_id BIGINT UNSIGNED NOT NULL,
+            subject_mapping_id BIGINT UNSIGNED NOT NULL,
+            drive_file_id VARCHAR(191) NOT NULL,
+            proposed_unit_id BIGINT UNSIGNED NULL,
+            proposed_lesson_id BIGINT UNSIGNED NULL,
+            confidence TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            proposal_status VARCHAR(30) NOT NULL,
+            filename VARCHAR(255) NOT NULL,
+            path_snapshot TEXT NULL,
+            reasons LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY mapping_run_file (subject_mapping_id,discovery_run_id,drive_file_id),
+            KEY proposal_status (proposal_status),
+            KEY proposed_lesson_id (proposed_lesson_id)
         ) ENGINE=InnoDB $charset_collate;");
     }
 

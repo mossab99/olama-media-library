@@ -197,4 +197,13 @@ class Olama_Media_Drive_Inventory_Repository
             absint($run_id)
         ));
     }
+
+    public function get_all_observations($run_id)
+    {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$this->observations} WHERE scan_run_id=%d ORDER BY id",
+            absint($run_id)
+        ));
+    }
 }

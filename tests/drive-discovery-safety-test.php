@@ -122,11 +122,16 @@ assert_true(count($wpdb->candidate_inserts) === 2, 'Every matching folder must b
 
 $discovery_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-drive-discovery.php');
 $mapping_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-drive-mapping.php');
+$reconciliation_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-reconciliation-preview.php');
 assert_true(strpos($mapping_source, "hash_equals((string) \$candidate->drive_folder_id, \$confirmed_folder_id)") !== false, 'Manual confirmation must verify the full server-staged Drive folder ID.');
 assert_true(strpos($mapping_source, "hash_equals('CONFIRM DRIVE MAPPING', \$confirmation_text)") !== false, 'Manual confirmation must require the explicit confirmation phrase.');
 
 foreach (array('files->create', 'files->update', 'files->delete', 'permissions->create') as $mutation) {
     assert_true(strpos($discovery_source, $mutation) === false, "Discovery must not contain Drive mutation {$mutation}.");
     assert_true(strpos($mapping_source, $mutation) === false, "Mapping must not contain Drive mutation {$mutation}.");
+    assert_true(strpos($reconciliation_source, $mutation) === false, "Reconciliation preview must not contain Drive mutation {$mutation}.");
 }
+assert_true(strpos($reconciliation_source, 'upsert_lesson_video_link') === false, 'Reconciliation preview must not write authoritative lesson links.');
+assert_true(strpos($reconciliation_source, "query('START TRANSACTION')") !== false, 'Reconciliation staging replacement must be transactional.');
+assert_true(strpos($reconciliation_source, "query('COMMIT')") !== false, 'Reconciliation staging transaction must commit explicitly.');
 echo "Drive discovery safety tests passed.\n";

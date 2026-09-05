@@ -1723,6 +1723,7 @@ jQuery(function ($) {
     }
 
     let mappingScopeKey = '';
+    let confirmedMappingId = 0;
     $('#btn-drive-mapping-candidates').on('click', function () {
         const data = filters();
         const $status = $('#drive-mapping-status').removeAttr('hidden').find('p');
@@ -1740,6 +1741,8 @@ jQuery(function ($) {
                     return;
                 }
                 mappingScopeKey = response.data.scope_key;
+                confirmedMappingId = Number(response.data.confirmed_mapping && response.data.confirmed_mapping.mapping_id) || 0;
+                $('#btn-reconciliation-preview').prop('disabled', !confirmedMappingId);
                 const candidates = response.data.candidates || [];
                 $status.text(response.data.confirmation_ready
                     ? `${response.data.subject_name}: يوجد مرشح واحد مكتمل السياق ويحتاج مراجعتك.`
@@ -1791,12 +1794,41 @@ jQuery(function ($) {
         $.post(cfg.ajaxurl, request).done(function (response) {
             const message = response.success ? cfg.i18n.mapping_confirmed : (typeof response.data === 'string' ? response.data : cfg.i18n.error);
             $('#drive-mapping-status').removeAttr('hidden').find('p').text(message);
-            if (!response.success) $button.prop('disabled', false);
+            if (response.success) {
+                confirmedMappingId = Number(response.data.mapping_id) || 0;
+                $('#btn-reconciliation-preview').prop('disabled', !confirmedMappingId);
+            } else {
+                $button.prop('disabled', false);
+            }
         }).fail(function () {
             $('#drive-mapping-status').removeAttr('hidden').find('p').text(cfg.i18n.error);
             $button.prop('disabled', false);
         });
     }
+
+    $('#btn-reconciliation-preview').on('click', function () {
+        if (!confirmedMappingId) return;
+        const $button = $(this).prop('disabled', true);
+        const $summary = $('#reconciliation-summary').removeAttr('hidden').find('p').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_reconciliation_preview', nonce: cfg.nonce, mapping_id: confirmedMappingId
+        }).done(function (response) {
+            if (!response.success) {
+                $summary.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                return;
+            }
+            const data = response.data;
+            $summary.text(`${cfg.i18n.reconciliation_complete} files: ${data.files_in_subject}, matched: ${data.matched}, review: ${data.needs_review}, ambiguous: ${data.ambiguous}, unmatched: ${data.unmatched}`);
+            $('#reconciliation-table').removeAttr('hidden');
+            $('#reconciliation-body').html((data.results || []).map(function (item) {
+                return `<tr><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>${esc(item.confidence)}%</td><td>${esc(item.status)}</td></tr>`;
+            }).join('') || '<tr><td colspan="5">لا توجد ملفات داخل مجلد المادة المعتمد.</td></tr>');
+        }).fail(function () {
+            $summary.text(cfg.i18n.error);
+        }).always(function () {
+            $button.prop('disabled', !confirmedMappingId);
+        });
+    });
     $('#btn-v2-reset').on('click', function () {
         v2Post('olama_media_v2_reset_index', { scope: $('#v2-reset-scope').val(), confirmation_text: $('#v2-reset-confirmation').val() }, $('#v2-reset-result'))
             .done(function (response) { if (response.success) { loadV2Review(); loadV2Runs(); } });

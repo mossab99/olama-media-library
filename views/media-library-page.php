@@ -250,6 +250,16 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     </table>
                 </div>
                 <div class="olama-media-panel">
+                    <h2><?php esc_html_e('معاينة مطابقة ملفات الدروس', 'olama-media-library'); ?></h2>
+                    <p><?php esc_html_e('يستخدم Drive ID للمادة المعتمدة ويقترح الوحدة والدرس لكل ملف من الجرد. النتائج مرحلية فقط ولا تغيّر مكتبة الفيديوهات.', 'olama-media-library'); ?></p>
+                    <button type="button" class="button" id="btn-reconciliation-preview" disabled><?php esc_html_e('إنشاء المعاينة', 'olama-media-library'); ?></button>
+                    <div id="reconciliation-summary" class="notice notice-info inline" hidden><p></p></div>
+                    <table class="wp-list-table widefat striped" id="reconciliation-table" hidden>
+                        <thead><tr><th><?php esc_html_e('ملف Drive', 'olama-media-library'); ?></th><th><?php esc_html_e('الوحدة المقترحة', 'olama-media-library'); ?></th><th><?php esc_html_e('الدرس المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('النتيجة', 'olama-media-library'); ?></th></tr></thead>
+                        <tbody id="reconciliation-body"></tbody>
+                    </table>
+                </div>
+                <div class="olama-media-panel">
                     <h2><?php esc_html_e('إعادة بناء فهرس Google Drive', 'olama-media-library'); ?></h2>
                     <p><?php esc_html_e('يفحص جميع المجلدات. استخدمه فقط عند طلب الدعم الفني.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-v2-rebuild" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('إعادة بناء الفهرس', 'olama-media-library'); ?></button>

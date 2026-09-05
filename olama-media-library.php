@@ -3,7 +3,7 @@
  * Plugin Name: Olama Media Library
  * Plugin URI: https://olama.online
  * Description: Standalone media library and Google Drive upload module for Olama School curriculum lessons.
- * Version: 2.3.0
+ * Version: 2.4.0
  * Author: Olama
  * Text Domain: olama-media-library
  * Domain Path: /languages
@@ -13,8 +13,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('OLAMA_MEDIA_LIBRARY_VERSION', '2.3.0');
-define('OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.3.0');
+define('OLAMA_MEDIA_LIBRARY_VERSION', '2.4.0');
+define('OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.4.0');
 define('OLAMA_MEDIA_LIBRARY_FILE', __FILE__);
 define('OLAMA_MEDIA_LIBRARY_PATH', plugin_dir_path(__FILE__));
 define('OLAMA_MEDIA_LIBRARY_URL', plugin_dir_url(__FILE__));
@@ -51,6 +51,7 @@ require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive-indexe
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive-inventory-repository.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive-discovery.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive-mapping.php';
+require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-reconciliation-preview.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-matcher.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-ajax.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-admin.php';
