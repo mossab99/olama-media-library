@@ -122,6 +122,8 @@ class Olama_Media_DB
         $scan_queue = $wpdb->prefix . 'olama_drive_scan_queue';
         $sync_locks = $wpdb->prefix . 'olama_drive_sync_locks';
         $reconciliation_items = $wpdb->prefix . 'olama_drive_reconciliation_items';
+        $folder_plans = $wpdb->prefix . 'olama_drive_folder_plans';
+        $folder_plan_items = $wpdb->prefix . 'olama_drive_folder_plan_items';
 
         dbDelta("CREATE TABLE {$drive_files} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -418,6 +420,50 @@ class Olama_Media_DB
             KEY decision_status (decision_status),
             KEY commit_status (commit_status),
             KEY proposed_lesson_id (proposed_lesson_id)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$folder_plans} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            plan_uuid VARCHAR(100) NOT NULL,
+            discovery_run_id BIGINT UNSIGNED NOT NULL,
+            subject_mapping_id BIGINT UNSIGNED NOT NULL,
+            subject_drive_folder_id VARCHAR(191) NOT NULL,
+            root_config_hash VARCHAR(64) NOT NULL,
+            plan_hash VARCHAR(64) NOT NULL,
+            plan_status VARCHAR(30) NOT NULL DEFAULT 'preview',
+            items_total INT UNSIGNED NOT NULL DEFAULT 0,
+            existing_count INT UNSIGNED NOT NULL DEFAULT 0,
+            create_count INT UNSIGNED NOT NULL DEFAULT 0,
+            conflict_count INT UNSIGNED NOT NULL DEFAULT 0,
+            summary LONGTEXT NULL,
+            created_by BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY plan_uuid (plan_uuid),
+            UNIQUE KEY mapping_run_hash (subject_mapping_id,discovery_run_id,plan_hash),
+            KEY plan_status (plan_status)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$folder_plan_items} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            plan_id BIGINT UNSIGNED NOT NULL,
+            unit_id BIGINT UNSIGNED NOT NULL,
+            unit_number VARCHAR(50) NULL,
+            expected_name VARCHAR(255) NOT NULL,
+            normalized_name VARCHAR(255) NOT NULL,
+            planned_action VARCHAR(30) NOT NULL,
+            parent_drive_folder_id VARCHAR(191) NOT NULL,
+            existing_drive_folder_id VARCHAR(191) NULL,
+            candidate_drive_folder_ids LONGTEXT NULL,
+            candidate_names LONGTEXT NULL,
+            path_snapshot TEXT NULL,
+            reasons LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY plan_unit (plan_id,unit_id),
+            KEY planned_action (planned_action),
+            KEY parent_drive_folder_id (parent_drive_folder_id)
         ) ENGINE=InnoDB $charset_collate;");
     }
 

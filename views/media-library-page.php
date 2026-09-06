@@ -273,7 +273,17 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     </table>
                 </article>
                 <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="3">
-                    <div class="olama-workflow-heading"><span class="olama-step-number">3</span><div><h2><?php esc_html_e('مراجعة مطابقة الدروس', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المقترحات وسجّل قرارًا لكل ملف. لا تنتقل للربط النهائي قبل وصول القرارات المعلقة إلى صفر.', 'olama-media-library'); ?></p></div></div>
+                    <div class="olama-workflow-heading"><span class="olama-step-number">3</span><div><h2><?php esc_html_e('معاينة مجلدات المنهج', 'olama-media-library'); ?></h2><p><?php esc_html_e('يقارن وحدات المنهج بمجلدات المادة المباشرة ويعرض ما سيُعاد استخدامه وما يحتاج إلى إنشاء أو مراجعة.', 'olama-media-library'); ?></p></div></div>
+                    <p><?php esc_html_e('هذه معاينة للقراءة فقط. لا تنشئ أو تنقل أو تعيد تسمية أي مجلد في Google Drive.', 'olama-media-library'); ?></p>
+                    <button type="button" class="button" id="btn-folder-provisioning-preview" disabled><?php esc_html_e('إنشاء خطة المجلدات', 'olama-media-library'); ?></button>
+                    <div id="folder-provisioning-summary" class="notice notice-info inline" hidden><p></p></div>
+                    <table class="wp-list-table widefat striped" id="folder-provisioning-table" hidden>
+                        <thead><tr><th><?php esc_html_e('الوحدة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('Drive ID / المرشحات', 'olama-media-library'); ?></th><th><?php esc_html_e('السبب', 'olama-media-library'); ?></th></tr></thead>
+                        <tbody id="folder-provisioning-body"></tbody>
+                    </table>
+                </article>
+                <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="4">
+                    <div class="olama-workflow-heading"><span class="olama-step-number">4</span><div><h2><?php esc_html_e('مراجعة مطابقة الدروس', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المقترحات وسجّل قرارًا لكل ملف. لا تنتقل للربط النهائي قبل وصول القرارات المعلقة إلى صفر.', 'olama-media-library'); ?></p></div></div>
                     <p><?php esc_html_e('يستخدم Drive ID للمادة المعتمدة ويقترح الوحدة والدرس لكل ملف من الجرد. يمكنك تسجيل قرار مرحلي لكل ملف، لكن هذه القرارات لا تغيّر مكتبة الفيديوهات أو Drive.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-reconciliation-preview" disabled><?php esc_html_e('إنشاء المعاينة', 'olama-media-library'); ?></button>
                     <div id="reconciliation-summary" class="notice notice-info inline" hidden><p></p></div>
@@ -282,8 +292,8 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                         <tbody id="reconciliation-body"></tbody>
                     </table>
                 </article>
-                <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="4">
-                    <div class="olama-workflow-heading"><span class="olama-step-number">4</span><div><h2><?php esc_html_e('الربط النهائي والتراجع', 'olama-media-library'); ?></h2><p><?php esc_html_e('افحص الجاهزية أولًا. لن يتاح التنفيذ إذا بقي قرار معلّق أو تعارض.', 'olama-media-library'); ?></p></div></div>
+                <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="5">
+                    <div class="olama-workflow-heading"><span class="olama-step-number">5</span><div><h2><?php esc_html_e('الربط النهائي والتراجع', 'olama-media-library'); ?></h2><p><?php esc_html_e('افحص الجاهزية أولًا. لن يتاح التنفيذ إذا بقي قرار معلّق أو تعارض.', 'olama-media-library'); ?></p></div></div>
                     <div id="reconciliation-commit-gate" class="notice notice-warning inline" hidden>
                         <p><strong><?php esc_html_e('بوابة الربط النهائي في WordPress', 'olama-media-library'); ?></strong></p>
                         <p><?php esc_html_e('تفحص التعارضات أولاً، ثم تنشئ روابط الدروس المعتمدة داخل قاعدة بيانات WordPress بمعاملة واحدة. لا تعدّل أو تنقل أو تحذف أي عنصر في Google Drive.', 'olama-media-library'); ?></p>

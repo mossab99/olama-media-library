@@ -154,6 +154,10 @@
 }
 
 .olama-workflow-card-wide { grid-column: 1 / -1; }
+.folder-plan-reuse td { background: #f0f8f2; }
+.folder-plan-create td { background: #f0f6fc; }
+.folder-plan-conflict td { background: #fff1f0; color: #8a2424; }
+#folder-provisioning-table code { direction: ltr; unicode-bidi: embed; overflow-wrap: anywhere; }
 .olama-workflow-card.is-active { border-color: #73a7e5; box-shadow: 0 0 0 2px rgba(34, 113, 177, .08), 0 5px 18px rgba(30, 80, 130, .08); }
 .olama-workflow-card.is-complete { border-color: #8fcda0; }
 .olama-workflow-card.is-ready { border-color: #46a765; box-shadow: 0 0 0 2px rgba(22, 128, 60, .1); }

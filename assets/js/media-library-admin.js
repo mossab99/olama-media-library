@@ -1744,11 +1744,11 @@ jQuery(function ($) {
     function resetLinkCheckResults() {
         mappingScopeKey = '';
         confirmedMappingId = 0;
-        $('#btn-drive-mapping-candidates, #btn-reconciliation-preview, #btn-reconciliation-commit, #btn-reconciliation-rollback').prop('disabled', true);
-        $('#drive-mapping-table, #reconciliation-table, #reconciliation-commit-gate').attr('hidden', 'hidden');
-        $('#drive-mapping-status, #reconciliation-summary, #reconciliation-readiness-result, #reconciliation-commit-result, #reconciliation-rollback-readiness-result, #reconciliation-rollback-result').attr('hidden', 'hidden');
+        $('#btn-drive-mapping-candidates, #btn-folder-provisioning-preview, #btn-reconciliation-preview, #btn-reconciliation-commit, #btn-reconciliation-rollback').prop('disabled', true);
+        $('#drive-mapping-table, #folder-provisioning-table, #reconciliation-table, #reconciliation-commit-gate').attr('hidden', 'hidden');
+        $('#drive-mapping-status, #folder-provisioning-summary, #reconciliation-summary, #reconciliation-readiness-result, #reconciliation-commit-result, #reconciliation-rollback-readiness-result, #reconciliation-rollback-result').attr('hidden', 'hidden');
         $('#reconciliation-commit-confirmation, #reconciliation-rollback-confirmation').val('').prop('disabled', true);
-        [2, 3, 4].forEach(function (step) { setWorkflowStep(step, ''); });
+        [2, 3, 4, 5].forEach(function (step) { setWorkflowStep(step, ''); });
     }
 
     function updateAuditScopeState() {
@@ -1820,7 +1820,7 @@ jQuery(function ($) {
                 }
                 mappingScopeKey = response.data.scope_key;
                 confirmedMappingId = Number(response.data.confirmed_mapping && response.data.confirmed_mapping.mapping_id) || 0;
-                $('#btn-reconciliation-preview').prop('disabled', !confirmedMappingId);
+                $('#btn-folder-provisioning-preview').prop('disabled', !confirmedMappingId);
                 setWorkflowStep(1, 'complete');
                 if (confirmedMappingId) {
                     setWorkflowStep(2, 'complete');
@@ -1880,7 +1880,7 @@ jQuery(function ($) {
             $('#drive-mapping-status').removeAttr('hidden').find('p').text(message);
             if (response.success) {
                 confirmedMappingId = Number(response.data.mapping_id) || 0;
-                $('#btn-reconciliation-preview').prop('disabled', !confirmedMappingId);
+                $('#btn-folder-provisioning-preview').prop('disabled', !confirmedMappingId);
                 setWorkflowStep(2, 'complete');
                 setWorkflowStep(3, 'active');
                 $('#reconciliation-commit-gate').removeAttr('hidden');
@@ -1892,6 +1892,45 @@ jQuery(function ($) {
             $button.prop('disabled', false);
         });
     }
+
+    $('#btn-folder-provisioning-preview').on('click', function () {
+        if (!confirmedMappingId) return;
+        const $button = $(this).prop('disabled', true);
+        const $summary = $('#folder-provisioning-summary').removeAttr('hidden').find('p').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_folder_provisioning_preview', nonce: cfg.nonce, mapping_id: confirmedMappingId
+        }).done(function (response) {
+            if (!response.success) {
+                $summary.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                setWorkflowStep(3, 'active');
+                return;
+            }
+            const data = response.data;
+            const labels = { reuse: 'استخدام المجلد الموجود', create: 'مطلوب إنشاؤه', conflict: 'يحتاج مراجعة' };
+            const reasons = {
+                exact_normalized_name: 'تطابق الاسم بعد التطبيع',
+                invalid_curriculum_unit_name: 'اسم الوحدة في المنهج فارغ أو غير صالح، لذلك تم منع الإنشاء',
+                duplicate_exact_sibling_folders: 'أكثر من مجلد مطابق تحت المادة',
+                possible_existing_folder_requires_review: 'يوجد مجلد مشابه وقد يكون هو المقصود',
+                no_existing_sibling_candidate: 'لا يوجد مجلد مطابق أو مشابه تحت المادة'
+            };
+            $summary.html(`<strong>خطة رقم ${esc(data.plan_id)}</strong> · الوحدات: ${esc(data.total)} · موجود: ${esc(data.existing)} · مطلوب إنشاؤه: ${esc(data.create)} · تعارضات: ${esc(data.conflicts)} · تغييرات Drive: 0`);
+            $('#folder-provisioning-table').removeAttr('hidden');
+            $('#folder-provisioning-body').html((data.items || []).map(function (item) {
+                const ids = item.candidate_drive_folder_ids || [];
+                const names = item.candidate_names || [];
+                const candidates = ids.map(function (id, index) { return `${names[index] || '-'} (${id})`; }).join(' · ');
+                return `<tr class="folder-plan-${esc(item.planned_action)}"><td><strong>${esc(item.unit_number || '')} ${esc(item.expected_name)}</strong></td><td>${esc(labels[item.planned_action] || item.planned_action)}</td><td><small>${esc(item.path_snapshot)}</small></td><td><code>${esc(item.existing_drive_folder_id || candidates || '-')}</code></td><td>${esc(reasons[item.reason] || item.reason)}</td></tr>`;
+            }).join(''));
+            setWorkflowStep(3, data.conflicts ? 'active' : 'complete');
+            setWorkflowStep(4, data.conflicts ? '' : 'active');
+            $('#btn-reconciliation-preview').prop('disabled', Number(data.conflicts || 0) > 0);
+        }).fail(function () {
+            $summary.text(cfg.i18n.error);
+        }).always(function () {
+            $button.prop('disabled', !confirmedMappingId);
+        });
+    });
 
     $('#btn-reconciliation-preview').on('click', function () {
         if (!confirmedMappingId) return;
@@ -1928,8 +1967,8 @@ jQuery(function ($) {
                 const commitNote = committed ? `<br><strong>تم إنهاء هذا القرار: ${esc(item.commit_status)}</strong>` : '';
                 return `<tr data-reconciliation-item="${esc(item.item_id)}" data-decision-status="${esc(item.decision_status || 'pending')}"><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>${esc(item.confidence)}%</td><td>${esc(item.status)}</td><td><select class="reconciliation-lesson"${disabled}><option value="">-- اختر درساً --</option>${options}</select> <button type="button" class="button btn-reconciliation-assign"${disabled}>حفظ القرار المرحلي</button> <button type="button" class="button btn-reconciliation-reject"${disabled}>رفض مرحلي</button><br><small class="reconciliation-decision-state">${esc(decisions[item.decision_status] || item.decision_status || decisions.pending)}</small>${commitNote}</td></tr>`;
             }).join('') || '<tr><td colspan="6">لا توجد ملفات داخل مجلد المادة المعتمد.</td></tr>');
-            setWorkflowStep(3, Number((data.decisions || {}).pending || 0) === 0 ? 'complete' : 'active');
-            setWorkflowStep(4, Number((data.decisions || {}).pending || 0) === 0 ? 'active' : '');
+            setWorkflowStep(4, Number((data.decisions || {}).pending || 0) === 0 ? 'complete' : 'active');
+            setWorkflowStep(5, Number((data.decisions || {}).pending || 0) === 0 ? 'active' : '');
         }).fail(function () {
             $summary.text(cfg.i18n.error);
         }).always(function () {
@@ -1985,8 +2024,8 @@ jQuery(function ($) {
             $('#reconciliation-summary').data('report', report);
             renderReconciliationSummary(report);
             if (Number(report.decisions.pending || 0) === 0) {
-                setWorkflowStep(3, 'complete');
-                setWorkflowStep(4, 'active');
+                setWorkflowStep(4, 'complete');
+                setWorkflowStep(5, 'active');
             }
             $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', true);
             $('#reconciliation-readiness-result').attr('hidden', 'hidden').empty();
@@ -2023,7 +2062,7 @@ jQuery(function ($) {
             const stateClass = data.ready || data.already_committed ? 'is-success' : 'is-warning';
             $result.html(`<div class="olama-readiness-heading ${stateClass}"><strong>${esc(heading)}</strong><span>${esc(message)}</span><small>${esc(plannedMessage)} · Drive mutations: 0</small></div>${types ? `<p><strong>أنواع التعارض:</strong> ${esc(types)}</p>` : ''}${details ? `<details><summary>عرض تفاصيل التعارضات</summary><pre>${esc(details)}</pre></details>` : ''}`);
             $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', !data.ready);
-            setWorkflowStep(4, data.ready ? 'ready' : 'active');
+            setWorkflowStep(5, data.ready ? 'ready' : 'active');
         }).fail(function () {
             $result.text(cfg.i18n.error);
         }).always(function () {
@@ -2054,7 +2093,7 @@ jQuery(function ($) {
             $('#reconciliation-commit-confirmation').val('').prop('disabled', true);
             $('#reconciliation-body').find('button, select').prop('disabled', true);
             notify(`اكتمل الربط داخل WordPress: ${response.data.committed || 0} جديد، ${response.data.promoted || 0} ترقية، ${response.data.reassigned || 0} إعادة توجيه، ${response.data.existing || 0} موجود، ${response.data.skipped || 0} متجاوز. لم يتغير Drive.`, 'success');
-            setWorkflowStep(4, 'complete');
+            setWorkflowStep(5, 'complete');
             loadCurriculum();
         }).fail(function () {
             $result.text(cfg.i18n.error);
