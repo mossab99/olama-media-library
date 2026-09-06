@@ -18,6 +18,9 @@ foreach (range(1, 5) as $step) {
 foreach (array('btn-folder-provisioning-preview', 'folder-provisioning-summary', 'folder-provisioning-table', 'folder-provisioning-body') as $control) {
     assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Folder provisioning stage must include {$control}.");
 }
+foreach (array('folder-provisioning-apply-gate', 'btn-folder-provisioning-readiness', 'folder-provisioning-confirmation', 'btn-folder-provisioning-apply', 'folder-provisioning-apply-result') as $control) {
+    assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Guarded folder execution must include {$control}.");
+}
 assert_link_check_ui(strpos($view, 'هذه معاينة للقراءة فقط') !== false, 'Folder provisioning must clearly identify the preview as read-only.');
 assert_link_check_ui(strpos($view, 'id="olama-advanced-tools"') > strpos($view, 'data-workflow-step="5"'), 'Technical diagnostics must follow the guided workflow.');
 assert_link_check_ui(strpos($script, "activateTab('link-check')") !== false, 'Diagnostic deep links must open the link-check tab.');

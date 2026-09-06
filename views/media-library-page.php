@@ -281,6 +281,17 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                         <thead><tr><th><?php esc_html_e('مستوى الشجرة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('Drive ID / المرشحات', 'olama-media-library'); ?></th><th><?php esc_html_e('السبب', 'olama-media-library'); ?></th></tr></thead>
                         <tbody id="folder-provisioning-body"></tbody>
                     </table>
+                    <div id="folder-provisioning-apply-gate" class="olama-folder-apply-gate notice notice-warning inline" hidden>
+                        <p><strong><?php esc_html_e('تنفيذ خطة المجلدات المراجعة', 'olama-media-library'); ?></strong></p>
+                        <p><?php esc_html_e('يعيد فحص Drive مباشرة قبل كل خطوة، ثم ينشئ المجلدات الناقصة فقط ويحفظ معرفاتها. لا يحذف أو ينقل أو يعيد تسمية أي مجلد أو ملف.', 'olama-media-library'); ?></p>
+                        <p class="description"><?php esc_html_e('إذا توقف التنفيذ بعد إنشاء بعض المجلدات، لا يحذفها النظام؛ تحفظ معرفاتها وتعيد المحاولة استخدامها بأمان.', 'olama-media-library'); ?></p>
+                        <button type="button" class="button" id="btn-folder-provisioning-readiness"><?php esc_html_e('فحص جاهزية إنشاء المجلدات', 'olama-media-library'); ?></button>
+                        <div id="folder-provisioning-readiness-result" class="olama-media-result" hidden></div>
+                        <p><label for="folder-provisioning-confirmation"><?php esc_html_e('بعد نجاح الفحص اكتب:', 'olama-media-library'); ?> <code>CREATE REVIEWED FOLDERS</code></label></p>
+                        <input type="text" id="folder-provisioning-confirmation" class="regular-text" autocomplete="off" disabled>
+                        <button type="button" class="button button-primary" id="btn-folder-provisioning-apply" disabled><?php esc_html_e('إنشاء المجلدات الناقصة', 'olama-media-library'); ?></button>
+                        <pre id="folder-provisioning-apply-result" class="olama-media-result" hidden></pre>
+                    </div>
                 </article>
                 <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="4">
                     <div class="olama-workflow-heading"><span class="olama-step-number">4</span><div><h2><?php esc_html_e('مراجعة مطابقة الدروس', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المقترحات وسجّل قرارًا لكل ملف. لا تنتقل للربط النهائي قبل وصول القرارات المعلقة إلى صفر.', 'olama-media-library'); ?></p></div></div>

@@ -27,8 +27,8 @@ assert_folder_plan_safety(strpos($ajax, 'drive_folder_provisioning_preview') !==
 foreach (array('olama_drive_folder_plans', 'olama_drive_folder_plan_nodes', 'scope_key', 'node_key', 'node_type', 'parent_node_key', 'subject_mapping_id', 'subject_drive_folder_id', 'plan_hash', 'planned_action', 'parent_drive_folder_id', 'candidate_drive_folder_ids') as $schema) {
     assert_folder_plan_safety(strpos($db, $schema) !== false, "Folder plan schema must include {$schema}.");
 }
-assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.7.1'") !== false, 'Plugin version must be 2.7.1.');
-assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.7.1'") !== false, 'Database version must trigger full-tree plan table creation.');
+assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.8.0'") !== false, 'Plugin version must be 2.8.0.');
+assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.8.0'") !== false, 'Database version must trigger full-tree plan table creation.');
 
 require_once $root . '/includes/class-olama-media-normalizer.php';
 require_once $root . '/includes/class-olama-media-folder-provisioning.php';

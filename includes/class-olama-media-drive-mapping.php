@@ -238,6 +238,42 @@ class Olama_Media_Drive_Mapping
         ));
     }
 
+    /** Persist a subject folder created by a completed reviewed folder plan. */
+    public function confirm_provisioned_subject($scope_key, $drive_folder_id, $root_config_hash, $plan_id)
+    {
+        global $wpdb;
+        if (!preg_match('/^subject:(\d+):(\d+):(\d+):(\d+)$/', (string) $scope_key, $matches)) {
+            return new WP_Error('invalid_scope_key', __('The folder plan curriculum scope is invalid.', 'olama-media-library'));
+        }
+        $drive_folder_id = sanitize_text_field($drive_folder_id);
+        if ($drive_folder_id === '') { return new WP_Error('provisioned_subject_id_missing', __('The created subject Drive ID is missing.', 'olama-media-library')); }
+        $maps = $wpdb->prefix . 'olama_curriculum_drive_map';
+        $existing = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$maps} WHERE scope_key=%s LIMIT 1", $scope_key));
+        if ($existing && $existing->mapping_status === 'confirmed' && !hash_equals((string) $existing->drive_folder_id, $drive_folder_id)) {
+            return new WP_Error('mapping_already_confirmed', __('This subject already has a different confirmed Drive mapping.', 'olama-media-library'));
+        }
+        $now = current_time('mysql');
+        $data = array(
+            'scope_key'=>sanitize_text_field($scope_key), 'scope_type'=>'subject',
+            'academic_year_id'=>absint($matches[1]), 'semester_id'=>absint($matches[2]),
+            'grade_id'=>absint($matches[3]), 'subject_id'=>absint($matches[4]),
+            'drive_folder_id'=>$drive_folder_id, 'mapping_status'=>'confirmed',
+            'confirmation_method'=>'provisioned_plan',
+            'confirmation_evidence'=>wp_json_encode(array('folder_plan_id'=>absint($plan_id), 'drive_folder_id'=>$drive_folder_id)),
+            'root_config_hash'=>sanitize_text_field($root_config_hash), 'confirmed_by'=>get_current_user_id(),
+            'confirmed_at'=>$now, 'updated_at'=>$now,
+        );
+        if ($existing) {
+            $ok = false !== $wpdb->update($maps, $data, array('id'=>absint($existing->id)));
+            $mapping_id = absint($existing->id);
+        } else {
+            $data['created_at'] = $now;
+            $ok = $wpdb->insert($maps, $data);
+            $mapping_id = absint($wpdb->insert_id);
+        }
+        return $ok ? $mapping_id : new WP_Error('mapping_save_failed', __('Could not save the provisioned subject Drive mapping.', 'olama-media-library'));
+    }
+
     private function mapping_payload($mapping)
     {
         return array(

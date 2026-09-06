@@ -1725,6 +1725,7 @@ jQuery(function ($) {
 
     let mappingScopeKey = '';
     let confirmedMappingId = 0;
+    let currentFolderPlanId = 0;
 
     function auditFilters() {
         return {
@@ -1744,10 +1745,11 @@ jQuery(function ($) {
     function resetLinkCheckResults() {
         mappingScopeKey = '';
         confirmedMappingId = 0;
-        $('#btn-drive-mapping-candidates, #btn-folder-provisioning-preview, #btn-reconciliation-preview, #btn-reconciliation-commit, #btn-reconciliation-rollback').prop('disabled', true);
-        $('#drive-mapping-table, #folder-provisioning-table, #reconciliation-table, #reconciliation-commit-gate').attr('hidden', 'hidden');
-        $('#drive-mapping-status, #folder-provisioning-summary, #reconciliation-summary, #reconciliation-readiness-result, #reconciliation-commit-result, #reconciliation-rollback-readiness-result, #reconciliation-rollback-result').attr('hidden', 'hidden');
-        $('#reconciliation-commit-confirmation, #reconciliation-rollback-confirmation').val('').prop('disabled', true);
+        currentFolderPlanId = 0;
+        $('#btn-drive-mapping-candidates, #btn-folder-provisioning-preview, #btn-folder-provisioning-apply, #btn-reconciliation-preview, #btn-reconciliation-commit, #btn-reconciliation-rollback').prop('disabled', true);
+        $('#drive-mapping-table, #folder-provisioning-table, #folder-provisioning-apply-gate, #reconciliation-table, #reconciliation-commit-gate').attr('hidden', 'hidden');
+        $('#drive-mapping-status, #folder-provisioning-summary, #folder-provisioning-readiness-result, #folder-provisioning-apply-result, #reconciliation-summary, #reconciliation-readiness-result, #reconciliation-commit-result, #reconciliation-rollback-readiness-result, #reconciliation-rollback-result').attr('hidden', 'hidden');
+        $('#folder-provisioning-confirmation, #reconciliation-commit-confirmation, #reconciliation-rollback-confirmation').val('').prop('disabled', true);
         [2, 3, 4, 5].forEach(function (step) { setWorkflowStep(step, ''); });
     }
 
@@ -1887,7 +1889,7 @@ jQuery(function ($) {
             $('#drive-mapping-status').removeAttr('hidden').find('p').text(message);
             if (response.success) {
                 confirmedMappingId = Number(response.data.mapping_id) || 0;
-                $('#btn-folder-provisioning-preview').prop('disabled', !confirmedMappingId);
+                $('#btn-folder-provisioning-preview').prop('disabled', false);
                 setWorkflowStep(2, 'complete');
                 setWorkflowStep(3, 'active');
                 $('#reconciliation-commit-gate').removeAttr('hidden');
@@ -1914,6 +1916,7 @@ jQuery(function ($) {
                 return;
             }
             const data = response.data;
+            currentFolderPlanId = Number(data.plan_id) || 0;
             const labels = { reuse: 'استخدام المجلد الموجود', create: 'مطلوب إنشاؤه', conflict: 'يحتاج مراجعة', blocked: 'محظور بسبب الأصل' };
             const types = { academic_year: 'السنة الدراسية', semester: 'الفصل', grade: 'الصف', subject: 'المادة', unit: 'الوحدة' };
             const reasons = {
@@ -1941,10 +1944,73 @@ jQuery(function ($) {
             setWorkflowStep(3, data.conflicts || data.blocked ? 'active' : (data.subject_mapping_required ? 'ready' : 'complete'));
             setWorkflowStep(4, data.ready_for_reconciliation ? 'active' : '');
             $('#btn-reconciliation-preview').prop('disabled', !data.ready_for_reconciliation);
+            const canApply = Boolean(data.ready_for_review && Number(data.create || 0) > 0);
+            $('#folder-provisioning-apply-gate').prop('hidden', !canApply);
+            $('#folder-provisioning-readiness-result, #folder-provisioning-apply-result').attr('hidden', 'hidden').empty();
+            $('#folder-provisioning-confirmation, #btn-folder-provisioning-apply').val('').prop('disabled', true);
         }).fail(function () {
             $summary.text(cfg.i18n.error);
         }).always(function () {
             $button.prop('disabled', false);
+        });
+    });
+
+    $('#btn-folder-provisioning-readiness').on('click', function () {
+        if (!currentFolderPlanId) return;
+        const $button = $(this).prop('disabled', true);
+        const $result = $('#folder-provisioning-readiness-result').removeAttr('hidden').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_folder_provisioning_readiness', nonce: cfg.nonce, plan_id: currentFolderPlanId
+        }).done(function (response) {
+            if (!response.success) {
+                $result.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                return;
+            }
+            const data = response.data;
+            if (data.already_applied) {
+                $result.text(`تم تنفيذ الخطة مسبقاً. أُنشئ ${data.created || 0}، أُعيد استخدام ${data.reused || 0}. شغّل جرداً جديداً.`);
+                return;
+            }
+            $result.text(`جاهز. إنشاء مخطط: ${data.planned_create || 0}، إعادة استخدام: ${data.planned_reuse || 0}، حذف: 0، نقل: 0، إعادة تسمية: 0.`);
+            $('#folder-provisioning-confirmation').prop('disabled', false).trigger('input');
+        }).fail(function () {
+            $result.text(cfg.i18n.error);
+        }).always(function () {
+            $button.prop('disabled', false);
+        });
+    });
+
+    $('#folder-provisioning-confirmation').on('input', function () {
+        $('#btn-folder-provisioning-apply').prop('disabled', $(this).val().trim() !== 'CREATE REVIEWED FOLDERS');
+    });
+
+    $('#btn-folder-provisioning-apply').on('click', function () {
+        if (!currentFolderPlanId) return;
+        const phrase = $('#folder-provisioning-confirmation').val().trim();
+        if (phrase !== 'CREATE REVIEWED FOLDERS') return;
+        const $button = $(this).prop('disabled', true);
+        const $result = $('#folder-provisioning-apply-result').removeAttr('hidden').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_folder_provisioning_apply', nonce: cfg.nonce,
+            plan_id: currentFolderPlanId, confirmation_text: phrase
+        }).done(function (response) {
+            if (!response.success) {
+                $result.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                return;
+            }
+            const data = response.data;
+            confirmedMappingId = Number(data.subject_mapping_id) || 0;
+            $result.text(JSON.stringify(data, null, 2));
+            $('#folder-provisioning-confirmation').val('').prop('disabled', true);
+            $('#btn-folder-provisioning-readiness').prop('disabled', true);
+            $('#btn-reconciliation-preview').prop('disabled', true);
+            notify(`تم تنفيذ خطة المجلدات: إنشاء ${data.created || 0}، إعادة استخدام ${data.reused || 0}. لا حذف ولا نقل ولا إعادة تسمية. شغّل جرد Drive جديداً قبل مطابقة الدروس.`, 'success');
+            setWorkflowStep(3, 'complete');
+            setWorkflowStep(1, 'active');
+        }).fail(function () {
+            $result.text(cfg.i18n.error);
+        }).always(function () {
+            if (!$('#folder-provisioning-confirmation').prop('disabled')) $button.prop('disabled', false);
         });
     });
 

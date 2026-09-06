@@ -290,6 +290,23 @@ class Olama_Media_Drive
         return $parent_id;
     }
 
+    /** Create/reuse one reviewed folder directly below an explicit parent ID. */
+    public function create_reviewed_folder($folder_name, $parent_id)
+    {
+        if (!$this->service) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+        if (!defined('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED') || OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED !== true) {
+            return new WP_Error('reviewed_folder_apply_disabled', __('Reviewed Drive folder plan execution is disabled.', 'olama-media-library'));
+        }
+        $folder_name = trim(wp_strip_all_tags((string) $folder_name));
+        $parent_id = sanitize_text_field($parent_id);
+        if ($folder_name === '' || $parent_id === '') {
+            return new WP_Error('reviewed_folder_invalid', __('The reviewed folder name or parent Drive ID is invalid.', 'olama-media-library'));
+        }
+        return $this->get_or_create_single_folder($folder_name, $parent_id, true, true);
+    }
+
     public function init_resumable_upload($filename, $mime_type, $folder_id, $total_size)
     {
         if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
@@ -915,7 +932,7 @@ class Olama_Media_Drive
         return '';
     }
 
-    private function get_or_create_single_folder($folder_name, $parent_id)
+    private function get_or_create_single_folder($folder_name, $parent_id, $reviewed_plan = false, $return_details = false)
     {
         try {
             $query = "name = '" . str_replace("'", "\\'", $folder_name) . "' and '" . str_replace("'", "\\'", $parent_id) . "' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
@@ -931,10 +948,10 @@ class Olama_Media_Drive
                 return new WP_Error('drive_folder_ambiguous', sprintf(__('More than one Google Drive folder named "%s" exists at the same location. Merge or rename the duplicate folders before uploading.', 'olama-media-library'), $folder_name));
             }
             if (!empty($folders)) {
-                return $folders[0]->id;
+                return $return_details ? array('id'=>(string) $folders[0]->id, 'created'=>false) : $folders[0]->id;
             }
 
-            if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION)) {
+            if (!$reviewed_plan && !Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION)) {
                 return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION);
             }
 
@@ -943,7 +960,7 @@ class Olama_Media_Drive
                 'mimeType' => 'application/vnd.google-apps.folder',
                 'parents' => array($parent_id),
             )), array('fields' => 'id', 'supportsAllDrives' => true));
-            return $folder->id;
+            return $return_details ? array('id'=>(string) $folder->id, 'created'=>true) : $folder->id;
         } catch (Exception $e) {
             return new WP_Error('drive_folder_error', $this->extract_error($e));
         }

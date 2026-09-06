@@ -3,7 +3,7 @@
  * Plugin Name: Olama Media Library
  * Plugin URI: https://olama.online
  * Description: Standalone media library and Google Drive upload module for Olama School curriculum lessons.
- * Version: 2.7.1
+ * Version: 2.8.0
  * Author: Olama
  * Text Domain: olama-media-library
  * Domain Path: /languages
@@ -13,8 +13,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('OLAMA_MEDIA_LIBRARY_VERSION', '2.7.1');
-define('OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.7.1');
+define('OLAMA_MEDIA_LIBRARY_VERSION', '2.8.0');
+define('OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.8.0');
 define('OLAMA_MEDIA_LIBRARY_FILE', __FILE__);
 define('OLAMA_MEDIA_LIBRARY_PATH', plugin_dir_path(__FILE__));
 define('OLAMA_MEDIA_LIBRARY_URL', plugin_dir_url(__FILE__));
@@ -32,6 +32,11 @@ if (!defined('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED')) {
 }
 if (!defined('OLAMA_MEDIA_LEGACY_SYNC_ENABLED')) {
     define('OLAMA_MEDIA_LEGACY_SYNC_ENABLED', false);
+}
+// This gate is limited to the reviewed plan executor. It does not enable the
+// legacy folder resolver, video uploads, or Drive synchronization.
+if (!defined('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED')) {
+    define('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED', true);
 }
 
 $olama_school_autoload = WP_PLUGIN_DIR . '/olama-school/vendor/autoload.php';
@@ -52,6 +57,7 @@ require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive-invent
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive-discovery.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-drive-mapping.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-folder-provisioning.php';
+require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-folder-provisioning-apply.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-reconciliation-preview.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-reconciliation-commit.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-reconciliation-rollback.php';
