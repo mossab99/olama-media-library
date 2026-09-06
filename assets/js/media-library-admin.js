@@ -1908,7 +1908,8 @@ jQuery(function ($) {
         const $button = $(this).prop('disabled', true);
         const $summary = $('#folder-provisioning-summary').removeAttr('hidden').find('p').text(cfg.i18n.loading);
         $.post(cfg.ajaxurl, {
-            action: 'olama_media_folder_provisioning_preview', nonce: cfg.nonce, ...scope
+            action: 'olama_media_folder_provisioning_preview', nonce: cfg.nonce,
+            scope_key: mappingScopeKey, ...scope
         }).done(function (response) {
             if (!response.success) {
                 $summary.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);

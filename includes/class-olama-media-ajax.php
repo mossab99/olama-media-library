@@ -1788,9 +1788,19 @@ class Olama_Media_Ajax
     {
         $this->verify_nonce();
         $this->require_drive_administration();
-        $result = (new Olama_Media_Folder_Provisioning())->preview_scope(
+        $scope_ids = array(
             absint($_POST['academic_year_id'] ?? 0), absint($_POST['semester_id'] ?? 0),
-            absint($_POST['grade_id'] ?? 0), absint($_POST['subject_id'] ?? 0)
+            absint($_POST['grade_id'] ?? 0), absint($_POST['subject_id'] ?? 0),
+        );
+        $scope_key = sanitize_text_field(wp_unslash($_POST['scope_key'] ?? ''));
+        if ($scope_key !== '') {
+            if (!preg_match('/^subject:(\d+):(\d+):(\d+):(\d+)$/', $scope_key, $matches)) {
+                wp_send_json_error(__('The selected curriculum scope is invalid. Start the subject check again.', 'olama-media-library'));
+            }
+            $scope_ids = array_map('absint', array_slice($matches, 1, 4));
+        }
+        $result = (new Olama_Media_Folder_Provisioning())->preview_scope(
+            $scope_ids[0], $scope_ids[1], $scope_ids[2], $scope_ids[3]
         );
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
