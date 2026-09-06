@@ -26,7 +26,7 @@ assert_commit_safety(strpos($ajax, 'wp_ajax_nopriv_olama_media_reconciliation_co
 foreach (array('commit_status', 'committed_link_id', 'commit_run_id', 'committed_at') as $column) {
     assert_commit_safety(strpos($db, $column) !== false, "Commit audit schema must include {$column}.");
 }
-assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.5.1'") !== false, 'Plugin version must be 2.5.1.');
+assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.5.2'") !== false, 'Plugin version must be 2.5.2.');
 assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.5.0'") !== false, 'Database version must trigger the 2.5.0 additive migration.');
 assert_commit_safety(strpos($source, 'existing_link_same_target_not_approved') !== false, 'Diagnostics must distinguish a matching legacy target from a true target conflict.');
 assert_commit_safety(strpos($source, 'existing_link_target_conflict') !== false, 'Diagnostics must expose true link target conflicts separately.');
@@ -44,6 +44,19 @@ assert_commit_safety($method->invoke($service, $same, $item, $mapping) === true,
 assert_commit_safety($method->invoke($service, $wrong_grade, $item, $mapping) === false, 'Cross-grade existing link must be a conflict.');
 assert_commit_safety($method->invoke($service, $wrong_lesson, $item, $mapping) === false, 'Different-lesson existing link must be a conflict.');
 assert_commit_safety($method->invoke($service, $pending, $item, $mapping) === false, 'Pending existing link must not be silently approved.');
+
+$replaceable_method = new ReflectionMethod($service, 'is_replaceable_pending_generated_link');
+$replaceable_method->setAccessible(true);
+$pending_generated = clone $pending; $pending_generated->match_method = 'filename_lesson_number';
+$pending_manual = clone $pending; $pending_manual->match_method = 'manual';
+$pending_legacy = clone $pending; $pending_legacy->match_method = 'legacy_import';
+$inactive_generated = clone $pending_generated; $inactive_generated->link_status = 'inactive';
+$approved_generated = clone $pending_generated; $approved_generated->approval_status = 'approved';
+assert_commit_safety($replaceable_method->invoke($service, $pending_generated) === true, 'A pending active generated link may be superseded only by reviewed staging.');
+assert_commit_safety($replaceable_method->invoke($service, $pending_manual) === false, 'A manual link must never be automatically replaced.');
+assert_commit_safety($replaceable_method->invoke($service, $pending_legacy) === false, 'A legacy import must never be automatically replaced.');
+assert_commit_safety($replaceable_method->invoke($service, $inactive_generated) === false, 'An inactive generated link must not be revived automatically.');
+assert_commit_safety($replaceable_method->invoke($service, $approved_generated) === false, 'An approved generated link must never be automatically replaced.');
 
 $scope_method = new ReflectionMethod($service, 'scope_is_empty_or_same');
 $scope_method->setAccessible(true);

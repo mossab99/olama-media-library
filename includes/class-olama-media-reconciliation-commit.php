@@ -104,7 +104,7 @@ class Olama_Media_Reconciliation_Commit
             ));
             if (!$inserted) { throw new RuntimeException('Could not create the reconciliation commit audit run.'); }
             $commit_run_id = absint($wpdb->insert_id);
-            $counts = array('committed'=>0, 'existing'=>0, 'skipped'=>0, 'manual'=>0);
+            $counts = array('committed'=>0, 'existing'=>0, 'promoted'=>0, 'reassigned'=>0, 'skipped'=>0, 'manual'=>0);
 
             foreach ($items as $item) {
                 $decision = sanitize_key($item->decision_status);
@@ -127,11 +127,37 @@ class Olama_Media_Reconciliation_Commit
 
                 $existing_link = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$links} WHERE drive_file_id=%s LIMIT 1 FOR UPDATE", $item->drive_file_id));
                 if ($existing_link) {
-                    if (!$this->same_committed_link($existing_link, $item, $mapping)) {
+                    if ($this->same_committed_link($existing_link, $item, $mapping)) {
+                        $link_id = absint($existing_link->id);
+                        $counts['existing']++;
+                    } elseif ($this->is_replaceable_pending_generated_link($existing_link)) {
+                        $reasons = json_decode((string) $item->reasons, true);
+                        $part_number = absint($reasons['part_number'] ?? 0) ?: null;
+                        $same_target = $this->same_link_target($existing_link, $item, $mapping);
+                        $sequence = $same_target ? max(1, absint($existing_link->sequence_order)) : 1 + (int) $wpdb->get_var($wpdb->prepare(
+                            "SELECT COALESCE(MAX(sequence_order),0) FROM {$links} WHERE lesson_id=%d AND link_status='active' AND id<>%d",
+                            absint($item->selected_lesson_id), absint($existing_link->id)
+                        ));
+                        $manual = $decision === 'manual';
+                        $updated = $wpdb->update($links, array_merge($scope, array(
+                            'drive_file_row_id'=>$drive_row_id, 'lesson_id'=>absint($item->selected_lesson_id),
+                            'part_number'=>$part_number, 'sequence_order'=>$sequence,
+                            'match_method'=>$manual ? 'reconciliation_manual' : 'reconciliation_approved',
+                            'match_confidence'=>$manual ? 100 : absint($item->confidence),
+                            'approval_status'=>'approved', 'link_status'=>'active',
+                            'notes'=>$manual
+                                ? sprintf('Manual reconciliation override for Drive filename: %s', sanitize_text_field($item->filename))
+                                : 'Human-reviewed reconciliation replaced a pending generated link.',
+                            'linked_by'=>get_current_user_id(), 'approved_by'=>get_current_user_id(),
+                            'approved_at'=>$now, 'updated_at'=>$now,
+                        )), array('id'=>absint($existing_link->id)));
+                        if (false === $updated) { throw new RuntimeException('Could not promote a reviewed pending generated link.'); }
+                        $link_id = absint($existing_link->id);
+                        $counts[$same_target ? 'promoted' : 'reassigned']++;
+                        if ($manual) { $counts['manual']++; }
+                    } else {
                         throw new RuntimeException('A Drive file link conflict appeared during commit.');
                     }
-                    $link_id = absint($existing_link->id);
-                    $counts['existing']++;
                 } else {
                     $reasons = json_decode((string) $item->reasons, true);
                     $part_number = absint($reasons['part_number'] ?? 0) ?: null;
@@ -165,6 +191,7 @@ class Olama_Media_Reconciliation_Commit
             $summary = array(
                 'mapping_id'=>absint($mapping->id), 'discovery_run_id'=>absint($run->id),
                 'accepted'=>absint($locked['accepted']), 'committed'=>$counts['committed'], 'existing'=>$counts['existing'],
+                'promoted'=>$counts['promoted'], 'reassigned'=>$counts['reassigned'],
                 'skipped'=>$counts['skipped'], 'manual'=>$counts['manual'], 'drive_mutations'=>0,
             );
             if (false === $wpdb->update($sync_runs, array(
@@ -179,7 +206,8 @@ class Olama_Media_Reconciliation_Commit
 
             return array_merge($summary, array(
                 'run_uuid'=>$commit_uuid, 'commit_run_id'=>$commit_run_id, 'status'=>'completed',
-                'authoritative_links_changed'=>$counts['committed'] > 0, 'drive_mutations'=>0,
+                'authoritative_links_changed'=>($counts['committed'] + $counts['promoted'] + $counts['reassigned']) > 0,
+                'drive_mutations'=>0,
             ));
         } catch (Throwable $error) {
             $wpdb->query('ROLLBACK');
@@ -221,6 +249,7 @@ class Olama_Media_Reconciliation_Commit
         $commits = array('pending'=>0, 'committed'=>0, 'skipped'=>0);
         $conflicts = array();
         $manual_overrides = array();
+        $planned_link_updates = array('promote_same_target'=>0, 'reassign_target'=>0);
 
         foreach ((array) $items as $item) {
             $decision = sanitize_key($item->decision_status ?? 'pending');
@@ -270,23 +299,27 @@ class Olama_Media_Reconciliation_Commit
             ));
             if ($existing_link && !$this->same_committed_link($existing_link, $item, $mapping)) {
                 $same_target = $this->same_link_target($existing_link, $item, $mapping);
-                $conflicts[] = array(
-                    'drive_file_id'=>$item->drive_file_id, 'filename'=>$item->filename,
-                    'type'=>$same_target ? 'existing_link_same_target_not_approved' : 'existing_link_target_conflict',
-                    'current'=>array(
-                        'link_id'=>absint($existing_link->id), 'academic_year_id'=>absint($existing_link->academic_year_id),
-                        'semester_id'=>absint($existing_link->semester_id), 'grade_id'=>absint($existing_link->grade_id),
-                        'subject_id'=>absint($existing_link->subject_id), 'unit_id'=>absint($existing_link->unit_id),
-                        'lesson_id'=>absint($existing_link->lesson_id), 'approval_status'=>sanitize_key($existing_link->approval_status),
-                        'link_status'=>sanitize_key($existing_link->link_status), 'match_method'=>sanitize_key($existing_link->match_method),
-                    ),
-                    'proposed'=>array(
-                        'academic_year_id'=>absint($mapping->academic_year_id), 'semester_id'=>absint($mapping->semester_id),
-                        'grade_id'=>absint($mapping->grade_id), 'subject_id'=>absint($mapping->subject_id),
-                        'unit_id'=>absint($item->selected_unit_id), 'lesson_id'=>absint($item->selected_lesson_id),
-                        'decision_status'=>$decision,
-                    ),
-                );
+                if ($this->is_replaceable_pending_generated_link($existing_link)) {
+                    $planned_link_updates[$same_target ? 'promote_same_target' : 'reassign_target']++;
+                } else {
+                    $conflicts[] = array(
+                        'drive_file_id'=>$item->drive_file_id, 'filename'=>$item->filename,
+                        'type'=>$same_target ? 'existing_link_same_target_not_approved' : 'existing_link_target_conflict',
+                        'current'=>array(
+                            'link_id'=>absint($existing_link->id), 'academic_year_id'=>absint($existing_link->academic_year_id),
+                            'semester_id'=>absint($existing_link->semester_id), 'grade_id'=>absint($existing_link->grade_id),
+                            'subject_id'=>absint($existing_link->subject_id), 'unit_id'=>absint($existing_link->unit_id),
+                            'lesson_id'=>absint($existing_link->lesson_id), 'approval_status'=>sanitize_key($existing_link->approval_status),
+                            'link_status'=>sanitize_key($existing_link->link_status), 'match_method'=>sanitize_key($existing_link->match_method),
+                        ),
+                        'proposed'=>array(
+                            'academic_year_id'=>absint($mapping->academic_year_id), 'semester_id'=>absint($mapping->semester_id),
+                            'grade_id'=>absint($mapping->grade_id), 'subject_id'=>absint($mapping->subject_id),
+                            'unit_id'=>absint($item->selected_unit_id), 'lesson_id'=>absint($item->selected_lesson_id),
+                            'decision_status'=>$decision,
+                        ),
+                    );
+                }
             }
         }
 
@@ -302,6 +335,7 @@ class Olama_Media_Reconciliation_Commit
             'mapping_id'=>absint($mapping->id), 'run_uuid'=>$context['run']->run_uuid, 'total'=>count($items),
             'reviewed'=>$reviewed, 'accepted'=>$accepted, 'decisions'=>$decisions, 'commit_statuses'=>$commits,
             'conflicts'=>$conflicts, 'conflict_types'=>$conflict_types, 'manual_overrides'=>$manual_overrides,
+            'planned_link_updates'=>$planned_link_updates,
             'ready'=>$accepted > 0 && $decisions['pending'] === 0 && !$conflicts && !$all_committed,
             'already_committed'=>$all_committed, 'confirmation_phrase'=>self::CONFIRMATION_PHRASE,
             'authoritative_links_changed'=>false, 'drive_mutations'=>0,
@@ -337,6 +371,19 @@ class Olama_Media_Reconciliation_Commit
             && absint($link->subject_id) === absint($mapping->subject_id)
             && absint($link->unit_id) === absint($item->selected_unit_id)
             && absint($link->lesson_id) === absint($item->selected_lesson_id);
+    }
+
+    /** Only unapproved links produced by a known automatic matcher may be superseded by reviewed staging. */
+    private function is_replaceable_pending_generated_link($link)
+    {
+        $generated_methods = array(
+            'filename_lesson_part', 'filename_lesson_number', 'folder_and_title',
+            'filename_title', 'filename_title_part', 'filename_lesson_number_part',
+            'folder_only', 'folder_only_part',
+        );
+        return sanitize_key($link->approval_status ?? '') === 'pending'
+            && sanitize_key($link->link_status ?? '') === 'active'
+            && in_array(sanitize_key($link->match_method ?? ''), $generated_methods, true);
     }
 
     private function persist_drive_file($table, $observation, $run, $scope, $now)

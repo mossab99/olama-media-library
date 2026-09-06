@@ -1914,8 +1914,10 @@ jQuery(function ($) {
             const details = (data.conflicts || []).map(function (conflict, index) {
                 return `${index + 1}. ${conflict.type} | ${conflict.filename}\ncurrent: ${JSON.stringify(conflict.current || {})}\nproposed: ${JSON.stringify(conflict.proposed || {})}`;
             }).join('\n\n');
+            const planned = data.planned_link_updates || {};
+            const plannedMessage = `\nPlanned safe link updates: promote ${planned.promote_same_target || 0}, reassign pending generated ${planned.reassign_target || 0}`;
             const heading = data.already_committed ? 'تم تنفيذ هذه المجموعة مسبقاً.' : (data.ready ? 'جاهز للربط النهائي.' : 'غير جاهز.');
-            $result.text(`${heading} ${message}${types ? `\nConflict types: ${types}` : ''}${details ? `\n\nConflict details:\n${details}` : ''}`);
+            $result.text(`${heading} ${message}${plannedMessage}${types ? `\nConflict types: ${types}` : ''}${details ? `\n\nConflict details:\n${details}` : ''}`);
             $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', !data.ready);
         }).fail(function () {
             $result.text(cfg.i18n.error);
@@ -1946,7 +1948,7 @@ jQuery(function ($) {
             $result.text(JSON.stringify(response.data, null, 2));
             $('#reconciliation-commit-confirmation').val('').prop('disabled', true);
             $('#reconciliation-body').find('button, select').prop('disabled', true);
-            notify(`اكتمل الربط داخل WordPress: ${response.data.committed || 0} جديد، ${response.data.existing || 0} موجود، ${response.data.skipped || 0} متجاوز. لم يتغير Drive.`, 'success');
+            notify(`اكتمل الربط داخل WordPress: ${response.data.committed || 0} جديد، ${response.data.promoted || 0} ترقية، ${response.data.reassigned || 0} إعادة توجيه، ${response.data.existing || 0} موجود، ${response.data.skipped || 0} متجاوز. لم يتغير Drive.`, 'success');
             loadCurriculum();
         }).fail(function () {
             $result.text(cfg.i18n.error);
