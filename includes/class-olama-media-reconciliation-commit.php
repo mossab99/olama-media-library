@@ -250,23 +250,58 @@ class Olama_Media_Reconciliation_Commit
                 "SELECT * FROM {$wpdb->prefix}olama_drive_files WHERE drive_file_id=%s LIMIT 1", $item->drive_file_id
             ));
             if ($existing_file && !$this->scope_is_empty_or_same($existing_file, $item, $mapping)) {
-                $conflicts[] = array('drive_file_id'=>$item->drive_file_id, 'filename'=>$item->filename, 'type'=>'existing_drive_file_scope_conflict');
+                $conflicts[] = array(
+                    'drive_file_id'=>$item->drive_file_id, 'filename'=>$item->filename,
+                    'type'=>'existing_drive_file_scope_conflict',
+                    'current'=>array(
+                        'academic_year_id'=>absint($existing_file->academic_year_id), 'semester_id'=>absint($existing_file->semester_id),
+                        'grade_id'=>absint($existing_file->grade_id), 'subject_id'=>absint($existing_file->subject_id),
+                        'unit_id'=>absint($existing_file->unit_id),
+                    ),
+                    'proposed'=>array(
+                        'academic_year_id'=>absint($mapping->academic_year_id), 'semester_id'=>absint($mapping->semester_id),
+                        'grade_id'=>absint($mapping->grade_id), 'subject_id'=>absint($mapping->subject_id),
+                        'unit_id'=>absint($item->selected_unit_id),
+                    ),
+                );
             }
             $existing_link = $wpdb->get_row($wpdb->prepare(
                 "SELECT * FROM {$wpdb->prefix}olama_lesson_video_links WHERE drive_file_id=%s LIMIT 1", $item->drive_file_id
             ));
             if ($existing_link && !$this->same_committed_link($existing_link, $item, $mapping)) {
-                $conflicts[] = array('drive_file_id'=>$item->drive_file_id, 'filename'=>$item->filename, 'type'=>'existing_link_conflict');
+                $same_target = $this->same_link_target($existing_link, $item, $mapping);
+                $conflicts[] = array(
+                    'drive_file_id'=>$item->drive_file_id, 'filename'=>$item->filename,
+                    'type'=>$same_target ? 'existing_link_same_target_not_approved' : 'existing_link_target_conflict',
+                    'current'=>array(
+                        'link_id'=>absint($existing_link->id), 'academic_year_id'=>absint($existing_link->academic_year_id),
+                        'semester_id'=>absint($existing_link->semester_id), 'grade_id'=>absint($existing_link->grade_id),
+                        'subject_id'=>absint($existing_link->subject_id), 'unit_id'=>absint($existing_link->unit_id),
+                        'lesson_id'=>absint($existing_link->lesson_id), 'approval_status'=>sanitize_key($existing_link->approval_status),
+                        'link_status'=>sanitize_key($existing_link->link_status), 'match_method'=>sanitize_key($existing_link->match_method),
+                    ),
+                    'proposed'=>array(
+                        'academic_year_id'=>absint($mapping->academic_year_id), 'semester_id'=>absint($mapping->semester_id),
+                        'grade_id'=>absint($mapping->grade_id), 'subject_id'=>absint($mapping->subject_id),
+                        'unit_id'=>absint($item->selected_unit_id), 'lesson_id'=>absint($item->selected_lesson_id),
+                        'decision_status'=>$decision,
+                    ),
+                );
             }
         }
 
         $accepted = $decisions['approved'] + $decisions['manual'];
         $reviewed = $accepted + $decisions['rejected'];
         $all_committed = $accepted > 0 && $commits['committed'] === $accepted && $commits['pending'] === 0;
+        $conflict_types = array();
+        foreach ($conflicts as $conflict) {
+            $type = sanitize_key($conflict['type'] ?? 'unknown');
+            $conflict_types[$type] = absint($conflict_types[$type] ?? 0) + 1;
+        }
         return array(
             'mapping_id'=>absint($mapping->id), 'run_uuid'=>$context['run']->run_uuid, 'total'=>count($items),
             'reviewed'=>$reviewed, 'accepted'=>$accepted, 'decisions'=>$decisions, 'commit_statuses'=>$commits,
-            'conflicts'=>$conflicts, 'manual_overrides'=>$manual_overrides,
+            'conflicts'=>$conflicts, 'conflict_types'=>$conflict_types, 'manual_overrides'=>$manual_overrides,
             'ready'=>$accepted > 0 && $decisions['pending'] === 0 && !$conflicts && !$all_committed,
             'already_committed'=>$all_committed, 'confirmation_phrase'=>self::CONFIRMATION_PHRASE,
             'authoritative_links_changed'=>false, 'drive_mutations'=>0,
@@ -289,14 +324,19 @@ class Olama_Media_Reconciliation_Commit
 
     private function same_committed_link($link, $item, $mapping)
     {
+        return $this->same_link_target($link, $item, $mapping)
+            && sanitize_key($link->link_status) === 'active'
+            && sanitize_key($link->approval_status) === 'approved';
+    }
+
+    private function same_link_target($link, $item, $mapping)
+    {
         return absint($link->academic_year_id) === absint($mapping->academic_year_id)
             && absint($link->semester_id) === absint($mapping->semester_id)
             && absint($link->grade_id) === absint($mapping->grade_id)
             && absint($link->subject_id) === absint($mapping->subject_id)
             && absint($link->unit_id) === absint($item->selected_unit_id)
-            && absint($link->lesson_id) === absint($item->selected_lesson_id)
-            && sanitize_key($link->link_status) === 'active'
-            && sanitize_key($link->approval_status) === 'approved';
+            && absint($link->lesson_id) === absint($item->selected_lesson_id);
     }
 
     private function persist_drive_file($table, $observation, $run, $scope, $now)

@@ -26,8 +26,10 @@ assert_commit_safety(strpos($ajax, 'wp_ajax_nopriv_olama_media_reconciliation_co
 foreach (array('commit_status', 'committed_link_id', 'commit_run_id', 'committed_at') as $column) {
     assert_commit_safety(strpos($db, $column) !== false, "Commit audit schema must include {$column}.");
 }
-assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.5.0'") !== false, 'Plugin version must be 2.5.0.');
+assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.5.1'") !== false, 'Plugin version must be 2.5.1.');
 assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.5.0'") !== false, 'Database version must trigger the 2.5.0 additive migration.');
+assert_commit_safety(strpos($source, 'existing_link_same_target_not_approved') !== false, 'Diagnostics must distinguish a matching legacy target from a true target conflict.');
+assert_commit_safety(strpos($source, 'existing_link_target_conflict') !== false, 'Diagnostics must expose true link target conflicts separately.');
 
 $service = new Olama_Media_Reconciliation_Commit(new stdClass(), new stdClass());
 $mapping = (object) array('academic_year_id'=>2026, 'semester_id'=>1, 'grade_id'=>1, 'subject_id'=>7);

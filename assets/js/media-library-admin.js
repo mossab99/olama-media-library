@@ -1910,7 +1910,12 @@ jQuery(function ($) {
             const data = response.data;
             const decisions = data.decisions || {};
             const message = `total: ${data.total}, accepted: ${data.accepted}, approved: ${decisions.approved || 0}, manual: ${decisions.manual || 0}, rejected: ${decisions.rejected || 0}, pending: ${decisions.pending || 0}, conflicts: ${(data.conflicts || []).length}, Drive mutations: 0`;
-            $result.text(data.already_committed ? `تم تنفيذ هذه المجموعة مسبقاً. ${message}` : (data.ready ? `جاهز للربط النهائي. ${message}` : `غير جاهز. ${message}`));
+            const types = Object.entries(data.conflict_types || {}).map(function (entry) { return `${entry[0]}: ${entry[1]}`; }).join(', ');
+            const details = (data.conflicts || []).map(function (conflict, index) {
+                return `${index + 1}. ${conflict.type} | ${conflict.filename}\ncurrent: ${JSON.stringify(conflict.current || {})}\nproposed: ${JSON.stringify(conflict.proposed || {})}`;
+            }).join('\n\n');
+            const heading = data.already_committed ? 'تم تنفيذ هذه المجموعة مسبقاً.' : (data.ready ? 'جاهز للربط النهائي.' : 'غير جاهز.');
+            $result.text(`${heading} ${message}${types ? `\nConflict types: ${types}` : ''}${details ? `\n\nConflict details:\n${details}` : ''}`);
             $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', !data.ready);
         }).fail(function () {
             $result.text(cfg.i18n.error);
