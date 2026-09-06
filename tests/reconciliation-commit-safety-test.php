@@ -26,8 +26,11 @@ assert_commit_safety(strpos($ajax, 'wp_ajax_nopriv_olama_media_reconciliation_co
 foreach (array('commit_status', 'committed_link_id', 'commit_run_id', 'committed_at') as $column) {
     assert_commit_safety(strpos($db, $column) !== false, "Commit audit schema must include {$column}.");
 }
-assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.5.2'") !== false, 'Plugin version must be 2.5.2.');
-assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.5.0'") !== false, 'Database version must trigger the 2.5.0 additive migration.');
+assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.6.0'") !== false, 'Plugin version must be 2.6.0.');
+assert_commit_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.6.0'") !== false, 'Database version must trigger the 2.6.0 additive migration.');
+foreach (array('commit_action', 'previous_link_state', 'committed_link_fingerprint', 'previous_drive_file_state', 'committed_drive_file_fingerprint') as $rollback_column) {
+    assert_commit_safety(strpos($source, $rollback_column) !== false, "Commit must capture {$rollback_column} for guarded rollback.");
+}
 assert_commit_safety(strpos($source, 'existing_link_same_target_not_approved') !== false, 'Diagnostics must distinguish a matching legacy target from a true target conflict.');
 assert_commit_safety(strpos($source, 'existing_link_target_conflict') !== false, 'Diagnostics must expose true link target conflicts separately.');
 

@@ -267,6 +267,15 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                         <input type="text" id="reconciliation-commit-confirmation" class="regular-text" autocomplete="off" disabled>
                         <button type="button" class="button button-primary" id="btn-reconciliation-commit" disabled><?php esc_html_e('تنفيذ الربط النهائي', 'olama-media-library'); ?></button>
                         <pre id="reconciliation-commit-result" class="olama-media-result" hidden></pre>
+                        <hr>
+                        <p><strong><?php esc_html_e('التراجع عن أحدث عملية ربط', 'olama-media-library'); ?></strong></p>
+                        <p><?php esc_html_e('يفحص لقطات الروابط أولاً، ويرفض التراجع إذا تغيّر أي رابط بعد العملية. يؤثر في WordPress فقط ولا يغيّر Drive.', 'olama-media-library'); ?></p>
+                        <button type="button" class="button" id="btn-reconciliation-rollback-readiness"><?php esc_html_e('فحص إمكانية التراجع', 'olama-media-library'); ?></button>
+                        <pre id="reconciliation-rollback-readiness-result" class="olama-media-result" hidden></pre>
+                        <p><label for="reconciliation-rollback-confirmation"><?php esc_html_e('بعد نجاح فحص التراجع اكتب:', 'olama-media-library'); ?> <code>ROLLBACK REVIEWED LINKS</code></label></p>
+                        <input type="text" id="reconciliation-rollback-confirmation" class="regular-text" autocomplete="off" disabled>
+                        <button type="button" class="button" id="btn-reconciliation-rollback" disabled><?php esc_html_e('تنفيذ التراجع', 'olama-media-library'); ?></button>
+                        <pre id="reconciliation-rollback-result" class="olama-media-result" hidden></pre>
                     </div>
                 </div>
                 <div class="olama-media-panel">

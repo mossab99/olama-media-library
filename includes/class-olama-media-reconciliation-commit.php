@@ -111,6 +111,10 @@ class Olama_Media_Reconciliation_Commit
                 if ($decision === 'rejected') {
                     if (false === $wpdb->update($staging, array(
                         'commit_status'=>'skipped', 'commit_run_id'=>$commit_run_id, 'committed_at'=>$now, 'updated_at'=>$now,
+                        'commit_action'=>'skipped', 'previous_link_state'=>null, 'committed_link_fingerprint'=>null,
+                        'committed_drive_file_row_id'=>null, 'previous_drive_file_state'=>null,
+                        'committed_drive_file_fingerprint'=>null,
+                        'rollback_run_id'=>null, 'rolled_back_at'=>null,
                     ), array('id'=>absint($item->id)))) { throw new RuntimeException('Could not mark a rejected staging row as skipped.'); }
                     $counts['skipped']++;
                     continue;
@@ -122,14 +126,23 @@ class Olama_Media_Reconciliation_Commit
                     'grade_id'=>absint($mapping->grade_id), 'subject_id'=>absint($mapping->subject_id),
                     'unit_id'=>absint($item->selected_unit_id),
                 );
+                $previous_drive_file = $wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM {$files} WHERE drive_file_id=%s LIMIT 1 FOR UPDATE", $item->drive_file_id
+                ));
+                $previous_drive_file_state = $previous_drive_file ? $this->drive_file_state($previous_drive_file) : null;
                 $drive_row_id = $this->persist_drive_file($files, $observation, $run, $scope, $now);
                 if (!$drive_row_id) { throw new RuntimeException('Could not persist an inventoried Drive file.'); }
+                $committed_drive_file = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$files} WHERE id=%d LIMIT 1 FOR UPDATE", $drive_row_id));
+                if (!$committed_drive_file) { throw new RuntimeException('Could not verify the committed Drive index row.'); }
 
                 $existing_link = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$links} WHERE drive_file_id=%s LIMIT 1 FOR UPDATE", $item->drive_file_id));
+                $previous_link_state = $existing_link ? $this->link_state($existing_link) : null;
+                $commit_action = 'created';
                 if ($existing_link) {
                     if ($this->same_committed_link($existing_link, $item, $mapping)) {
                         $link_id = absint($existing_link->id);
                         $counts['existing']++;
+                        $commit_action = 'existing';
                     } elseif ($this->is_replaceable_pending_generated_link($existing_link)) {
                         $reasons = json_decode((string) $item->reasons, true);
                         $part_number = absint($reasons['part_number'] ?? 0) ?: null;
@@ -154,6 +167,7 @@ class Olama_Media_Reconciliation_Commit
                         if (false === $updated) { throw new RuntimeException('Could not promote a reviewed pending generated link.'); }
                         $link_id = absint($existing_link->id);
                         $counts[$same_target ? 'promoted' : 'reassigned']++;
+                        $commit_action = $same_target ? 'promoted' : 'reassigned';
                         if ($manual) { $counts['manual']++; }
                     } else {
                         throw new RuntimeException('A Drive file link conflict appeared during commit.');
@@ -182,9 +196,18 @@ class Olama_Media_Reconciliation_Commit
                     if ($manual) { $counts['manual']++; }
                 }
 
+                $committed_link = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$links} WHERE id=%d LIMIT 1 FOR UPDATE", $link_id));
+                if (!$committed_link) { throw new RuntimeException('Could not verify the committed lesson video link.'); }
+
                 if (false === $wpdb->update($staging, array(
                     'commit_status'=>'committed', 'committed_link_id'=>$link_id, 'commit_run_id'=>$commit_run_id,
-                    'committed_at'=>$now, 'updated_at'=>$now,
+                    'committed_at'=>$now, 'commit_action'=>$commit_action,
+                    'previous_link_state'=>$previous_link_state ? wp_json_encode($previous_link_state) : null,
+                    'committed_link_fingerprint'=>$this->link_fingerprint($committed_link),
+                    'committed_drive_file_row_id'=>$drive_row_id,
+                    'previous_drive_file_state'=>$previous_drive_file_state ? wp_json_encode($previous_drive_file_state) : null,
+                    'committed_drive_file_fingerprint'=>$this->drive_file_fingerprint($committed_drive_file),
+                    'rollback_run_id'=>null, 'rolled_back_at'=>null, 'updated_at'=>$now,
                 ), array('id'=>absint($item->id)))) { throw new RuntimeException('Could not finalize a reconciliation staging row.'); }
             }
 
@@ -384,6 +407,42 @@ class Olama_Media_Reconciliation_Commit
         return sanitize_key($link->approval_status ?? '') === 'pending'
             && sanitize_key($link->link_status ?? '') === 'active'
             && in_array(sanitize_key($link->match_method ?? ''), $generated_methods, true);
+    }
+
+    private function link_state($link)
+    {
+        $columns = array(
+            'drive_file_id', 'drive_file_row_id', 'academic_year_id', 'semester_id', 'grade_id', 'subject_id',
+            'unit_id', 'lesson_id', 'part_number', 'sequence_order', 'match_method', 'match_confidence',
+            'approval_status', 'link_status', 'notes', 'linked_by', 'approved_by', 'approved_at', 'created_at', 'updated_at',
+        );
+        $state = array();
+        foreach ($columns as $column) { $state[$column] = $link->{$column} ?? null; }
+        return $state;
+    }
+
+    private function link_fingerprint($link)
+    {
+        return hash('sha256', wp_json_encode($this->link_state($link)));
+    }
+
+    private function drive_file_state($file)
+    {
+        $columns = array(
+            'drive_file_id', 'drive_folder_id', 'drive_parent_ids', 'drive_path', 'drive_path_hash', 'filename',
+            'normalized_filename', 'extension', 'mime_type', 'file_size', 'modified_time', 'web_view_link',
+            'web_content_link', 'thumbnail_link', 'video_metadata', 'scan_status', 'academic_year_id',
+            'semester_id', 'grade_id', 'subject_id', 'unit_id', 'last_seen_scan_id', 'consecutive_absent_scans',
+            'presence_status', 'first_seen_at', 'last_seen_at', 'created_at', 'updated_at',
+        );
+        $state = array();
+        foreach ($columns as $column) { $state[$column] = $file->{$column} ?? null; }
+        return $state;
+    }
+
+    private function drive_file_fingerprint($file)
+    {
+        return hash('sha256', wp_json_encode($this->drive_file_state($file)));
     }
 
     private function persist_drive_file($table, $observation, $run, $scope, $now)

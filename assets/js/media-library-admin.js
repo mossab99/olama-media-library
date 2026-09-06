@@ -1825,6 +1825,8 @@ jQuery(function ($) {
             $('#reconciliation-commit-gate').removeAttr('hidden');
             $('#reconciliation-readiness-result, #reconciliation-commit-result').attr('hidden', 'hidden').empty();
             $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', true);
+            $('#reconciliation-rollback-readiness-result, #reconciliation-rollback-result').attr('hidden', 'hidden').empty();
+            $('#reconciliation-rollback-confirmation, #btn-reconciliation-rollback').prop('disabled', true);
             $('#reconciliation-body').html((data.results || []).map(function (item) {
                 const selectedLessonId = Number(item.selected_lesson_id || item.lesson_id || 0);
                 const options = lessons.filter(function (lesson) {
@@ -1949,6 +1951,60 @@ jQuery(function ($) {
             $('#reconciliation-commit-confirmation').val('').prop('disabled', true);
             $('#reconciliation-body').find('button, select').prop('disabled', true);
             notify(`اكتمل الربط داخل WordPress: ${response.data.committed || 0} جديد، ${response.data.promoted || 0} ترقية، ${response.data.reassigned || 0} إعادة توجيه، ${response.data.existing || 0} موجود، ${response.data.skipped || 0} متجاوز. لم يتغير Drive.`, 'success');
+            loadCurriculum();
+        }).fail(function () {
+            $result.text(cfg.i18n.error);
+            $button.prop('disabled', false);
+        });
+    });
+
+    $('#btn-reconciliation-rollback-readiness').on('click', function () {
+        if (!confirmedMappingId) return;
+        const $button = $(this).prop('disabled', true);
+        const $result = $('#reconciliation-rollback-readiness-result').removeAttr('hidden').text(cfg.i18n.loading);
+        $('#reconciliation-rollback-confirmation, #btn-reconciliation-rollback').prop('disabled', true);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_reconciliation_rollback_readiness', nonce: cfg.nonce, mapping_id: confirmedMappingId
+        }).done(function (response) {
+            if (!response.success) {
+                $result.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                return;
+            }
+            const data = response.data;
+            const counts = data.counts || {};
+            const conflicts = (data.conflicts || []).map(function (item) { return `${item.type}: ${item.filename}`; }).join('\n');
+            const heading = data.already_rolled_back ? 'تم التراجع عن هذه العملية مسبقاً.' : (data.ready ? 'جاهز للتراجع الآمن.' : 'غير جاهز للتراجع.');
+            $result.text(`${heading} commit run: ${data.commit_run_id}, created: ${counts.created || 0}, promoted: ${counts.promoted || 0}, reassigned: ${counts.reassigned || 0}, conflicts: ${(data.conflicts || []).length}, Drive mutations: 0${conflicts ? `\n${conflicts}` : ''}`);
+            $('#reconciliation-rollback-confirmation, #btn-reconciliation-rollback').prop('disabled', !data.ready);
+        }).fail(function () {
+            $result.text(cfg.i18n.error);
+        }).always(function () {
+            $button.prop('disabled', false);
+        });
+    });
+
+    $('#btn-reconciliation-rollback').on('click', function () {
+        if (!confirmedMappingId) return;
+        const phrase = $('#reconciliation-rollback-confirmation').val().trim();
+        if (phrase !== 'ROLLBACK REVIEWED LINKS') {
+            notify('اكتب عبارة تأكيد التراجع كاملة كما هي.', 'error');
+            return;
+        }
+        if (!window.confirm('سيتم التراجع عن أحدث عملية ربط داخل WordPress فقط. لن يتم تعديل Google Drive. هل تريد المتابعة؟')) return;
+        const $button = $(this).prop('disabled', true);
+        const $result = $('#reconciliation-rollback-result').removeAttr('hidden').text(cfg.i18n.loading);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_reconciliation_rollback', nonce: cfg.nonce,
+            mapping_id: confirmedMappingId, confirmation_text: phrase
+        }).done(function (response) {
+            if (!response.success) {
+                $result.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
+                $button.prop('disabled', false);
+                return;
+            }
+            $result.text(JSON.stringify(response.data, null, 2));
+            $('#reconciliation-rollback-confirmation').val('').prop('disabled', true);
+            notify(`اكتمل التراجع داخل WordPress: ${response.data.deleted || 0} محذوف، ${response.data.restored || 0} مستعاد. لم يتغير Drive.`, 'success');
             loadCurriculum();
         }).fail(function () {
             $result.text(cfg.i18n.error);
