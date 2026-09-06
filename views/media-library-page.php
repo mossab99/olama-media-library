@@ -16,6 +16,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
     <h2 class="nav-tab-wrapper">
         <?php if ($can_administer) : ?><a href="#coverage" class="nav-tab" data-tab="coverage"><?php esc_html_e('Curriculum Video Coverage Report', 'olama-media-library'); ?></a><?php endif; ?>
         <a href="#library" class="nav-tab nav-tab-active" data-tab="library"><?php esc_html_e('رفع الفيديوهات', 'olama-media-library'); ?></a>
+        <?php if ($can_administer) : ?><a href="#link-check" class="nav-tab" data-tab="link-check"><?php esc_html_e('فحص الربط', 'olama-media-library'); ?></a><?php endif; ?>
         <?php if ($can_administer) : ?><a href="#settings" class="nav-tab" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a><?php endif; ?>
     </h2>
 
@@ -227,30 +228,52 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
             <?php endif; ?>
         </div>
 
-        <details id="olama-advanced-tools" class="olama-advanced-tools">
-            <summary><?php esc_html_e('أدوات متقدمة وتشخيص', 'olama-media-library'); ?></summary>
-            <p class="description"><?php esc_html_e('هذه الأدوات مخصصة للصيانة والدعم الفني، ولا تحتاج إليها في الاستخدام اليومي.', 'olama-media-library'); ?></p>
+    </section>
 
-            <div class="olama-v2-grid">
-                <div class="olama-media-panel">
-                    <h2><?php esc_html_e('جرد Google Drive للقراءة فقط', 'olama-media-library'); ?></h2>
+    <section id="tab-link-check" class="olama-media-tab olama-link-check-tab">
+        <div class="olama-link-check-hero">
+            <div>
+                <span class="olama-eyebrow"><?php esc_html_e('مراجعة آمنة خطوة بخطوة', 'olama-media-library'); ?></span>
+                <h2><?php esc_html_e('فحص وربط فيديوهات Google Drive', 'olama-media-library'); ?></h2>
+                <p><?php esc_html_e('اختر نطاق المنهج، تحقق من مجلد المادة، راجع المطابقات، ثم نفّذ الربط داخل WordPress بعد اجتياز فحص الجاهزية.', 'olama-media-library'); ?></p>
+            </div>
+            <div class="olama-safety-badge"><span class="dashicons dashicons-shield"></span><strong><?php esc_html_e('Drive محمي', 'olama-media-library'); ?></strong><small><?php esc_html_e('الجرد والربط لا ينقلان ولا يحذفان الملفات أو المجلدات.', 'olama-media-library'); ?></small></div>
+        </div>
+
+        <div class="olama-media-panel olama-link-scope-panel">
+            <div class="olama-section-heading">
+                <div><span class="olama-step-kicker"><?php esc_html_e('نطاق العمل', 'olama-media-library'); ?></span><h2><?php esc_html_e('حدد المادة التي تريد فحصها', 'olama-media-library'); ?></h2></div>
+                <span id="audit-scope-state" class="olama-scope-state"><?php esc_html_e('لم يتم اختيار مادة بعد', 'olama-media-library'); ?></span>
+            </div>
+            <div class="olama-media-toolbar olama-audit-toolbar">
+                <label><span><?php esc_html_e('السنة الدراسية', 'olama-media-library'); ?></span><select id="audit-year-id"><?php foreach ($years as $year) : ?><option value="<?php echo esc_attr($year->id); ?>" <?php selected($active_year->id ?? 0, $year->id); ?>><?php echo esc_html($year->year_name); ?></option><?php endforeach; ?></select></label>
+                <label><span><?php esc_html_e('الفصل', 'olama-media-library'); ?></span><select id="audit-semester"><?php foreach ($semesters as $semester) : ?><option value="<?php echo esc_attr($semester->id); ?>" <?php selected($active_semester->id ?? 0, $semester->id); ?>><?php echo esc_html($semester->semester_name); ?></option><?php endforeach; ?></select></label>
+                <label><span><?php esc_html_e('الصف', 'olama-media-library'); ?></span><select id="audit-grade"><option value=""><?php esc_html_e('-- اختر الصف --', 'olama-media-library'); ?></option><?php foreach ($grades as $grade) : ?><option value="<?php echo esc_attr($grade->id); ?>"><?php echo esc_html($grade->grade_name); ?></option><?php endforeach; ?></select></label>
+                <label><span><?php esc_html_e('المادة', 'olama-media-library'); ?></span><select id="audit-subject" disabled><option value=""><?php esc_html_e('-- اختر المادة --', 'olama-media-library'); ?></option></select></label>
+                <button type="button" id="btn-audit-scope" class="button button-primary" disabled><?php esc_html_e('بدء فحص المادة', 'olama-media-library'); ?></button>
+            </div>
+        </div>
+
+        <div class="olama-link-check-flow">
+                <article class="olama-workflow-card" data-workflow-step="1">
+                    <div class="olama-workflow-heading"><span class="olama-step-number">1</span><div><h2><?php esc_html_e('فحص Google Drive', 'olama-media-library'); ?></h2><p><?php esc_html_e('تأكد أن آخر جرد مكتمل وحديث. يمكنك تشغيل جرد جديد للقراءة فقط عند الحاجة.', 'olama-media-library'); ?></p></div></div>
                     <p><?php esc_html_e('يجمع معرفات المجلدات والملفات والمسارات ويكشف المجلدات المتكررة. لا ينقل أو ينشئ أو يحذف أي عنصر، ولا يغير روابط الدروس الحالية.', 'olama-media-library'); ?></p>
                     <button type="button" class="button button-primary" id="btn-drive-inventory"><?php esc_html_e('بدء الجرد الآمن', 'olama-media-library'); ?></button>
                     <div id="drive-inventory-progress" class="notice notice-info inline" hidden><p></p></div>
                     <pre id="drive-inventory-result" class="olama-media-result" hidden></pre>
-                </div>
-                <div class="olama-media-panel">
-                    <h2><?php esc_html_e('مرشّحات ربط المادة', 'olama-media-library'); ?></h2>
-                    <p><?php esc_html_e('اختر المادة في تبويب رفع الفيديوهات، ثم اعرض المجلدات المقترحة من آخر جرد مكتمل. المرشح مكتمل السياق يُعتمد مباشرة بعد المراجعة؛ أما الحالات غير المتطابقة فتتطلب إدخال Drive ID الكامل وعبارة تأكيد. لا يعدّل هذا الإجراء Drive.', 'olama-media-library'); ?></p>
-                    <button type="button" class="button" id="btn-drive-mapping-candidates"><?php esc_html_e('عرض المرشّحات', 'olama-media-library'); ?></button>
+                </article>
+                <article class="olama-workflow-card" data-workflow-step="2">
+                    <div class="olama-workflow-heading"><span class="olama-step-number">2</span><div><h2><?php esc_html_e('تحديد مجلد المادة', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المرشح والمسار ونسبة الثقة قبل اعتماد Drive ID.', 'olama-media-library'); ?></p></div></div>
+                    <p><?php esc_html_e('يعرض النظام المجلدات المقترحة من آخر جرد مكتمل. المرشح مكتمل السياق يُعتمد بعد المراجعة؛ أما الحالات غير المتطابقة فتتطلب Drive ID الكامل وعبارة تأكيد.', 'olama-media-library'); ?></p>
+                    <button type="button" class="button" id="btn-drive-mapping-candidates" disabled><?php esc_html_e('عرض مرشّحات المجلد', 'olama-media-library'); ?></button>
                     <div id="drive-mapping-status" class="notice notice-info inline" hidden><p></p></div>
                     <table class="wp-list-table widefat striped" id="drive-mapping-table" hidden>
                         <thead><tr><th><?php esc_html_e('المجلد', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('التعارض', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء', 'olama-media-library'); ?></th></tr></thead>
                         <tbody id="drive-mapping-body"></tbody>
                     </table>
-                </div>
-                <div class="olama-media-panel">
-                    <h2><?php esc_html_e('معاينة مطابقة ملفات الدروس', 'olama-media-library'); ?></h2>
+                </article>
+                <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="3">
+                    <div class="olama-workflow-heading"><span class="olama-step-number">3</span><div><h2><?php esc_html_e('مراجعة مطابقة الدروس', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المقترحات وسجّل قرارًا لكل ملف. لا تنتقل للربط النهائي قبل وصول القرارات المعلقة إلى صفر.', 'olama-media-library'); ?></p></div></div>
                     <p><?php esc_html_e('يستخدم Drive ID للمادة المعتمدة ويقترح الوحدة والدرس لكل ملف من الجرد. يمكنك تسجيل قرار مرحلي لكل ملف، لكن هذه القرارات لا تغيّر مكتبة الفيديوهات أو Drive.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-reconciliation-preview" disabled><?php esc_html_e('إنشاء المعاينة', 'olama-media-library'); ?></button>
                     <div id="reconciliation-summary" class="notice notice-info inline" hidden><p></p></div>
@@ -258,6 +281,9 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                         <thead><tr><th><?php esc_html_e('ملف Drive', 'olama-media-library'); ?></th><th><?php esc_html_e('الوحدة المقترحة', 'olama-media-library'); ?></th><th><?php esc_html_e('الدرس المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('النتيجة', 'olama-media-library'); ?></th><th><?php esc_html_e('المراجعة المرحلية', 'olama-media-library'); ?></th></tr></thead>
                         <tbody id="reconciliation-body"></tbody>
                     </table>
+                </article>
+                <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="4">
+                    <div class="olama-workflow-heading"><span class="olama-step-number">4</span><div><h2><?php esc_html_e('الربط النهائي والتراجع', 'olama-media-library'); ?></h2><p><?php esc_html_e('افحص الجاهزية أولًا. لن يتاح التنفيذ إذا بقي قرار معلّق أو تعارض.', 'olama-media-library'); ?></p></div></div>
                     <div id="reconciliation-commit-gate" class="notice notice-warning inline" hidden>
                         <p><strong><?php esc_html_e('بوابة الربط النهائي في WordPress', 'olama-media-library'); ?></strong></p>
                         <p><?php esc_html_e('تفحص التعارضات أولاً، ثم تنشئ روابط الدروس المعتمدة داخل قاعدة بيانات WordPress بمعاملة واحدة. لا تعدّل أو تنقل أو تحذف أي عنصر في Google Drive.', 'olama-media-library'); ?></p>
@@ -277,7 +303,14 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                         <button type="button" class="button" id="btn-reconciliation-rollback" disabled><?php esc_html_e('تنفيذ التراجع', 'olama-media-library'); ?></button>
                         <pre id="reconciliation-rollback-result" class="olama-media-result" hidden></pre>
                     </div>
-                </div>
+                </article>
+        </div>
+
+        <details id="olama-advanced-tools" class="olama-advanced-tools olama-technical-tools">
+            <summary><span class="dashicons dashicons-admin-tools"></span> <?php esc_html_e('تشخيص تقني وأدوات صيانة', 'olama-media-library'); ?></summary>
+            <p class="description"><?php esc_html_e('هذا القسم مخصص للدعم الفني. لا تحتاج إلى فتحه أثناء مسار الربط المعتاد.', 'olama-media-library'); ?></p>
+
+            <div class="olama-v2-grid">
                 <div class="olama-media-panel">
                     <h2><?php esc_html_e('إعادة بناء فهرس Google Drive', 'olama-media-library'); ?></h2>
                     <p><?php esc_html_e('يفحص جميع المجلدات. استخدمه فقط عند طلب الدعم الفني.', 'olama-media-library'); ?></p>
