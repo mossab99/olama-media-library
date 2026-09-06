@@ -263,8 +263,8 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     <pre id="drive-inventory-result" class="olama-media-result" hidden></pre>
                 </article>
                 <article class="olama-workflow-card" data-workflow-step="2">
-                    <div class="olama-workflow-heading"><span class="olama-step-number">2</span><div><h2><?php esc_html_e('تحديد مجلد المادة', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المرشح والمسار ونسبة الثقة قبل اعتماد Drive ID.', 'olama-media-library'); ?></p></div></div>
-                    <p><?php esc_html_e('يعرض النظام المجلدات المقترحة من آخر جرد مكتمل. المرشح مكتمل السياق يُعتمد بعد المراجعة؛ أما الحالات غير المتطابقة فتتطلب Drive ID الكامل وعبارة تأكيد.', 'olama-media-library'); ?></p>
+                    <div class="olama-workflow-heading"><span class="olama-step-number">2</span><div><h2><?php esc_html_e('تحديد مجلد المادة', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المرشح والمسار ونسبة الثقة، أو انتقل لخطة شجرة جديدة عندما لا تكون المادة موجودة داخل الصف.', 'olama-media-library'); ?></p></div></div>
+                    <p><?php esc_html_e('لا يعتمد النظام مادة من صف أو فصل آخر. إذا لم يوجد تطابق في المسار المحدد، تبقى عملية الربط مقفلة لكن تتاح معاينة إنشاء الشجرة الناقصة بأمان.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-drive-mapping-candidates" disabled><?php esc_html_e('عرض مرشّحات المجلد', 'olama-media-library'); ?></button>
                     <div id="drive-mapping-status" class="notice notice-info inline" hidden><p></p></div>
                     <table class="wp-list-table widefat striped" id="drive-mapping-table" hidden>
@@ -273,12 +273,12 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     </table>
                 </article>
                 <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="3">
-                    <div class="olama-workflow-heading"><span class="olama-step-number">3</span><div><h2><?php esc_html_e('معاينة مجلدات المنهج', 'olama-media-library'); ?></h2><p><?php esc_html_e('يقارن وحدات المنهج بمجلدات المادة المباشرة ويعرض ما سيُعاد استخدامه وما يحتاج إلى إنشاء أو مراجعة.', 'olama-media-library'); ?></p></div></div>
+                    <div class="olama-workflow-heading"><span class="olama-step-number">3</span><div><h2><?php esc_html_e('معاينة شجرة مجلدات المنهج', 'olama-media-library'); ?></h2><p><?php esc_html_e('يفحص السنة والفصل والصف والمادة والوحدات بالترتيب، ويعرض ما سيُعاد استخدامه وما يحتاج إلى إنشاء أو مراجعة.', 'olama-media-library'); ?></p></div></div>
                     <p><?php esc_html_e('هذه معاينة للقراءة فقط. لا تنشئ أو تنقل أو تعيد تسمية أي مجلد في Google Drive.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-folder-provisioning-preview" disabled><?php esc_html_e('إنشاء خطة المجلدات', 'olama-media-library'); ?></button>
                     <div id="folder-provisioning-summary" class="notice notice-info inline" hidden><p></p></div>
                     <table class="wp-list-table widefat striped" id="folder-provisioning-table" hidden>
-                        <thead><tr><th><?php esc_html_e('الوحدة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('Drive ID / المرشحات', 'olama-media-library'); ?></th><th><?php esc_html_e('السبب', 'olama-media-library'); ?></th></tr></thead>
+                        <thead><tr><th><?php esc_html_e('مستوى الشجرة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('Drive ID / المرشحات', 'olama-media-library'); ?></th><th><?php esc_html_e('السبب', 'olama-media-library'); ?></th></tr></thead>
                         <tbody id="folder-provisioning-body"></tbody>
                     </table>
                 </article>

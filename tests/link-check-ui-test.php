@@ -23,6 +23,7 @@ assert_link_check_ui(strpos($view, 'id="olama-advanced-tools"') > strpos($view, 
 assert_link_check_ui(strpos($script, "activateTab('link-check')") !== false, 'Diagnostic deep links must open the link-check tab.');
 assert_link_check_ui(strpos($script, 'function auditFilters()') !== false, 'The link-check tab must own its curriculum filters.');
 assert_link_check_ui(strpos($script, "action: 'olama_media_folder_provisioning_preview'") !== false, 'Folder planning UI must call the authenticated preview endpoint.');
+assert_link_check_ui(strpos($script, 'غير قابل للاعتماد — مسار مختلف') !== false, 'Cross-grade candidates must not expose a manual confirmation action.');
 assert_link_check_ui(strpos($script, "setWorkflowStep(5") !== false, 'Final commit must remain the fifth guarded workflow stage.');
 assert_link_check_ui(strpos($style, '.olama-link-check-flow') !== false, 'The guided workflow must have dedicated responsive styling.');
 assert_link_check_ui(strpos($style, '.folder-plan-conflict') !== false, 'Folder plan conflicts must be visually prominent.');

@@ -125,6 +125,8 @@ $mapping_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-me
 $reconciliation_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-reconciliation-preview.php');
 assert_true(strpos($mapping_source, "hash_equals((string) \$candidate->drive_folder_id, \$confirmed_folder_id)") !== false, 'Manual confirmation must verify the full server-staged Drive folder ID.');
 assert_true(strpos($mapping_source, "hash_equals('CONFIRM DRIVE MAPPING', \$confirmation_text)") !== false, 'Manual confirmation must require the explicit confirmation phrase.');
+assert_true(strpos($mapping_source, "if (!\$scope_context_complete)") !== false, 'Manual confirmation must not bypass academic year, semester, or grade scope.');
+assert_true(strpos($mapping_source, "candidate_scope_mismatch") !== false, 'Cross-scope mapping attempts must return a dedicated blocking error.');
 
 foreach (array('files->create', 'files->update', 'files->delete', 'permissions->create') as $mutation) {
     assert_true(strpos($discovery_source, $mutation) === false, "Discovery must not contain Drive mutation {$mutation}.");

@@ -124,6 +124,7 @@ class Olama_Media_DB
         $reconciliation_items = $wpdb->prefix . 'olama_drive_reconciliation_items';
         $folder_plans = $wpdb->prefix . 'olama_drive_folder_plans';
         $folder_plan_items = $wpdb->prefix . 'olama_drive_folder_plan_items';
+        $folder_plan_nodes = $wpdb->prefix . 'olama_drive_folder_plan_nodes';
 
         dbDelta("CREATE TABLE {$drive_files} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -427,6 +428,12 @@ class Olama_Media_DB
             plan_uuid VARCHAR(100) NOT NULL,
             discovery_run_id BIGINT UNSIGNED NOT NULL,
             subject_mapping_id BIGINT UNSIGNED NOT NULL,
+            scope_key VARCHAR(191) NULL,
+            academic_year_id BIGINT UNSIGNED NULL,
+            semester_id BIGINT UNSIGNED NULL,
+            grade_id BIGINT UNSIGNED NULL,
+            subject_id BIGINT UNSIGNED NULL,
+            anchor_drive_folder_id VARCHAR(191) NULL,
             subject_drive_folder_id VARCHAR(191) NOT NULL,
             root_config_hash VARCHAR(64) NOT NULL,
             plan_hash VARCHAR(64) NOT NULL,
@@ -435,6 +442,7 @@ class Olama_Media_DB
             existing_count INT UNSIGNED NOT NULL DEFAULT 0,
             create_count INT UNSIGNED NOT NULL DEFAULT 0,
             conflict_count INT UNSIGNED NOT NULL DEFAULT 0,
+            blocked_count INT UNSIGNED NOT NULL DEFAULT 0,
             summary LONGTEXT NULL,
             created_by BIGINT UNSIGNED NULL,
             created_at DATETIME NOT NULL,
@@ -442,6 +450,7 @@ class Olama_Media_DB
             PRIMARY KEY (id),
             UNIQUE KEY plan_uuid (plan_uuid),
             UNIQUE KEY mapping_run_hash (subject_mapping_id,discovery_run_id,plan_hash),
+            KEY scope_key (scope_key),
             KEY plan_status (plan_status)
         ) ENGINE=InnoDB $charset_collate;");
 
@@ -462,6 +471,32 @@ class Olama_Media_DB
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY plan_unit (plan_id,unit_id),
+            KEY planned_action (planned_action),
+            KEY parent_drive_folder_id (parent_drive_folder_id)
+        ) ENGINE=InnoDB $charset_collate;");
+
+        dbDelta("CREATE TABLE {$folder_plan_nodes} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            plan_id BIGINT UNSIGNED NOT NULL,
+            node_key VARCHAR(100) NOT NULL,
+            node_type VARCHAR(30) NOT NULL,
+            parent_node_key VARCHAR(100) NULL,
+            curriculum_entity_id BIGINT UNSIGNED NULL,
+            unit_id BIGINT UNSIGNED NULL,
+            unit_number VARCHAR(50) NULL,
+            expected_name VARCHAR(255) NOT NULL,
+            normalized_name VARCHAR(255) NOT NULL,
+            planned_action VARCHAR(30) NOT NULL,
+            parent_drive_folder_id VARCHAR(191) NULL,
+            existing_drive_folder_id VARCHAR(191) NULL,
+            candidate_drive_folder_ids LONGTEXT NULL,
+            candidate_names LONGTEXT NULL,
+            path_snapshot TEXT NULL,
+            reasons LONGTEXT NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY plan_node (plan_id,node_key),
+            KEY node_type (node_type),
             KEY planned_action (planned_action),
             KEY parent_drive_folder_id (parent_drive_folder_id)
         ) ENGINE=InnoDB $charset_collate;");

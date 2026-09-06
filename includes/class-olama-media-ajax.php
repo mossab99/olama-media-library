@@ -1786,7 +1786,10 @@ class Olama_Media_Ajax
     {
         $this->verify_nonce();
         $this->require_drive_administration();
-        $result = (new Olama_Media_Folder_Provisioning())->preview(absint($_POST['mapping_id'] ?? 0));
+        $result = (new Olama_Media_Folder_Provisioning())->preview_scope(
+            absint($_POST['academic_year_id'] ?? 0), absint($_POST['semester_id'] ?? 0),
+            absint($_POST['grade_id'] ?? 0), absint($_POST['subject_id'] ?? 0)
+        );
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 

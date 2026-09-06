@@ -1820,17 +1820,22 @@ jQuery(function ($) {
                 }
                 mappingScopeKey = response.data.scope_key;
                 confirmedMappingId = Number(response.data.confirmed_mapping && response.data.confirmed_mapping.mapping_id) || 0;
-                $('#btn-folder-provisioning-preview').prop('disabled', !confirmedMappingId);
+                $('#btn-folder-provisioning-preview').prop('disabled', false);
                 setWorkflowStep(1, 'complete');
                 if (confirmedMappingId) {
                     setWorkflowStep(2, 'complete');
                     setWorkflowStep(3, 'active');
                     $('#reconciliation-commit-gate').removeAttr('hidden');
+                } else {
+                    setWorkflowStep(2, 'active');
+                    setWorkflowStep(3, 'active');
                 }
                 const candidates = response.data.candidates || [];
-                $status.text(response.data.confirmation_ready
-                    ? `${response.data.subject_name}: يوجد مرشح واحد مكتمل السياق ويحتاج مراجعتك.`
-                    : `${response.data.subject_name}: لا يوجد مرشح وحيد مكتمل السياق؛ الاعتماد محظور.`);
+                $status.text(confirmedMappingId
+                    ? `${response.data.subject_name}: مجلد المادة مرتبط ومؤكد.`
+                    : (response.data.confirmation_ready
+                        ? `${response.data.subject_name}: يوجد مرشح واحد مكتمل السياق ويحتاج مراجعتك.`
+                        : `${response.data.subject_name}: لا يوجد مجلد مطابق داخل الصف المحدد. يمكنك معاينة خطة إنشاء الشجرة الآمنة.`));
                 $('#drive-mapping-table').removeAttr('hidden');
                 $('#drive-mapping-body').html(candidates.length ? candidates.map(function (item) {
                     const conflicts = {
@@ -1838,9 +1843,11 @@ jQuery(function ($) {
                         insufficient_scope_context: 'السنة أو الفصل أو الصف غير مطابق',
                         multiple_scope_candidates: 'أكثر من مرشح يطابق السياق كاملاً'
                     };
-                    const action = item.conflict_reason
-                        ? `<button type="button" class="button btn-manual-drive-mapping" data-candidate-id="${esc(item.candidate_id)}" data-folder-id="${esc(item.drive_folder_id)}">مراجعة واعتماد يدوي</button>`
-                        : `<button type="button" class="button btn-confirm-drive-mapping" data-candidate-id="${esc(item.candidate_id)}">اعتماد</button>`;
+                    const action = item.conflict_reason === 'insufficient_scope_context'
+                        ? '<span class="olama-candidate-rejected">غير قابل للاعتماد — مسار مختلف</span>'
+                        : (item.conflict_reason
+                            ? `<button type="button" class="button btn-manual-drive-mapping" data-candidate-id="${esc(item.candidate_id)}" data-folder-id="${esc(item.drive_folder_id)}">مراجعة واعتماد يدوي</button>`
+                            : `<button type="button" class="button btn-confirm-drive-mapping" data-candidate-id="${esc(item.candidate_id)}">اعتماد</button>`);
                     return `<tr><td>${esc(item.folder_name)}<br><code>${esc(item.drive_folder_id)}</code></td><td>${esc(item.path)}</td><td>${esc(item.confidence)}%</td><td>${esc(conflicts[item.conflict_reason] || item.conflict_reason || '-')}</td><td>${action}</td></tr>`;
                 }).join('') : '<tr><td colspan="5">لا توجد مجلدات مطابقة في الجرد المكتمل.</td></tr>');
             })
@@ -1894,11 +1901,12 @@ jQuery(function ($) {
     }
 
     $('#btn-folder-provisioning-preview').on('click', function () {
-        if (!confirmedMappingId) return;
+        const scope = auditFilters();
+        if (!scope.academic_year_id || !scope.semester_id || !scope.grade_id || !scope.subject_id) return;
         const $button = $(this).prop('disabled', true);
         const $summary = $('#folder-provisioning-summary').removeAttr('hidden').find('p').text(cfg.i18n.loading);
         $.post(cfg.ajaxurl, {
-            action: 'olama_media_folder_provisioning_preview', nonce: cfg.nonce, mapping_id: confirmedMappingId
+            action: 'olama_media_folder_provisioning_preview', nonce: cfg.nonce, ...scope
         }).done(function (response) {
             if (!response.success) {
                 $summary.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
@@ -1906,29 +1914,37 @@ jQuery(function ($) {
                 return;
             }
             const data = response.data;
-            const labels = { reuse: 'استخدام المجلد الموجود', create: 'مطلوب إنشاؤه', conflict: 'يحتاج مراجعة' };
+            const labels = { reuse: 'استخدام المجلد الموجود', create: 'مطلوب إنشاؤه', conflict: 'يحتاج مراجعة', blocked: 'محظور بسبب الأصل' };
+            const types = { academic_year: 'السنة الدراسية', semester: 'الفصل', grade: 'الصف', subject: 'المادة', unit: 'الوحدة' };
             const reasons = {
-                exact_normalized_name: 'تطابق الاسم بعد التطبيع',
-                invalid_curriculum_unit_name: 'اسم الوحدة في المنهج فارغ أو غير صالح، لذلك تم منع الإنشاء',
+                configured_root_matches_node: 'المجلد الجذر المحدد هو هذا المستوى من المنهج',
+                exact_or_canonical_name: 'تطابق الاسم أو الاسم القياسي للصف',
+                invalid_curriculum_folder_name: 'اسم المجلد في المنهج فارغ أو غير صالح',
                 duplicate_exact_sibling_folders: 'أكثر من مجلد مطابق تحت المادة',
                 possible_existing_folder_requires_review: 'يوجد مجلد مشابه وقد يكون هو المقصود',
-                no_existing_sibling_candidate: 'لا يوجد مجلد مطابق أو مشابه تحت المادة'
+                no_existing_sibling_candidate: 'لا يوجد مجلد مطابق أو مشابه تحت الأصل الصحيح',
+                parent_will_be_created: 'سيُنشأ بعد إنشاء المجلد الأب ضمن الخطة',
+                blocked_by_parent_conflict: 'لا يمكن تحديد الأصل قبل حل التعارض الأعلى',
+                confirmed_subject_mapping_mismatch: 'Drive ID المعتمد للمادة لا يطابق مسار الشجرة الحالي'
             };
-            $summary.html(`<strong>خطة رقم ${esc(data.plan_id)}</strong> · الوحدات: ${esc(data.total)} · موجود: ${esc(data.existing)} · مطلوب إنشاؤه: ${esc(data.create)} · تعارضات: ${esc(data.conflicts)} · تغييرات Drive: 0`);
+            const next = data.subject_mapping_required
+                ? 'المادة غير موجودة أو غير مرتبطة؛ الخطة جاهزة للمراجعة، لكن مطابقة الدروس تبقى مقفلة حتى تنفيذ إنشاء الشجرة وربط Drive ID الجديد.'
+                : 'مجلد المادة مرتبط؛ يمكن متابعة مطابقة الدروس إذا لم توجد تعارضات.';
+            $summary.html(`<strong>خطة رقم ${esc(data.plan_id)}</strong> · عناصر الشجرة: ${esc(data.total)} · موجود: ${esc(data.existing)} · مطلوب إنشاؤه: ${esc(data.create)} · تعارضات: ${esc(data.conflicts)} · محظور: ${esc(data.blocked)} · تغييرات Drive: 0<br><span>${esc(next)}</span>`);
             $('#folder-provisioning-table').removeAttr('hidden');
             $('#folder-provisioning-body').html((data.items || []).map(function (item) {
                 const ids = item.candidate_drive_folder_ids || [];
                 const names = item.candidate_names || [];
                 const candidates = ids.map(function (id, index) { return `${names[index] || '-'} (${id})`; }).join(' · ');
-                return `<tr class="folder-plan-${esc(item.planned_action)}"><td><strong>${esc(item.unit_number || '')} ${esc(item.expected_name)}</strong></td><td>${esc(labels[item.planned_action] || item.planned_action)}</td><td><small>${esc(item.path_snapshot)}</small></td><td><code>${esc(item.existing_drive_folder_id || candidates || '-')}</code></td><td>${esc(reasons[item.reason] || item.reason)}</td></tr>`;
+                return `<tr class="folder-plan-${esc(item.planned_action)}"><td><small>${esc(types[item.node_type] || item.node_type)}</small><br><strong>${esc(item.unit_number || '')} ${esc(item.expected_name)}</strong></td><td>${esc(labels[item.planned_action] || item.planned_action)}</td><td><small>${esc(item.path_snapshot)}</small></td><td><code>${esc(item.existing_drive_folder_id || candidates || '-')}</code></td><td>${esc(reasons[item.reason] || item.reason)}</td></tr>`;
             }).join(''));
-            setWorkflowStep(3, data.conflicts ? 'active' : 'complete');
-            setWorkflowStep(4, data.conflicts ? '' : 'active');
-            $('#btn-reconciliation-preview').prop('disabled', Number(data.conflicts || 0) > 0);
+            setWorkflowStep(3, data.conflicts || data.blocked ? 'active' : (data.subject_mapping_required ? 'ready' : 'complete'));
+            setWorkflowStep(4, data.ready_for_reconciliation ? 'active' : '');
+            $('#btn-reconciliation-preview').prop('disabled', !data.ready_for_reconciliation);
         }).fail(function () {
             $summary.text(cfg.i18n.error);
         }).always(function () {
-            $button.prop('disabled', !confirmedMappingId);
+            $button.prop('disabled', false);
         });
     });
 

@@ -29,7 +29,7 @@ assert_rollback_safety(strpos($ajax, 'wp_ajax_olama_media_reconciliation_rollbac
 assert_rollback_safety(strpos($ajax, 'wp_ajax_olama_media_reconciliation_rollback') !== false, 'Authenticated rollback endpoint must be registered.');
 assert_rollback_safety(strpos($ajax, 'wp_ajax_nopriv_olama_media_reconciliation_rollback') === false, 'Rollback endpoints must never be public.');
 assert_rollback_safety(strpos($view, 'ROLLBACK REVIEWED LINKS') !== false, 'Rollback UI must display the exact phrase.');
-assert_rollback_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.7.0'") !== false, 'Plugin version must be 2.7.0.');
-assert_rollback_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.7.0'") !== false, 'Database version must include rollback audit columns.');
+assert_rollback_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.7.1'") !== false, 'Plugin version must be 2.7.1.');
+assert_rollback_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.7.1'") !== false, 'Database version must include rollback audit columns.');
 
 echo "Reconciliation rollback safety tests passed.\n";

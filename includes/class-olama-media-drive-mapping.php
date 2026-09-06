@@ -107,8 +107,12 @@ class Olama_Media_Drive_Mapping
         }
         $reasons = json_decode((string) $candidate->reasons, true);
         $required_reasons = array('academic_year_path_match', 'semester_path_match', 'grade_path_match');
-        $automatic_scope_complete = is_array($reasons) && !array_diff($required_reasons, $reasons) && empty($candidate->conflict_reason);
+        $scope_context_complete = is_array($reasons) && !array_diff($required_reasons, $reasons);
+        $automatic_scope_complete = $scope_context_complete && empty($candidate->conflict_reason);
         $manual_override = !empty($options['manual_override']);
+        if (!$scope_context_complete) {
+            return new WP_Error('candidate_scope_mismatch', __('A folder from another academic year, semester, or grade cannot be confirmed for this subject.', 'olama-media-library'));
+        }
         if (!$automatic_scope_complete && !$manual_override) {
             return new WP_Error('candidate_scope_incomplete', __('This candidate does not contain enough curriculum scope evidence to be confirmed.', 'olama-media-library'));
         }
