@@ -25,6 +25,10 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
             <div class="notice notice-warning inline">
                 <p><strong><?php esc_html_e('وضع الحماية:', 'olama-media-library'); ?></strong> <?php esc_html_e('تم إيقاف رفع الملفات ومزامنة Google Drive وإنشاء المجلدات مؤقتاً إلى حين اكتمال ربط مجلدات المنهج بشكل آمن.', 'olama-media-library'); ?></p>
             </div>
+        <?php elseif ($drive_upload_enabled) : ?>
+            <div class="notice notice-success inline">
+                <p><strong><?php esc_html_e('الرفع الآمن مفعّل:', 'olama-media-library'); ?></strong> <?php esc_html_e('يُرفع الفيديو فقط إلى مجلد وحدة موجود داخل مجلد مادة معتمد. لا تنشئ عملية الرفع مجلدات جديدة.', 'olama-media-library'); ?></p>
+            </div>
         <?php endif; ?>
         <?php if (empty($drive_auth_health['is_configured']) || empty($drive_auth_health['has_refresh_token']) || empty($drive_auth_health['can_refresh'])) : ?>
             <div class="notice notice-error inline olama-drive-auth-warning">

@@ -232,7 +232,7 @@ class Olama_Media_Ajax
             ));
         }
 
-        $folder_id = $this->resolve_upload_folder($drive, $meta['path']);
+        $folder_id = $this->resolve_upload_folder($drive, $meta);
         if (is_wp_error($folder_id)) {
             $this->send_wp_upload_error($folder_id, 'drive_session_create', array(
                 'job_uuid' => $job_uuid,
@@ -453,7 +453,7 @@ class Olama_Media_Ajax
                     ));
                 }
 
-                $folder_id = $this->resolve_upload_folder($drive, $meta['path']);
+                $folder_id = $this->resolve_upload_folder($drive, $meta);
                 if (is_wp_error($folder_id)) {
                     $this->send_wp_upload_error($folder_id, 'drive_session_create', array(
                         'failed_chunk_index' => $chunk_index,
@@ -1683,8 +1683,7 @@ class Olama_Media_Ajax
     {
         $lesson_id = absint($_POST['lesson_id'] ?? 0);
         $unit_id = absint($_POST['unit_id'] ?? 0);
-        $lesson_name = sanitize_text_field($_POST['lesson_name'] ?? '');
-        if (!$lesson_id || !$unit_id || !$lesson_name) {
+        if (!$lesson_id || !$unit_id) {
             return new WP_Error('missing_lesson', __('Missing lesson data.', 'olama-media-library'));
         }
 
@@ -1692,13 +1691,37 @@ class Olama_Media_Ajax
         $semester_id = absint($_POST['semester_id'] ?? 0);
         $grade_id = absint($_POST['grade_id'] ?? 0);
         $subject_id = absint($_POST['subject_id'] ?? 0);
-        $names = $this->curriculum->get_names($academic_year_id, $semester_id, $grade_id, $subject_id);
-        $lesson_number = sanitize_text_field($_POST['lesson_number'] ?? '');
+        if (!$academic_year_id || !$semester_id || !$grade_id || !$subject_id) {
+            return new WP_Error('missing_curriculum_scope', __('Missing curriculum filters.', 'olama-media-library'));
+        }
+
+        // Never trust lesson titles or numbers supplied by the browser. Resolve
+        // the canonical filename components from the selected curriculum IDs.
+        $units = $this->db->get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id);
+        if (is_wp_error($units)) { return $units; }
+        $lesson_name = '';
+        $lesson_number = '';
+        $unit_name = '';
+        foreach ((array) $units as $unit) {
+            if (absint($unit->id) !== $unit_id) { continue; }
+            foreach ((array) ($unit->lessons ?? array()) as $lesson) {
+                if (absint($lesson->id) !== $lesson_id) { continue; }
+                $unit_name = sanitize_text_field($unit->unit_name);
+                $lesson_name = sanitize_text_field($lesson->lesson_title);
+                $lesson_number = sanitize_text_field($lesson->lesson_number);
+                break 2;
+            }
+        }
+        if ($unit_name === '' || $lesson_name === '') {
+            return new WP_Error('upload_curriculum_lesson_mismatch', __('الدرس المحدد لا ينتمي إلى المادة والوحدة المختارتين. أعد تحميل المنهاج ثم حاول مرة أخرى.', 'olama-media-library'));
+        }
+
         $part_number = absint($_POST['part_number'] ?? 0);
         $extension = 'mp4';
+        $lesson_prefix = $lesson_number !== '' ? sprintf('Lesson %s', $lesson_number) : 'Lesson';
         $target = $part_number
-            ? sprintf('Lesson %s Part %d %s.%s', $lesson_number, $part_number, $lesson_name, $extension)
-            : sprintf('Lesson %s %s.%s', $lesson_number, $lesson_name, $extension);
+            ? sprintf('%s Part %d %s.%s', $lesson_prefix, $part_number, $lesson_name, $extension)
+            : sprintf('%s %s.%s', $lesson_prefix, $lesson_name, $extension);
 
         return array(
             'record_id' => absint($_POST['id'] ?? 0),
@@ -1709,8 +1732,9 @@ class Olama_Media_Ajax
             'unit_id' => $unit_id,
             'lesson_id' => $lesson_id,
             'lesson_name' => $lesson_name,
+            'lesson_number' => $lesson_number,
+            'unit_name' => $unit_name,
             'target_filename' => sanitize_file_name($target),
-            'path' => array($names['academic_year'], $names['semester'], $names['grade'], $names['subject'], sanitize_text_field($_POST['unit_name'] ?? '')),
             'total_chunks' => $total_chunks,
             'total_size' => $total_size,
             'original_filename' => $filename,
@@ -1880,63 +1904,10 @@ class Olama_Media_Ajax
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 
-    /**
-     * Reuse an existing curriculum branch before creating a canonical path.
-     *
-     * The configured root may be the library root, year, semester, grade, or
-     * subject folder. Always starting with the full curriculum path can create
-     * a parallel hierarchy below a root that is already inside that hierarchy.
-     */
-    private function resolve_upload_folder($drive, $path)
+    /** Resolve an existing reviewed unit Drive ID. Uploads never create folders. */
+    private function resolve_upload_folder($drive, $meta)
     {
-        $path = array_values(array_filter(array_map('sanitize_text_field', (array) $path), 'strlen'));
-        if (count($path) < 2) {
-            return $drive->get_or_create_nested_folder($path);
-        }
-
-        $unit_name = array_pop($path);
-        $normalizer = new Olama_Media_Normalizer();
-        $root = $drive->test_connection();
-        if (is_wp_error($root)) {
-            return $root;
-        }
-
-        // If the configured root is one of the curriculum ancestors, resolve
-        // only the portion below it (for example grade -> subject -> unit).
-        $root_name = $normalizer->normalize_text($root['name'] ?? '');
-        foreach ($path as $index => $part) {
-            if ($root_name === $normalizer->normalize_text($part)) {
-                return $drive->get_or_create_nested_folder_from(
-                    sanitize_text_field($root['id'] ?? ''),
-                    array_merge(array_slice($path, $index + 1), array($unit_name))
-                );
-            }
-        }
-
-        // Prefer any already-existing subject branch below the configured root,
-        // even when optional year/semester/grade folders differ or are omitted.
-        $subject_name = end($path);
-        $subject_paths = array($path, array_slice($path, 1), array_slice($path, 2), array_slice($path, 3));
-        foreach ($subject_paths as $subject_path) {
-            if (!$subject_path) { continue; }
-            $subject_folder = $drive->find_nested_folder($subject_path);
-            if (is_wp_error($subject_folder)) { return $subject_folder; }
-            if ($subject_folder) {
-                return $drive->get_or_create_nested_folder_from($subject_folder, array($unit_name));
-            }
-        }
-
-        $subject_folders = $drive->find_folders_by_name_recursive($subject_name, 10);
-        if (is_wp_error($subject_folders)) { return $subject_folders; }
-        if (count($subject_folders) > 1) {
-            return new WP_Error('drive_subject_ambiguous', __('More than one folder matches this subject in Google Drive. Narrow the Root Folder ID before uploading.', 'olama-media-library'));
-        }
-        if (count($subject_folders) === 1) {
-            return $drive->get_or_create_nested_folder_from($subject_folders[0], array($unit_name));
-        }
-
-        // This is a genuinely new subject, so create the canonical hierarchy.
-        return $drive->get_or_create_nested_folder(array_merge($path, array($unit_name)));
+        return (new Olama_Media_Safe_Upload_Folder_Resolver())->resolve($drive, (array) $meta);
     }
 
     private function recover_upload_meta_from_db($file_uuid, $filename, $total_size, $total_chunks)

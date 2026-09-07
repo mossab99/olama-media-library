@@ -42,9 +42,9 @@ foreach (array('wp_ajax_olama_media_folder_provisioning_readiness', 'wp_ajax_ola
 assert_folder_apply_safety(strpos($view, 'CREATE REVIEWED FOLDERS') !== false, 'The UI must display the exact folder execution phrase.');
 assert_folder_apply_safety(strpos($script, "action: 'olama_media_folder_provisioning_readiness'") !== false, 'UI must call folder readiness first.');
 assert_folder_apply_safety(strpos($script, "action: 'olama_media_folder_provisioning_apply'") !== false, 'UI must expose the guarded apply endpoint.');
-assert_folder_apply_safety(strpos($plugin, "OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED', false") !== false, 'Video uploads must remain disabled.');
+assert_folder_apply_safety(strpos($plugin, "OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED', true") !== false, 'Safe video uploads must be enabled.');
 assert_folder_apply_safety(strpos($plugin, "OLAMA_MEDIA_DRIVE_SYNC_ENABLED', false") !== false, 'Legacy Drive synchronization must remain disabled.');
-assert_folder_apply_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.8.1'") !== false, 'Plugin version must be 2.8.1.');
+assert_folder_apply_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.9.1'") !== false, 'Plugin version must be 2.9.1.');
 
 require_once $root . '/includes/class-olama-media-normalizer.php';
 require_once $root . '/includes/class-olama-media-folder-provisioning-apply.php';
