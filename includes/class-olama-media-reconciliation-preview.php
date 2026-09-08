@@ -30,9 +30,12 @@ class Olama_Media_Reconciliation_Preview
         if (is_wp_error($units)) { return $units; }
 
         $curriculum_lessons = $this->curriculum_lessons($units);
+        $linked_uploads = $this->linked_upload_rows($mapping, $curriculum_lessons);
+        $linked_upload_ids = array_fill_keys(array_map(function ($item) { return (string) $item['drive_file_id']; }, $linked_uploads), true);
         $report = array(
             'mapping_id'=>absint($mapping->id), 'run_uuid'=>$run->run_uuid,
-            'files_in_subject'=>0, 'matched'=>0, 'needs_review'=>0, 'ambiguous'=>0, 'unmatched'=>0,
+            'files_in_subject'=>count($linked_uploads), 'matched'=>0, 'needs_review'=>0, 'ambiguous'=>0, 'unmatched'=>0,
+            'already_linked_uploads'=>count($linked_uploads), 'linked_uploads'=>$linked_uploads,
             'reviewed'=>0, 'authoritative_links_changed'=>false, 'drive_mutations'=>0,
             'decisions'=>array('pending'=>0, 'approved'=>0, 'manual'=>0, 'rejected'=>0),
             'curriculum_lessons'=>array_values($curriculum_lessons), 'results'=>array(),
@@ -67,6 +70,7 @@ class Olama_Media_Reconciliation_Preview
         );
         foreach ($observations as $item) {
             if ($item->item_type !== 'file' || !$this->is_video_file($item) || !$this->is_descendant_of($item, $mapping->drive_folder_id, $by_id)) { continue; }
+            if (isset($linked_upload_ids[(string) $item->drive_item_id])) { continue; }
             $report['files_in_subject']++;
             $drive_file = (object) array(
                 'drive_file_id'=>$item->drive_item_id, 'filename'=>$item->item_name,
@@ -198,6 +202,27 @@ class Olama_Media_Reconciliation_Preview
             }
         }
         return $lessons;
+    }
+
+    private function linked_upload_rows($mapping, $lessons)
+    {
+        $rows = (new Olama_Media_V2_Repository())->get_active_manual_upload_links_for_scope(
+            $mapping->academic_year_id, $mapping->semester_id, $mapping->grade_id, $mapping->subject_id
+        );
+        $result = array();
+        foreach ((array) $rows as $row) {
+            $lesson = $lessons[absint($row->lesson_id)] ?? null;
+            if (!$lesson || absint($lesson['unit_id']) !== absint($row->unit_id)) { continue; }
+            $result[] = array(
+                'drive_file_id'=>(string) $row->drive_file_id, 'filename'=>(string) $row->filename,
+                'path'=>(string) ($row->drive_path ?: $row->drive_folder_id),
+                'unit_id'=>absint($lesson['unit_id']), 'unit_name'=>(string) $lesson['unit_name'],
+                'lesson_id'=>absint($lesson['lesson_id']), 'lesson_number'=>(string) $lesson['lesson_number'],
+                'lesson_title'=>(string) $lesson['lesson_title'], 'confidence'=>100,
+                'status'=>'already_linked_upload', 'approval_status'=>sanitize_key($row->approval_status ?: 'pending'),
+            );
+        }
+        return $result;
     }
 
     private function existing_report($report, $items, $lessons)

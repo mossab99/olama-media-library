@@ -2028,6 +2028,8 @@ jQuery(function ($) {
             }
             const data = response.data;
             const lessons = data.curriculum_lessons || [];
+            const linkedUploads = data.linked_uploads || [];
+            const actionableResults = data.results || [];
             $('#reconciliation-summary').data('report', data);
             renderReconciliationSummary(data);
             $('#reconciliation-table').removeAttr('hidden');
@@ -2036,7 +2038,12 @@ jQuery(function ($) {
             $('#reconciliation-commit-confirmation, #btn-reconciliation-commit').prop('disabled', true);
             $('#reconciliation-rollback-readiness-result, #reconciliation-rollback-result').attr('hidden', 'hidden').empty();
             $('#reconciliation-rollback-confirmation, #btn-reconciliation-rollback').prop('disabled', true);
-            $('#reconciliation-body').html((data.results || []).map(function (item) {
+            $('#btn-reconciliation-readiness').prop('disabled', actionableResults.length === 0);
+            const linkedRows = linkedUploads.map(function (item) {
+                const approvals = { pending: 'بانتظار الاعتماد', approved: 'معتمد', rejected: 'مرفوض' };
+                return `<tr class="olama-linked-upload"><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>100%</td><td>مربوط مسبقاً عبر الرفع</td><td><strong>${esc(approvals[item.approval_status] || item.approval_status)}</strong><br><small>لا يحتاج إلى مطابقة أو ربط جديد.</small></td></tr>`;
+            }).join('');
+            const reviewRows = actionableResults.map(function (item) {
                 const selectedLessonId = Number(item.selected_lesson_id || item.lesson_id || 0);
                 const options = lessons.filter(function (lesson) {
                     return Number(lesson.unit_id) === Number(item.unit_id);
@@ -2049,9 +2056,10 @@ jQuery(function ($) {
                 const disabled = committed ? ' disabled' : '';
                 const commitNote = committed ? `<br><strong>تم إنهاء هذا القرار: ${esc(item.commit_status)}</strong>` : '';
                 return `<tr data-reconciliation-item="${esc(item.item_id)}" data-decision-status="${esc(item.decision_status || 'pending')}"><td>${esc(item.filename)}<br><small>${esc(item.path)}</small></td><td>${esc(item.unit_name || '-')}</td><td>${esc(item.lesson_number || '-')} ${esc(item.lesson_title || '')}</td><td>${esc(item.confidence)}%</td><td>${esc(item.status)}</td><td><select class="reconciliation-lesson"${disabled}><option value="">-- اختر درساً --</option>${options}</select> <button type="button" class="button btn-reconciliation-assign"${disabled}>حفظ القرار المرحلي</button> <button type="button" class="button btn-reconciliation-reject"${disabled}>رفض مرحلي</button><br><small class="reconciliation-decision-state">${esc(decisions[item.decision_status] || item.decision_status || decisions.pending)}</small>${commitNote}</td></tr>`;
-            }).join('') || '<tr><td colspan="6">لا توجد ملفات داخل مجلد المادة المعتمد.</td></tr>');
+            }).join('');
+            $('#reconciliation-body').html(linkedRows + reviewRows || '<tr><td colspan="6">لا توجد ملفات داخل مجلد المادة المعتمد.</td></tr>');
             setWorkflowStep(4, Number((data.decisions || {}).pending || 0) === 0 ? 'complete' : 'active');
-            setWorkflowStep(5, Number((data.decisions || {}).pending || 0) === 0 ? 'active' : '');
+            setWorkflowStep(5, actionableResults.length > 0 && Number((data.decisions || {}).pending || 0) === 0 ? 'active' : '');
         }).fail(function () {
             $summary.text(cfg.i18n.error);
         }).always(function () {
@@ -2063,6 +2071,7 @@ jQuery(function ($) {
         const decisions = data.decisions || {};
         const metrics = [
             ['ملفات المادة', data.files_in_subject], ['مطابقة تلقائية', data.matched],
+            ['مرفوعة ومربوطة', data.already_linked_uploads],
             ['تحتاج مراجعة', data.needs_review], ['غير مطابقة', data.unmatched],
             ['معتمدة', decisions.approved || 0], ['يدوية', decisions.manual || 0],
             ['مرفوضة', decisions.rejected || 0], ['معلّقة', decisions.pending || 0]

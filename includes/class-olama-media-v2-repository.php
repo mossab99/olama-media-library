@@ -155,6 +155,22 @@ class Olama_Media_V2_Repository
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->links} WHERE drive_file_id=%s LIMIT 1", sanitize_text_field($drive_file_id)));
     }
 
+    /** Uploaded through this plugin and already linked explicitly to a curriculum lesson. */
+    public function get_active_manual_upload_links_for_scope($academic_year_id, $semester_id, $grade_id, $subject_id)
+    {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT l.drive_file_id,l.unit_id,l.lesson_id,l.part_number,l.match_confidence,l.approval_status,
+                    f.filename,f.drive_path,f.drive_folder_id,f.web_view_link
+             FROM {$this->links} l
+             INNER JOIN {$this->files} f ON f.drive_file_id=l.drive_file_id
+             WHERE l.academic_year_id=%d AND l.semester_id=%d AND l.grade_id=%d AND l.subject_id=%d
+               AND l.link_status='active' AND l.match_method='manual_upload' AND f.scan_status='active'
+             ORDER BY l.unit_id,l.lesson_id,l.sequence_order,l.id",
+            absint($academic_year_id), absint($semester_id), absint($grade_id), absint($subject_id)
+        ));
+    }
+
     public function clear_pending_generated_links_for_scope($academic_year_id, $semester_id, $grade_id, $subject_id)
     {
         global $wpdb;
