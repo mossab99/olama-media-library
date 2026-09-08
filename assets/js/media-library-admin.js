@@ -1806,6 +1806,9 @@ jQuery(function ($) {
     $('#btn-rollout-readiness').on('click', function () {
         const scope = auditFilters();
         if (!scope.academic_year_id || !scope.semester_id || !scope.grade_id) return;
+        $('.olama-media-library-wrap > .notice-error').filter(function () {
+            return $(this).text().trim().includes(String(cfg.i18n.select_all || '').trim());
+        }).remove();
         const $button = $(this).prop('disabled', true);
         $('#rollout-readiness-result').removeAttr('hidden');
         $('#rollout-readiness-summary').html(`<div class="olama-rollout-loading">${esc(cfg.i18n.loading)}</div>`);
@@ -1834,18 +1837,26 @@ jQuery(function ($) {
         const heading = data.deployment_ready ? 'الصف جاهز للتشغيل الكامل' : 'توجد إجراءات مطلوبة قبل التشغيل الكامل';
         const stateClass = data.deployment_ready ? 'is-success' : '';
         const age = inventory.age_hours == null ? 'غير متاح' : `${inventory.age_hours} ساعة`;
+        const duplicateNotice = Number(inventory.duplicate_sibling_folders || 0) > 0
+            ? `<div class="olama-rollout-global-warning"><strong>تنبيه عام منفصل:</strong> كشف الجرد ${esc(inventory.duplicate_sibling_folders)} مجموعة مجلدات متكررة. لا يعالجها النظام تلقائياً ولا تمنع مواد هذا الصف ما لم تقع داخل مسارها.</div>`
+            : '';
         $('#rollout-readiness-summary').html(
             `<div class="olama-readiness-heading ${stateClass}"><strong>${esc(heading)}</strong><span>${esc(inventory.message || '')}</span><small>عمر الجرد: ${esc(age)} · تغييرات Drive: 0</small></div>` +
-            `<div class="olama-rollout-metrics"><span><small>المواد</small><strong>${esc(totals.subjects || 0)}</strong></span><span class="is-ready"><small>جاهزة</small><strong>${esc(totals.ready || 0)}</strong></span><span class="is-attention"><small>تحتاج إجراء</small><strong>${esc(totals.attention || 0)}</strong></span><span class="is-blocked"><small>محظورة</small><strong>${esc(totals.blocked || 0)}</strong></span><span><small>بانتظار الاعتماد</small><strong>${esc(totals.pending_approvals || 0)}</strong></span><span><small>ملفات للمراجعة</small><strong>${esc(totals.drive_videos_to_review || 0)}</strong></span></div>`
+            duplicateNotice +
+            `<div class="olama-rollout-metrics"><span><small>المواد</small><strong>${esc(totals.subjects || 0)}</strong></span><span class="is-ready"><small>جاهزة</small><strong>${esc(totals.ready || 0)}</strong></span><span class="is-attention"><small>تحتاج إجراء</small><strong>${esc(totals.attention || 0)}</strong></span><span class="is-blocked"><small>محظورة</small><strong>${esc(totals.blocked || 0)}</strong></span><span class="is-na"><small>غير مشمولة</small><strong>${esc(totals.not_applicable || 0)}</strong></span><span><small>بانتظار الاعتماد</small><strong>${esc(totals.pending_approvals || 0)}</strong></span><span><small>ملفات للمراجعة</small><strong>${esc(totals.drive_videos_to_review || 0)}</strong></span></div>`
         );
-        const labels = { ready: 'جاهزة', attention: 'تحتاج إجراء', blocked: 'محظورة' };
+        const labels = { ready: 'جاهزة', attention: 'تحتاج إجراء', blocked: 'محظورة', not_applicable: 'غير مشمولة' };
         $('#rollout-readiness-body').html((data.subjects || []).map(function (item) {
-            const folders = item.mapping_confirmed
+            const excluded = item.status === 'not_applicable';
+            const folders = excluded
+                ? 'لا ينطبق'
+                : (item.mapping_confirmed
                 ? `${item.unit_folders_total - item.missing_unit_folders}/${item.unit_folders_total} وحدات${item.folder_conflicts ? ` · ${item.folder_conflicts} تعارض` : ''}`
-                : 'مجلد المادة غير معتمد';
-            const videos = `${item.linked_videos} مربوط · ${item.approved_videos} معتمد${item.pending_approvals ? ` · ${item.pending_approvals} معلّق` : ''}${item.drive_videos_to_review ? ` · ${item.drive_videos_to_review} للمراجعة` : ''}`;
+                : 'مجلد المادة غير معتمد');
+            const videos = excluded ? 'لا يوجد منهج' : `${item.linked_videos} مربوط · ${item.approved_videos} معتمد${item.pending_approvals ? ` · ${item.pending_approvals} معلّق` : ''}${item.drive_videos_to_review ? ` · ${item.drive_videos_to_review} للمراجعة` : ''}`;
             const issues = (item.issues || []).map(esc).join('<br>');
-            return `<tr class="rollout-status-${esc(item.status)}"><td><strong>${esc(item.subject_name)}</strong><br><small>${esc(item.curriculum_lessons)} درساً</small></td><td><span class="olama-rollout-status">${esc(labels[item.status] || item.status)}</span>${issues ? `<small class="olama-rollout-issues">${issues}</small>` : ''}</td><td>${esc(folders)}</td><td>${esc(videos)}</td><td>${esc(item.next_action)}</td><td><button type="button" class="button btn-open-subject-audit" data-subject-id="${esc(item.subject_id)}">فحص المادة</button></td></tr>`;
+            const action = excluded ? '<span class="olama-muted-action">غير مطلوب</span>' : `<button type="button" class="button btn-open-subject-audit" data-subject-id="${esc(item.subject_id)}">فحص المادة</button>`;
+            return `<tr class="rollout-status-${esc(item.status)}"><td><strong>${esc(item.subject_name)}</strong><br><small>${esc(item.curriculum_lessons)} درساً</small></td><td><span class="olama-rollout-status">${esc(labels[item.status] || item.status)}</span>${issues ? `<small class="olama-rollout-issues">${issues}</small>` : ''}</td><td>${esc(folders)}</td><td>${esc(videos)}</td><td>${esc(item.next_action)}</td><td>${action}</td></tr>`;
         }).join('') || '<tr><td colspan="6">لا توجد مواد ضمن هذا الصف.</td></tr>');
     }
 

@@ -17,6 +17,9 @@ assert_rollout_readiness(strpos($script, "action: 'olama_media_rollout_readiness
 assert_rollout_readiness(strpos($script, 'drive_videos_to_review') !== false, 'The UI must disclose unlinked Drive videos.');
 assert_rollout_readiness(strpos($service, "approval_status='pending'") !== false, 'Pending approvals must prevent a fully ready result.');
 assert_rollout_readiness(strpos($service, 'array_diff($drive_video_ids, $linked_ids)') !== false, 'Inventory files without active links must be counted.');
+assert_rollout_readiness(strpos($service, "'not_applicable'") !== false, 'Subjects without curriculum must be excluded instead of blocking deployment.');
+assert_rollout_readiness(strpos($script, 'غير مشمولة') !== false, 'The readiness UI must label excluded subjects in Arabic.');
+assert_rollout_readiness(strpos($script, 'duplicate_sibling_folders') !== false, 'Global duplicate-folder warnings must remain visible separately.');
 assert_rollout_readiness(strpos($service, "'drive_mutations'=>0") !== false, 'The report must explicitly declare zero Drive mutations.');
 
 foreach (array('create_folder(', 'delete_file(', 'delete_folder(', 'move_file(', 'move_folder(', 'rename_file(', 'rename_folder(', 'files->create', 'files->delete', 'files->update') as $mutation) {

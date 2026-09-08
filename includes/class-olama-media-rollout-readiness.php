@@ -26,12 +26,12 @@ class Olama_Media_Rollout_Readiness
     {
         $ids = array_map('absint', array($academic_year_id, $semester_id, $grade_id));
         if (in_array(0, $ids, true)) {
-            return new WP_Error('rollout_scope_required', __('Select the academic year, semester, and grade.', 'olama-media-library'));
+            return new WP_Error('rollout_scope_required', __('اختر السنة الدراسية والفصل والصف أولاً.', 'olama-media-library'));
         }
 
         $subjects = $this->curriculum->get_subjects($ids[2]);
         if (!$subjects) {
-            return new WP_Error('rollout_subjects_missing', __('No active subjects exist for the selected grade.', 'olama-media-library'));
+            return new WP_Error('rollout_subjects_missing', __('لا توجد مواد نشطة للصف المحدد.', 'olama-media-library'));
         }
 
         $run = $this->inventory->get_latest_completed_run();
@@ -49,7 +49,7 @@ class Olama_Media_Rollout_Readiness
 
         $rows = array();
         $totals = array(
-            'subjects'=>0, 'ready'=>0, 'attention'=>0, 'blocked'=>0,
+            'subjects'=>0, 'ready'=>0, 'attention'=>0, 'blocked'=>0, 'not_applicable'=>0,
             'curriculum_lessons'=>0, 'linked_videos'=>0, 'pending_approvals'=>0,
             'drive_videos_to_review'=>0, 'missing_unit_folders'=>0, 'folder_conflicts'=>0,
         );
@@ -115,35 +115,34 @@ class Olama_Media_Rollout_Readiness
 
         $issues = array();
         $status = 'ready';
-        $next_action = __('No action required.', 'olama-media-library');
-        if (!$inventory['usable']) {
+        $next_action = __('لا يوجد إجراء مطلوب.', 'olama-media-library');
+        if ($curriculum_error || !$units || !$lesson_count) {
+            $status = 'not_applicable';
+            $issues[] = __('لا توجد وحدات ودروس منهجية ضمن هذا النطاق.', 'olama-media-library');
+            $next_action = __('غير مشمولة في تشغيل مكتبة الفيديو لهذا الفصل.', 'olama-media-library');
+        } elseif (!$inventory['usable']) {
             $status = 'blocked';
-            $issues[] = $inventory['message'];
-            $next_action = __('Run a new safe Drive inventory.', 'olama-media-library');
-        } elseif ($curriculum_error || !$units || !$lesson_count) {
-            $status = 'blocked';
-            $issues[] = __('The curriculum has no usable units and lessons.', 'olama-media-library');
-            $next_action = __('Review the curriculum data first.', 'olama-media-library');
+            $next_action = __('راجع حالة الجرد العامة أعلى الجدول.', 'olama-media-library');
         } elseif (!$mapping_current || !$subject_observed) {
             $status = 'attention';
-            $issues[] = __('The subject folder is not confirmed against the latest inventory.', 'olama-media-library');
-            $next_action = __('Review or create the subject folder tree.', 'olama-media-library');
+            $issues[] = __('مجلد المادة غير معتمد مقابل أحدث جرد.', 'olama-media-library');
+            $next_action = __('راجع ربط المادة أو أنشئ شجرة مجلداتها.', 'olama-media-library');
         } elseif ($folder_conflicts > 0) {
             $status = 'blocked';
-            $issues[] = sprintf(__('There are %d duplicate unit-folder conflicts.', 'olama-media-library'), $folder_conflicts);
-            $next_action = __('Resolve duplicate folders manually in Drive, then run inventory.', 'olama-media-library');
+            $issues[] = sprintf(__('يوجد %d تعارض بسبب تكرار مجلدات الوحدات.', 'olama-media-library'), $folder_conflicts);
+            $next_action = __('عالج المجلدات المكررة يدوياً ثم شغّل جرداً جديداً.', 'olama-media-library');
         } elseif ($missing_units > 0) {
             $status = 'attention';
-            $issues[] = sprintf(__('%d curriculum unit folders are missing.', 'olama-media-library'), $missing_units);
-            $next_action = __('Create and review the missing folder plan.', 'olama-media-library');
+            $issues[] = sprintf(__('يوجد %d مجلد وحدة مفقود من شجرة المنهج.', 'olama-media-library'), $missing_units);
+            $next_action = __('أنشئ وراجع خطة المجلدات الناقصة.', 'olama-media-library');
         } elseif ($to_review > 0 || $staging['pending'] > 0) {
             $status = 'attention';
-            $issues[] = sprintf(__('%d Drive videos still need matching review.', 'olama-media-library'), max($to_review, $staging['pending']));
-            $next_action = __('Open lesson matching and complete the review.', 'olama-media-library');
+            $issues[] = sprintf(__('يوجد %d ملف فيديو يحتاج مراجعة المطابقة.', 'olama-media-library'), max($to_review, $staging['pending']));
+            $next_action = __('افتح مطابقة الدروس وأكمل المراجعة.', 'olama-media-library');
         } elseif ($link_counts['pending'] > 0) {
             $status = 'attention';
-            $issues[] = sprintf(__('%d linked videos await approval.', 'olama-media-library'), $link_counts['pending']);
-            $next_action = __('Approve or reject the pending videos.', 'olama-media-library');
+            $issues[] = sprintf(__('يوجد %d فيديو مربوط بانتظار الاعتماد.', 'olama-media-library'), $link_counts['pending']);
+            $next_action = __('اعتمد الفيديوهات المعلّقة أو ارفضها.', 'olama-media-library');
         }
 
         return array(
@@ -163,7 +162,7 @@ class Olama_Media_Rollout_Readiness
     private function inventory_state($run, $current_hash)
     {
         if (!$run) {
-            return array('usable'=>false, 'fresh'=>false, 'age_hours'=>null, 'message'=>__('No completed Drive inventory exists.', 'olama-media-library'));
+            return array('usable'=>false, 'fresh'=>false, 'age_hours'=>null, 'duplicate_sibling_folders'=>0, 'message'=>__('لا يوجد جرد مكتمل لـ Google Drive.', 'olama-media-library'));
         }
         $root_matches = hash_equals((string) $run->root_config_hash, (string) $current_hash);
         $finished = strtotime((string) $run->finished_at);
@@ -171,14 +170,17 @@ class Olama_Media_Rollout_Readiness
         $max_age = max(1, absint(apply_filters('olama_media_rollout_inventory_max_age_hours', 24)));
         $fresh = $age_hours !== null && $age_hours <= $max_age;
         $usable = $root_matches && absint($run->errors) === 0 && $fresh;
-        if (!$root_matches) { $message = __('The inventory belongs to a different Drive root configuration.', 'olama-media-library'); }
-        elseif (absint($run->errors) > 0) { $message = __('The latest inventory completed with errors.', 'olama-media-library'); }
-        elseif (!$fresh) { $message = sprintf(__('The latest inventory is older than %d hours.', 'olama-media-library'), $max_age); }
-        else { $message = __('The latest Drive inventory is current and error-free.', 'olama-media-library'); }
+        $summary = json_decode((string) $run->summary, true);
+        $duplicates = is_array($summary) ? absint($summary['duplicate_sibling_folders'] ?? 0) : 0;
+        if (!$root_matches) { $message = __('الجرد يعود إلى إعداد مختلف لمجلد Drive الرئيسي.', 'olama-media-library'); }
+        elseif (absint($run->errors) > 0) { $message = __('اكتمل أحدث جرد مع وجود أخطاء.', 'olama-media-library'); }
+        elseif (!$fresh) { $message = sprintf(__('أحدث جرد أقدم من %d ساعة.', 'olama-media-library'), $max_age); }
+        else { $message = __('أحدث جرد لـ Google Drive حديث ومكتمل دون أخطاء.', 'olama-media-library'); }
         return array(
             'usable'=>$usable, 'fresh'=>$fresh, 'root_matches'=>$root_matches, 'age_hours'=>$age_hours,
             'max_age_hours'=>$max_age, 'run_id'=>absint($run->id), 'run_uuid'=>(string) $run->run_uuid,
-            'finished_at'=>(string) $run->finished_at, 'errors'=>absint($run->errors), 'message'=>$message,
+            'finished_at'=>(string) $run->finished_at, 'errors'=>absint($run->errors),
+            'duplicate_sibling_folders'=>$duplicates, 'message'=>$message,
         );
     }
 
