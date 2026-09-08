@@ -63,6 +63,7 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_reconciliation_commit', array($this, 'drive_reconciliation_commit'));
         add_action('wp_ajax_olama_media_reconciliation_rollback_readiness', array($this, 'drive_reconciliation_rollback_readiness'));
         add_action('wp_ajax_olama_media_reconciliation_rollback', array($this, 'drive_reconciliation_rollback'));
+        add_action('wp_ajax_olama_media_rollout_readiness', array($this, 'rollout_readiness'));
     }
 
     public function get_subjects()
@@ -1900,6 +1901,18 @@ class Olama_Media_Ajax
         $result = (new Olama_Media_Reconciliation_Rollback())->rollback(
             absint($_POST['mapping_id'] ?? 0),
             sanitize_text_field(wp_unslash($_POST['confirmation_text'] ?? ''))
+        );
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function rollout_readiness()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $result = (new Olama_Media_Rollout_Readiness())->report(
+            absint($_REQUEST['academic_year_id'] ?? 0),
+            absint($_REQUEST['semester_id'] ?? 0),
+            absint($_REQUEST['grade_id'] ?? 0)
         );
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }

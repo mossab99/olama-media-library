@@ -1753,9 +1753,16 @@ jQuery(function ($) {
         [2, 3, 4, 5].forEach(function (step) { setWorkflowStep(step, ''); });
     }
 
+    function resetRolloutReadiness() {
+        $('#rollout-readiness-result').attr('hidden', 'hidden');
+        $('#rollout-readiness-summary, #rollout-readiness-body').empty();
+    }
+
     function updateAuditScopeState() {
         const data = auditFilters();
+        const gradeComplete = data.academic_year_id && data.semester_id && data.grade_id;
         const complete = data.academic_year_id && data.semester_id && data.grade_id && data.subject_id;
+        $('#btn-rollout-readiness').prop('disabled', !gradeComplete);
         $('#btn-audit-scope').prop('disabled', !complete);
         $('#audit-scope-state').text(complete
             ? [$('#audit-year-id option:selected').text(), $('#audit-semester option:selected').text(), $('#audit-grade option:selected').text(), $('#audit-subject option:selected').text()].join(' / ')
@@ -1764,6 +1771,7 @@ jQuery(function ($) {
 
     $('#audit-year-id').on('change', function () {
         resetLinkCheckResults();
+        resetRolloutReadiness();
         const $semester = $('#audit-semester').prop('disabled', true).html(`<option>${esc(cfg.i18n.loading)}</option>`);
         $.get(cfg.ajaxurl, { action: 'olama_media_get_semesters', nonce: cfg.nonce, academic_year_id: $(this).val() })
             .done(function (response) {
@@ -1776,6 +1784,7 @@ jQuery(function ($) {
 
     $('#audit-grade').on('change', function () {
         resetLinkCheckResults();
+        resetRolloutReadiness();
         const gradeId = $(this).val();
         const $subject = $('#audit-subject').html(`<option value="">${esc(cfg.i18n.select)}</option>`);
         if (!gradeId) { $subject.prop('disabled', true); updateAuditScopeState(); return; }
@@ -1790,7 +1799,63 @@ jQuery(function ($) {
 
     $('#audit-semester, #audit-subject').on('change', function () {
         resetLinkCheckResults();
+        if (this.id === 'audit-semester') resetRolloutReadiness();
         updateAuditScopeState();
+    });
+
+    $('#btn-rollout-readiness').on('click', function () {
+        const scope = auditFilters();
+        if (!scope.academic_year_id || !scope.semester_id || !scope.grade_id) return;
+        const $button = $(this).prop('disabled', true);
+        $('#rollout-readiness-result').removeAttr('hidden');
+        $('#rollout-readiness-summary').html(`<div class="olama-rollout-loading">${esc(cfg.i18n.loading)}</div>`);
+        $('#rollout-readiness-body').empty();
+        $.get(cfg.ajaxurl, {
+            action: 'olama_media_rollout_readiness', nonce: cfg.nonce,
+            academic_year_id: scope.academic_year_id,
+            semester_id: scope.semester_id,
+            grade_id: scope.grade_id
+        }).done(function (response) {
+            if (!response.success) {
+                $('#rollout-readiness-summary').html(`<div class="olama-readiness-heading"><strong>تعذر إكمال الفحص</strong><span>${esc(typeof response.data === 'string' ? response.data : cfg.i18n.error)}</span></div>`);
+                return;
+            }
+            renderRolloutReadiness(response.data || {});
+        }).fail(function () {
+            $('#rollout-readiness-summary').html(`<div class="olama-readiness-heading"><strong>تعذر إكمال الفحص</strong><span>${esc(cfg.i18n.error)}</span></div>`);
+        }).always(function () {
+            $button.prop('disabled', false);
+        });
+    });
+
+    function renderRolloutReadiness(data) {
+        const totals = data.totals || {};
+        const inventory = data.inventory || {};
+        const heading = data.deployment_ready ? 'الصف جاهز للتشغيل الكامل' : 'توجد إجراءات مطلوبة قبل التشغيل الكامل';
+        const stateClass = data.deployment_ready ? 'is-success' : '';
+        const age = inventory.age_hours == null ? 'غير متاح' : `${inventory.age_hours} ساعة`;
+        $('#rollout-readiness-summary').html(
+            `<div class="olama-readiness-heading ${stateClass}"><strong>${esc(heading)}</strong><span>${esc(inventory.message || '')}</span><small>عمر الجرد: ${esc(age)} · تغييرات Drive: 0</small></div>` +
+            `<div class="olama-rollout-metrics"><span><small>المواد</small><strong>${esc(totals.subjects || 0)}</strong></span><span class="is-ready"><small>جاهزة</small><strong>${esc(totals.ready || 0)}</strong></span><span class="is-attention"><small>تحتاج إجراء</small><strong>${esc(totals.attention || 0)}</strong></span><span class="is-blocked"><small>محظورة</small><strong>${esc(totals.blocked || 0)}</strong></span><span><small>بانتظار الاعتماد</small><strong>${esc(totals.pending_approvals || 0)}</strong></span><span><small>ملفات للمراجعة</small><strong>${esc(totals.drive_videos_to_review || 0)}</strong></span></div>`
+        );
+        const labels = { ready: 'جاهزة', attention: 'تحتاج إجراء', blocked: 'محظورة' };
+        $('#rollout-readiness-body').html((data.subjects || []).map(function (item) {
+            const folders = item.mapping_confirmed
+                ? `${item.unit_folders_total - item.missing_unit_folders}/${item.unit_folders_total} وحدات${item.folder_conflicts ? ` · ${item.folder_conflicts} تعارض` : ''}`
+                : 'مجلد المادة غير معتمد';
+            const videos = `${item.linked_videos} مربوط · ${item.approved_videos} معتمد${item.pending_approvals ? ` · ${item.pending_approvals} معلّق` : ''}${item.drive_videos_to_review ? ` · ${item.drive_videos_to_review} للمراجعة` : ''}`;
+            const issues = (item.issues || []).map(esc).join('<br>');
+            return `<tr class="rollout-status-${esc(item.status)}"><td><strong>${esc(item.subject_name)}</strong><br><small>${esc(item.curriculum_lessons)} درساً</small></td><td><span class="olama-rollout-status">${esc(labels[item.status] || item.status)}</span>${issues ? `<small class="olama-rollout-issues">${issues}</small>` : ''}</td><td>${esc(folders)}</td><td>${esc(videos)}</td><td>${esc(item.next_action)}</td><td><button type="button" class="button btn-open-subject-audit" data-subject-id="${esc(item.subject_id)}">فحص المادة</button></td></tr>`;
+        }).join('') || '<tr><td colspan="6">لا توجد مواد ضمن هذا الصف.</td></tr>');
+    }
+
+    $(document).on('click', '.btn-open-subject-audit', function () {
+        const subjectId = String($(this).data('subject-id') || '');
+        $('#audit-subject').val(subjectId).trigger('change');
+        if ($('#audit-subject').val()) {
+            $('#btn-audit-scope').trigger('click');
+            document.getElementById('audit-scope-state').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
     });
 
     $('#btn-audit-scope').on('click', function () {

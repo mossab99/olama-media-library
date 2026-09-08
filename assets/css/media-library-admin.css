@@ -135,6 +135,29 @@
 .olama-scope-state { max-width: 50%; padding: 7px 11px; border-radius: 999px; color: #38536f; background: #eef3f8; font-weight: 600; text-align: center; }
 .olama-audit-toolbar { margin: 0; border: 0; border-radius: 8px; background: #f7f9fc; }
 
+.olama-rollout-readiness-panel { padding: 20px; border-radius: 10px; border-color: var(--olama-border); }
+.olama-rollout-readiness-panel .olama-section-heading { align-items: flex-end; }
+.olama-rollout-readiness-panel .olama-section-heading p { margin: 7px 0 0; color: #646970; }
+.olama-rollout-summary { display: grid; gap: 12px; margin-bottom: 14px; }
+.olama-rollout-loading { padding: 16px; border-radius: 7px; color: #38536f; background: #f0f6fc; }
+.olama-rollout-metrics { display: grid; grid-template-columns: repeat(6, minmax(105px, 1fr)); gap: 8px; }
+.olama-rollout-metrics > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid #d8e2ef; border-radius: 7px; background: #fff; }
+.olama-rollout-metrics strong { font-size: 18px; color: var(--olama-blue); }
+.olama-rollout-metrics .is-ready strong { color: var(--olama-green); }
+.olama-rollout-metrics .is-attention strong { color: #996800; }
+.olama-rollout-metrics .is-blocked strong { color: #b32d2e; }
+.olama-table-scroll { overflow-x: auto; }
+.olama-rollout-table { min-width: 900px; }
+.olama-rollout-table td { vertical-align: middle; }
+.olama-rollout-table tr.rollout-status-ready td:first-child { border-inline-start: 4px solid var(--olama-green); }
+.olama-rollout-table tr.rollout-status-attention td:first-child { border-inline-start: 4px solid #dba617; }
+.olama-rollout-table tr.rollout-status-blocked td:first-child { border-inline-start: 4px solid #b32d2e; }
+.olama-rollout-status { display: inline-block; padding: 4px 9px; border-radius: 999px; font-weight: 700; background: #eef3f8; }
+.rollout-status-ready .olama-rollout-status { color: #075c29; background: #eaf7ee; }
+.rollout-status-attention .olama-rollout-status { color: #7a4b00; background: #fff5d6; }
+.rollout-status-blocked .olama-rollout-status { color: #8a2424; background: #fcebea; }
+.olama-rollout-issues { display: block; margin-top: 6px; color: #646970; }
+
 .olama-link-check-flow {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -481,6 +504,7 @@
 }
 
 @media (max-width: 900px) {
+    .olama-rollout-metrics { grid-template-columns: repeat(2, minmax(105px, 1fr)); }
     .olama-media-toolbar {
         grid-template-columns: 1fr;
     }

@@ -12,6 +12,9 @@ assert_link_check_ui(strpos($view, "esc_html_e('فحص الربط'") !== false, 
 foreach (array('audit-year-id', 'audit-semester', 'audit-grade', 'audit-subject', 'btn-audit-scope') as $control) {
     assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Link-check scope must include {$control}.");
 }
+foreach (array('btn-rollout-readiness', 'rollout-readiness-summary', 'rollout-readiness-body') as $control) {
+    assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Rollout readiness must include {$control}.");
+}
 foreach (range(1, 5) as $step) {
     assert_link_check_ui(strpos($view, 'data-workflow-step="' . $step . '"') !== false, "Workflow step {$step} must be visible.");
 }

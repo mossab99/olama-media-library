@@ -258,6 +258,33 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
             </div>
         </div>
 
+        <section class="olama-media-panel olama-rollout-readiness-panel" aria-labelledby="rollout-readiness-title">
+            <div class="olama-section-heading">
+                <div>
+                    <span class="olama-step-kicker"><?php esc_html_e('جاهزية التشغيل', 'olama-media-library'); ?></span>
+                    <h2 id="rollout-readiness-title"><?php esc_html_e('ملخص الصف قبل التفعيل الكامل', 'olama-media-library'); ?></h2>
+                    <p><?php esc_html_e('يعرض حالة كل مادة والإجراء التالي من بيانات WordPress وآخر جرد Drive. هذا الفحص للقراءة فقط.', 'olama-media-library'); ?></p>
+                </div>
+                <button type="button" class="button button-primary" id="btn-rollout-readiness" disabled><?php esc_html_e('فحص جاهزية الصف', 'olama-media-library'); ?></button>
+            </div>
+            <div id="rollout-readiness-result" hidden>
+                <div id="rollout-readiness-summary" class="olama-rollout-summary"></div>
+                <div class="olama-table-scroll">
+                    <table class="wp-list-table widefat striped olama-rollout-table">
+                        <thead><tr>
+                            <th><?php esc_html_e('المادة', 'olama-media-library'); ?></th>
+                            <th><?php esc_html_e('الحالة', 'olama-media-library'); ?></th>
+                            <th><?php esc_html_e('المجلدات', 'olama-media-library'); ?></th>
+                            <th><?php esc_html_e('الفيديوهات', 'olama-media-library'); ?></th>
+                            <th><?php esc_html_e('الإجراء التالي', 'olama-media-library'); ?></th>
+                            <th><?php esc_html_e('فتح', 'olama-media-library'); ?></th>
+                        </tr></thead>
+                        <tbody id="rollout-readiness-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
         <div class="olama-link-check-flow">
                 <article class="olama-workflow-card" data-workflow-step="1">
                     <div class="olama-workflow-heading"><span class="olama-step-number">1</span><div><h2><?php esc_html_e('فحص Google Drive', 'olama-media-library'); ?></h2><p><?php esc_html_e('تأكد أن آخر جرد مكتمل وحديث. يمكنك تشغيل جرد جديد للقراءة فقط عند الحاجة.', 'olama-media-library'); ?></p></div></div>
