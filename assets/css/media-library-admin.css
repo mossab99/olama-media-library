@@ -181,6 +181,8 @@
     transition: border-color .18s ease, box-shadow .18s ease;
 }
 
+.olama-inventory-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
 .olama-workflow-card-wide { grid-column: 1 / -1; }
 .folder-plan-reuse td { background: #f0f8f2; }
 .folder-plan-create td { background: #f0f6fc; }

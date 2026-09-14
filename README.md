@@ -12,6 +12,8 @@ Version 2 separates Drive discovery from curriculum linking. Recursive scans pop
 
 Administrators can scan, preview/apply matches, review or manually relink files, import legacy assets, and reset only v2 data from the **Drive v2** tab. The lesson upload page uses active v2 links as its primary media source, while successful new uploads continue writing legacy records and also register their v2 manifest/link records.
 
+The link-check workflow supports both a complete safe Drive inventory and a folder-specific safe inventory for the selected academic year, semester, grade, and subject. A folder-specific run rescans the selected subject subtree, preserves unaffected observations from the latest completed inventory, and publishes the merged result as the next complete inventory snapshot. Both modes are read-only in Google Drive.
+
 ## Curriculum Video Coverage Report
 
 Administrators can open the coverage report to review every lesson in an academic year and semester. The report can be narrowed by grade and subject, marks uploaded and missing videos, and calculates coverage for each curriculum, subject, grade, and the full filtered curriculum set. A lesson is covered when it has a linked asset whose Drive upload completed successfully.

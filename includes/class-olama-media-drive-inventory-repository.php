@@ -42,10 +42,90 @@ class Olama_Media_Drive_Inventory_Repository
         return $this->get_run_by_uuid($uuid);
     }
 
+    /**
+     * Create a complete merged snapshot whose selected subtree will be rescanned.
+     * Observations outside the subtree are copied from the last completed run;
+     * descendants inside it are deliberately omitted and discovered again.
+     */
+    public function create_partial_run($source_run, $target_folder, $root_config_hash, $scope)
+    {
+        global $wpdb;
+        if (!$source_run || empty($source_run->id) || empty($target_folder['id']) || empty($target_folder['old_path'])) {
+            return new WP_Error('partial_inventory_source_invalid', __('The partial inventory source is invalid.', 'olama-media-library'));
+        }
+
+        if (false === $wpdb->query('START TRANSACTION')) {
+            return new WP_Error('partial_inventory_transaction_failed', __('Could not start the partial Drive inventory.', 'olama-media-library'));
+        }
+
+        try {
+            $uuid = wp_generate_uuid4();
+            $now = current_time('mysql');
+            $summary = array(
+                'scan_mode' => 'partial',
+                'scope' => $scope,
+                'source_run_id' => absint($source_run->id),
+                'target_folder_id' => sanitize_text_field($target_folder['id']),
+                'target_path' => sanitize_text_field($target_folder['path']),
+                'authoritative_state_changed' => false,
+                'drive_mutations' => 0,
+            );
+            if (!$wpdb->insert($this->runs, array(
+                'run_uuid' => $uuid,
+                'run_type' => 'inventory_partial',
+                'status' => 'scanning',
+                'root_folder_id' => sanitize_text_field($source_run->root_folder_id),
+                'root_name' => sanitize_text_field($source_run->root_name),
+                'root_config_hash' => sanitize_text_field($root_config_hash),
+                'summary' => wp_json_encode($summary),
+                'started_at' => $now,
+                'created_by' => get_current_user_id(),
+            ))) {
+                throw new RuntimeException('Could not create the partial inventory run.');
+            }
+            $run_id = absint($wpdb->insert_id);
+            $old_path = rtrim((string) $target_folder['old_path'], '/');
+            $descendant_pattern = $wpdb->esc_like($old_path . '/') . '%';
+            $copy_sql = "INSERT INTO {$this->observations}
+                (scan_run_id,drive_item_id,item_type,resolved_target_id,parent_drive_folder_id,item_name,normalized_name,mime_type,file_size,modified_time,path_snapshot,web_view_link,metadata_json,observed_at)
+                SELECT %d,drive_item_id,item_type,resolved_target_id,parent_drive_folder_id,item_name,normalized_name,mime_type,file_size,modified_time,path_snapshot,web_view_link,metadata_json,%s
+                FROM {$this->observations}
+                WHERE scan_run_id=%d AND path_snapshot NOT LIKE %s";
+            if (false === $wpdb->query($wpdb->prepare($copy_sql, $run_id, $now, absint($source_run->id), $descendant_pattern))) {
+                throw new RuntimeException('Could not copy the unaffected inventory branches.');
+            }
+            if (!$this->enqueue_folder(
+                $run_id,
+                $target_folder['id'],
+                $target_folder['parent_id'],
+                $target_folder['path'],
+                absint($target_folder['depth'])
+            )) {
+                throw new RuntimeException('Could not initialize the partial inventory queue.');
+            }
+            if (false === $wpdb->query('COMMIT')) {
+                throw new RuntimeException('Could not commit the partial inventory setup.');
+            }
+            return $this->get_run_by_uuid($uuid);
+        } catch (Throwable $error) {
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('partial_inventory_create_failed', $error->getMessage());
+        }
+    }
+
     public function get_run_by_uuid($uuid)
     {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->runs} WHERE run_uuid=%s LIMIT 1", sanitize_text_field($uuid)));
+    }
+
+    public function get_observation_by_drive_id($run_id, $drive_item_id)
+    {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$this->observations} WHERE scan_run_id=%d AND drive_item_id=%s LIMIT 1",
+            absint($run_id), sanitize_text_field($drive_item_id)
+        ));
     }
 
     public function enqueue_folder($run_id, $folder_id, $parent_id, $path, $depth)
@@ -152,9 +232,12 @@ class Olama_Media_Drive_Inventory_Repository
     public function finish_run($run_id, $status, $summary = array())
     {
         global $wpdb;
+        $existing = $wpdb->get_var($wpdb->prepare("SELECT summary FROM {$this->runs} WHERE id=%d", absint($run_id)));
+        $existing = json_decode((string) $existing, true);
+        if (!is_array($existing)) { $existing = array(); }
         return false !== $wpdb->update($this->runs, array(
             'status' => sanitize_key($status),
-            'summary' => wp_json_encode($summary),
+            'summary' => wp_json_encode(array_merge($existing, $summary)),
             'finished_at' => current_time('mysql'),
         ), array('id' => absint($run_id)));
     }

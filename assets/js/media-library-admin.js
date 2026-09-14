@@ -1692,23 +1692,42 @@ jQuery(function ($) {
             .always(function () { $button.prop('disabled', false); });
     });
 
-    $('#btn-drive-inventory').on('click', function () {
-        const $button = $(this).prop('disabled', true);
+    function startDriveInventory(mode, $button) {
+        const data = mode === 'partial' ? { ...auditFilters(), scan_mode: 'partial' } : { scan_mode: 'full' };
+        if (mode === 'partial') {
+            if (!data.academic_year_id || !data.semester_id || !data.grade_id || !data.subject_id) return;
+            const route = [$('#audit-year-id option:selected').text(), $('#audit-semester option:selected').text(), $('#audit-grade option:selected').text(), $('#audit-subject option:selected').text()].join(' / ');
+            if (!window.confirm(`${cfg.i18n.inventory_partial_confirm}\n\n${route}`)) return;
+        }
+        $('#btn-drive-inventory, #btn-drive-inventory-partial').prop('disabled', true);
         const $progress = $('#drive-inventory-progress').removeAttr('hidden').find('p').text(cfg.i18n.inventory_starting);
         const $result = $('#drive-inventory-result').removeAttr('hidden').text('');
-        $.post(cfg.ajaxurl, { action: 'olama_media_drive_discovery_start', nonce: cfg.nonce })
+        $.post(cfg.ajaxurl, { action: 'olama_media_drive_discovery_start', nonce: cfg.nonce, ...data })
             .done(function (response) {
                 if (!response.success) {
                     $progress.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
-                    $button.prop('disabled', false);
+                    restoreInventoryButtons();
                     return;
                 }
                 runInventoryBatch(response.data.run_uuid, $button, $progress, $result);
             })
             .fail(function () {
                 $progress.text(cfg.i18n.error);
-                $button.prop('disabled', false);
+                restoreInventoryButtons();
             });
+    }
+
+    function restoreInventoryButtons() {
+        $('#btn-drive-inventory').prop('disabled', false);
+        $('#btn-drive-inventory-partial').prop('disabled', !auditFilters().subject_id);
+    }
+
+    $('#btn-drive-inventory').on('click', function () {
+        startDriveInventory('full', $(this));
+    });
+
+    $('#btn-drive-inventory-partial').on('click', function () {
+        startDriveInventory('partial', $(this));
     });
 
     function runInventoryBatch(runUuid, $button, $progress, $result) {
@@ -1716,7 +1735,7 @@ jQuery(function ($) {
             .done(function (response) {
                 if (!response.success) {
                     $progress.text(typeof response.data === 'string' ? response.data : cfg.i18n.error);
-                    $button.prop('disabled', false);
+                    restoreInventoryButtons();
                     return;
                 }
                 const report = response.data || {};
@@ -1724,20 +1743,20 @@ jQuery(function ($) {
                 $progress.text(`${cfg.i18n.inventory_scanning} folders: ${run.folders_observed || 0}, files: ${run.files_observed || 0}, shortcuts: ${run.shortcuts_observed || 0}`);
                 $result.text(JSON.stringify(report, null, 2));
                 if (run.status === 'completed') {
-                    $progress.text(cfg.i18n.inventory_complete);
-                    $button.prop('disabled', false);
+                    $progress.text(run.run_type === 'inventory_partial' ? cfg.i18n.inventory_partial_complete : cfg.i18n.inventory_complete);
+                    restoreInventoryButtons();
                     setWorkflowStep(1, 'complete');
                     return;
                 }
                 if (run.status === 'failed') {
-                    $button.prop('disabled', false);
+                    restoreInventoryButtons();
                     return;
                 }
                 window.setTimeout(function () { runInventoryBatch(runUuid, $button, $progress, $result); }, 250);
             })
             .fail(function () {
                 $progress.text(cfg.i18n.error);
-                $button.prop('disabled', false);
+                restoreInventoryButtons();
             });
     }
 
@@ -1782,6 +1801,7 @@ jQuery(function ($) {
         const complete = data.academic_year_id && data.semester_id && data.grade_id && data.subject_id;
         $('#btn-rollout-readiness').prop('disabled', !gradeComplete);
         $('#btn-audit-scope').prop('disabled', !complete);
+        $('#btn-drive-inventory-partial').prop('disabled', !complete);
         $('#audit-scope-state').text(complete
             ? [$('#audit-year-id option:selected').text(), $('#audit-semester option:selected').text(), $('#audit-grade option:selected').text(), $('#audit-subject option:selected').text()].join(' / ')
             : 'أكمل اختيار السنة والفصل والصف والمادة');

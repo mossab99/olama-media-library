@@ -289,7 +289,11 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                 <article class="olama-workflow-card" data-workflow-step="1">
                     <div class="olama-workflow-heading"><span class="olama-step-number">1</span><div><h2><?php esc_html_e('فحص Google Drive', 'olama-media-library'); ?></h2><p><?php esc_html_e('تأكد أن آخر جرد مكتمل وحديث. يمكنك تشغيل جرد جديد للقراءة فقط عند الحاجة.', 'olama-media-library'); ?></p></div></div>
                     <p><?php esc_html_e('يجمع معرفات المجلدات والملفات والمسارات ويكشف المجلدات المتكررة. لا ينقل أو ينشئ أو يحذف أي عنصر، ولا يغير روابط الدروس الحالية.', 'olama-media-library'); ?></p>
-                    <button type="button" class="button button-primary" id="btn-drive-inventory"><?php esc_html_e('بدء الجرد الآمن', 'olama-media-library'); ?></button>
+                    <div class="olama-inventory-actions">
+                        <button type="button" class="button button-primary" id="btn-drive-inventory-partial" disabled><?php esc_html_e('جرد آمن — المجلد المحدد', 'olama-media-library'); ?></button>
+                        <button type="button" class="button" id="btn-drive-inventory"><?php esc_html_e('الجرد الآمن الكامل', 'olama-media-library'); ?></button>
+                    </div>
+                    <p class="description"><?php esc_html_e('الجرد المحدد يفحص مجلد المادة وكل ما تحته فقط، ثم يدمج النتيجة مع بقية آخر جرد مكتمل.', 'olama-media-library'); ?></p>
                     <div id="drive-inventory-progress" class="notice notice-info inline" hidden><p></p></div>
                     <pre id="drive-inventory-result" class="olama-media-result" hidden></pre>
                 </article>
