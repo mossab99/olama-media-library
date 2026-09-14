@@ -2209,6 +2209,17 @@ class Olama_Media_Ajax
         $message_ar = __('تعذر رفع هذا الجزء مؤقتا. سيتم إعادة المحاولة تلقائيا.', 'olama-media-library');
         $error_code = sanitize_key($code ?: 'upload_failed');
 
+        // Safe routing failures describe a curriculum/Drive state that must be
+        // corrected by an administrator. Retrying either transport cannot make
+        // that state valid, so preserve the resolver's actionable message.
+        if (strpos($error_code, 'safe_upload_') === 0) {
+            return array(
+                'error_code' => $error_code,
+                'message_ar' => $message,
+                'retryable' => false,
+            );
+        }
+
         if (in_array($error_code, array('google_auth_failed'), true) || in_array(absint($data['drive_http_status'] ?? 0), array(401, 403), true)) {
             return array(
                 'error_code' => 'google_auth_failed',

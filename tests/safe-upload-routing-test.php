@@ -32,13 +32,16 @@ assert_safe_upload(strpos($view_source, 'الرفع الآمن مفعّل') !== 
 
 require_once $root . '/includes/class-olama-media-normalizer.php';
 require_once $root . '/includes/class-olama-media-safe-upload-folder-resolver.php';
+require_once $root . '/includes/class-olama-media-ajax.php';
 
 $GLOBALS['safe_upload_settings'] = array('root_folder_id'=>'root', 'root_scope_level'=>'unknown', 'root_scope_id'=>0);
 $root_hash = hash('sha256', wp_json_encode($GLOBALS['safe_upload_settings']));
 class SafeUploadInventory {
     public $duplicate = false;
+    public $missing = false;
     public function get_latest_completed_run() { global $root_hash; return (object) array('id'=>3, 'root_config_hash'=>$root_hash); }
     public function get_all_observations($run_id) {
+        if ($this->missing) { return array(); }
         $items = array((object) array('item_type'=>'folder','parent_drive_folder_id'=>'subject-id','drive_item_id'=>'unit-id','item_name'=>'الأعداد جمعها وطرحها'));
         if ($this->duplicate) { $items[] = (object) array('item_type'=>'folder','parent_drive_folder_id'=>'subject-id','drive_item_id'=>'duplicate-id','item_name'=>'الأعداد جمعها وطرحها'); }
         return $items;
@@ -67,5 +70,21 @@ assert_safe_upload(is_wp_error($mismatch) && $mismatch->get_error_code() === 'sa
 $inventory->duplicate = true;
 $duplicate = $resolver->resolve(new SafeUploadDrive(), $meta);
 assert_safe_upload(is_wp_error($duplicate) && $duplicate->get_error_code() === 'safe_upload_unit_ambiguous', 'Duplicate unit folders must block upload.');
+$inventory->duplicate = false;
+$inventory->missing = true;
+$refresh_required = $resolver->resolve(new SafeUploadDrive(), $meta);
+assert_safe_upload(is_wp_error($refresh_required) && $refresh_required->get_error_code() === 'safe_upload_inventory_refresh_required', 'A live folder created after the inventory must request a new inventory instead of claiming the folder is missing.');
+
+$admin_script = file_get_contents($root . '/assets/js/media-library-admin.js');
+$ajax = (new ReflectionClass('Olama_Media_Ajax'))->newInstanceWithoutConstructor();
+$map_upload_error = new ReflectionMethod($ajax, 'map_upload_error');
+$map_upload_error->setAccessible(true);
+$routing_message = 'أنشئ مجلد الوحدة ثم شغّل جرداً جديداً.';
+$mapped = $map_upload_error->invoke($ajax, 'safe_upload_unit_missing', array(), $routing_message);
+assert_safe_upload($mapped['error_code'] === 'safe_upload_unit_missing', 'Safe routing failures must retain their stable error code.');
+assert_safe_upload($mapped['retryable'] === false, 'Safe routing failures must be classified as non-retryable.');
+assert_safe_upload($mapped['message_ar'] === $routing_message, 'Safe routing failures must preserve the resolver remediation message.');
+assert_safe_upload(strpos($admin_script, 'showDirectStartFailure(uploadState, response.data') !== false, 'Direct session failures must preserve structured server errors.');
+assert_safe_upload(strpos($admin_script, "error.retryable !== false") !== false, 'Non-retryable direct session failures must not offer ineffective transport retries.');
 
 echo "Safe upload routing tests passed.\n";

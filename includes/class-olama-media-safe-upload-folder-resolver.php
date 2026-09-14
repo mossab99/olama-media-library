@@ -62,7 +62,19 @@ class Olama_Media_Safe_Upload_Folder_Resolver
                 && hash_equals((string) $mapping->drive_folder_id, (string) $item->parent_drive_folder_id)
                 && $this->normalizer->normalize_text($item->item_name) === $expected;
         }));
+        $live_matches = null;
         if (!$inventory_matches) {
+            // The folder may have been created after the last completed inventory.
+            // Check Drive live so the administrator receives the correct remedy,
+            // while still requiring a reviewed inventory before routing an upload.
+            $live_matches = $this->find_live_unit_folders($drive, (string) $mapping->drive_folder_id, $expected);
+            if (is_wp_error($live_matches)) { return $live_matches; }
+            if (count($live_matches) === 1) {
+                return new WP_Error('safe_upload_inventory_refresh_required', __('تم العثور على مجلد الوحدة في Google Drive، لكنه غير موجود في آخر جرد مكتمل. شغّل جرد Drive آمناً جديداً ثم أعد محاولة الرفع.', 'olama-media-library'));
+            }
+            if (count($live_matches) > 1) {
+                return new WP_Error('safe_upload_unit_ambiguous', __('يوجد أكثر من مجلد مطابق لهذه الوحدة في Google Drive. أوقف الرفع وراجع التعارض في فحص الربط.', 'olama-media-library'));
+            }
             return new WP_Error('safe_upload_unit_missing', __('مجلد الوحدة غير موجود تحت مجلد المادة المعتمد. أنشئه عبر خطة المجلدات ثم شغّل جرداً جديداً.', 'olama-media-library'));
         }
         if (count($inventory_matches) !== 1) {

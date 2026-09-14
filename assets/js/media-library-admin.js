@@ -710,6 +710,20 @@ jQuery(function ($) {
         return data || cfg.i18n.error;
     }
 
+    function showDirectStartFailure(uploadState, data, fallbackMessage) {
+        const error = typeof data === 'object' && data !== null ? data : {};
+        const message = error.message_ar || error.message || fallbackMessage || cfg.i18n.direct_browser_failed;
+        showDirectFallback(uploadState, message, error.error_code || 'direct_session_create_failed', {
+            xhr_status: '',
+            drive_http_status: error.drive_http_status || '',
+            chunk_index: Number.isInteger(error.failed_chunk_index) ? error.failed_chunk_index : 0,
+            loaded_bytes: 0,
+            total_bytes: uploadState.file.size,
+            stage: error.stage || 'direct_session_create',
+            message_en: error.message_en || message
+        }, 'direct_upload_failed', error.retryable !== false);
+    }
+
     function uploadFileDirect(uploadState) {
         const file = uploadState.file;
         const lesson = uploadState.lesson;
@@ -734,7 +748,7 @@ jQuery(function ($) {
 
         refreshUploadNonce().done(function (nonceResponse) {
             if (!nonceResponse.success || !nonceResponse.data || !nonceResponse.data.drive_authenticated) {
-                showDirectFallback(uploadState, uploadErrorMessage(nonceResponse.data) || cfg.i18n.session_or_permission_expired);
+                showDirectStartFailure(uploadState, nonceResponse.data, cfg.i18n.session_or_permission_expired);
                 return;
             }
 
@@ -744,7 +758,7 @@ jQuery(function ($) {
                 ...payload
             }).done(function (response) {
                 if (!response.success || !response.data || !response.data.upload_url) {
-                    showDirectFallback(uploadState, uploadErrorMessage(response.data) || cfg.i18n.direct_browser_failed);
+                    showDirectStartFailure(uploadState, response.data, cfg.i18n.direct_browser_failed);
                     return;
                 }
 
@@ -767,11 +781,12 @@ jQuery(function ($) {
                 $text.text(`${cfg.i18n.transport_direct} - ${cfg.i18n.direct_uploading}`);
                 logDirectEvent('direct_upload_started', payload, file.size, 0, '', 'Direct browser upload started.');
                 sendDirectToGoogle(uploadState);
-            }).fail(function () {
-                showDirectFallback(uploadState, cfg.i18n.direct_browser_failed);
+            }).fail(function (xhr) {
+                const responseData = xhr && xhr.responseJSON ? xhr.responseJSON.data : null;
+                showDirectStartFailure(uploadState, responseData, cfg.i18n.direct_browser_failed);
             });
         }).fail(function () {
-            showDirectFallback(uploadState, cfg.i18n.session_or_permission_expired);
+            showDirectStartFailure(uploadState, null, cfg.i18n.session_or_permission_expired);
         });
     }
 
@@ -1084,7 +1099,7 @@ jQuery(function ($) {
         });
     }
 
-    function showDirectFallback(uploadState, message, errorCode = 'direct_browser_error', diagnostics = {}, eventType = 'direct_upload_browser_error') {
+    function showDirectFallback(uploadState, message, errorCode = 'direct_browser_error', diagnostics = {}, eventType = 'direct_upload_browser_error', allowActions = true) {
         const $progress = uploadState.progress;
         setUploadState(uploadState.upload_id, {
             status: 'failed',
@@ -1117,12 +1132,15 @@ jQuery(function ($) {
             ].filter(Boolean).join(' | ');
         }
         const fullMessage = adminDetails ? `${message} (${adminDetails})` : message;
-        uploadState.statusElement.text(`${fullMessage} ${cfg.i18n.direct_fallback_available}`);
+        uploadState.statusElement.text(allowActions ? `${fullMessage} ${cfg.i18n.direct_fallback_available}` : fullMessage);
         notify(fullMessage, 'error');
 
         logDirectEvent(eventType, uploadState.payload, uploadState.file.size, diagnostics.loaded_bytes || 0, errorCode, diagnostics.message_en || message, 0, diagnostics);
 
         $progress.find('.olama-direct-actions').remove();
+        if (!allowActions) {
+            return;
+        }
         $progress.append(`<div class="olama-direct-actions">
             <button type="button" class="button button-small btn-retry-direct-upload" data-upload-id="${esc(uploadState.upload_id)}">${esc(cfg.i18n.retry_direct_upload)}</button>
             <button type="button" class="button button-small btn-use-wordpress-fallback" data-upload-id="${esc(uploadState.upload_id)}">${esc(cfg.i18n.use_wordpress_fallback)}</button>
