@@ -174,7 +174,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     </tr>
                     <tr>
                         <th><label for="client_secret"><?php esc_html_e('Client Secret', 'olama-media-library'); ?></label></th>
-                        <td><input type="password" id="client_secret" name="client_secret" value="<?php echo esc_attr($settings['client_secret'] ?? ''); ?>" class="large-text"></td>
+                        <td><input type="password" id="client_secret" name="client_secret" value="<?php echo esc_attr($settings['client_secret'] ?? ''); ?>" class="large-text" autocomplete="new-password"></td>
                     </tr>
                     <tr>
                         <th><?php esc_html_e('Redirect URI', 'olama-media-library'); ?></th>

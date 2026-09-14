@@ -2041,6 +2041,7 @@ jQuery(function ($) {
     });
 
     function renderFolderProvisioning(data) {
+            const $summary = $('#folder-provisioning-summary').removeAttr('hidden').find('p');
             currentFolderPlanId = Number(data.plan_id) || 0;
             const labels = { reuse: 'اعتماد المجلد الموجود', create: 'إنشاء باسم الفهرس', rename: 'إعادة تسمية معتمدة', conflict: 'يحتاج قراراً', blocked: 'محظور بسبب الأصل' };
             const types = { academic_year: 'السنة الدراسية', semester: 'الفصل', grade: 'الصف', subject: 'المادة', unit: 'الوحدة' };

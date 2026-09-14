@@ -25,6 +25,7 @@ foreach (array('folder-provisioning-next-step', 'folder-provisioning-next-messag
     assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "The stage 3 to stage 4 transition must include {$control}.");
 }
 assert_link_check_ui(strpos($script, "$('#btn-go-reconciliation').on('click'") !== false, 'The transition action must open the lesson reconciliation preview.');
+assert_link_check_ui(strpos($script, "function renderFolderProvisioning(data) {\n            const \$summary = \$('#folder-provisioning-summary')") !== false, 'The folder-plan renderer must resolve its own summary element instead of using handler-local state.');
 foreach (array('folder-provisioning-apply-gate', 'btn-folder-provisioning-readiness', 'folder-provisioning-confirmation', 'btn-folder-provisioning-apply', 'folder-provisioning-apply-result') as $control) {
     assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Guarded folder execution must include {$control}.");
 }
