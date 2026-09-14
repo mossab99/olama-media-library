@@ -1784,7 +1784,7 @@ jQuery(function ($) {
         confirmedMappingId = 0;
         currentFolderPlanId = 0;
         $('#btn-drive-mapping-candidates, #btn-folder-provisioning-preview, #btn-folder-provisioning-apply, #btn-reconciliation-preview, #btn-reconciliation-commit, #btn-reconciliation-rollback').prop('disabled', true);
-        $('#drive-mapping-table, #folder-provisioning-table, #folder-provisioning-apply-gate, #reconciliation-table, #reconciliation-commit-gate').attr('hidden', 'hidden');
+        $('#drive-mapping-table, #folder-provisioning-table, #folder-provisioning-next-step, #folder-provisioning-apply-gate, #reconciliation-table, #reconciliation-commit-gate').attr('hidden', 'hidden');
         $('#drive-mapping-status, #folder-provisioning-summary, #folder-provisioning-readiness-result, #folder-provisioning-apply-result, #reconciliation-summary, #reconciliation-readiness-result, #reconciliation-commit-result, #reconciliation-rollback-readiness-result, #reconciliation-rollback-result').attr('hidden', 'hidden');
         $('#folder-provisioning-confirmation, #reconciliation-commit-confirmation, #reconciliation-rollback-confirmation').val('').prop('disabled', true);
         [2, 3, 4, 5].forEach(function (step) { setWorkflowStep(step, ''); });
@@ -2021,6 +2021,8 @@ jQuery(function ($) {
         if (!scope.academic_year_id || !scope.semester_id || !scope.grade_id || !scope.subject_id) return;
         const $button = $(this).prop('disabled', true);
         const $summary = $('#folder-provisioning-summary').removeAttr('hidden').find('p').text(cfg.i18n.loading);
+        $('#folder-provisioning-next-step').attr('hidden', 'hidden');
+        $('#btn-go-reconciliation').prop('disabled', true);
         $.post(cfg.ajaxurl, {
             action: 'olama_media_folder_provisioning_preview', nonce: cfg.nonce,
             scope_key: mappingScopeKey, ...scope
@@ -2040,6 +2042,8 @@ jQuery(function ($) {
                 invalid_curriculum_folder_name: 'اسم المجلد في المنهج فارغ أو غير صالح',
                 duplicate_exact_sibling_folders: 'أكثر من مجلد مطابق تحت المادة',
                 possible_existing_folder_requires_review: 'يوجد مجلد مشابه وقد يكون هو المقصود',
+                unit_topic_match_number_mismatch: 'موضوع الوحدة مطابق، لكن رقم الوحدة أو صياغته مختلفان؛ سيُستخدم المجلد الموجود دون إعادة تسميته',
+                duplicate_unit_topic_matches: 'أكثر من مجلد يحمل موضوع الوحدة نفسه؛ يلزم الحسم يدوياً',
                 no_existing_sibling_candidate: 'لا يوجد مجلد مطابق أو مشابه تحت الأصل الصحيح',
                 parent_will_be_created: 'سيُنشأ بعد إنشاء المجلد الأب ضمن الخطة',
                 blocked_by_parent_conflict: 'لا يمكن تحديد الأصل قبل حل التعارض الأعلى',
@@ -2059,6 +2063,13 @@ jQuery(function ($) {
             setWorkflowStep(3, data.conflicts || data.blocked ? 'active' : (data.subject_mapping_required ? 'ready' : 'complete'));
             setWorkflowStep(4, data.ready_for_reconciliation ? 'active' : '');
             $('#btn-reconciliation-preview').prop('disabled', !data.ready_for_reconciliation);
+            $('#folder-provisioning-next-step').removeAttr('hidden').toggleClass('notice-success', Boolean(data.ready_for_reconciliation)).toggleClass('notice-warning', !data.ready_for_reconciliation);
+            $('#folder-provisioning-next-message').text(data.ready_for_reconciliation
+                ? 'اكتملت معاينة الشجرة ومجلد المادة معتمد. يمكنك الآن الانتقال مباشرة إلى مراجعة مطابقة ملفات Drive بالدروس.'
+                : (data.subject_mapping_required
+                    ? 'المرحلة 4 مقفلة: اعتمد مجلد المادة أو نفّذ إنشاء الشجرة، ثم شغّل الجرد من جديد.'
+                    : `المرحلة 4 مقفلة: يجب حل ${Number(data.conflicts || 0)} تعارض و${Number(data.blocked || 0)} عنصر محظور في الشجرة أولاً.`));
+            $('#btn-go-reconciliation').prop('disabled', !data.ready_for_reconciliation);
             const canApply = Boolean(data.ready_for_review && Number(data.create || 0) > 0);
             $('#folder-provisioning-apply-gate').prop('hidden', !canApply);
             $('#folder-provisioning-readiness-result, #folder-provisioning-apply-result').attr('hidden', 'hidden').empty();
@@ -2068,6 +2079,12 @@ jQuery(function ($) {
         }).always(function () {
             $button.prop('disabled', false);
         });
+    });
+
+    $('#btn-go-reconciliation').on('click', function () {
+        if ($(this).prop('disabled') || $('#btn-reconciliation-preview').prop('disabled')) return;
+        document.querySelector('.olama-workflow-card[data-workflow-step="4"]').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        $('#btn-reconciliation-preview').trigger('click');
     });
 
     $('#btn-folder-provisioning-readiness').on('click', function () {

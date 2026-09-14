@@ -202,6 +202,19 @@ class Olama_Media_Folder_Provisioning
         }));
         $similar = array();
         if (!$exact) {
+            if ($spec['node_type'] === 'unit') {
+                $expected_topic = $this->unit_topic($expected);
+                $topic_matches = $expected_topic === '' ? array() : array_values(array_filter($siblings, function ($folder) use ($expected_topic) {
+                    return $this->unit_topic((string) $folder->item_name) === $expected_topic;
+                }));
+                if (count($topic_matches) === 1) {
+                    $existing_path = rtrim((string) $parent_path, '/') . '/' . sanitize_text_field($topic_matches[0]->item_name);
+                    return $this->make_item($spec, 'reuse', $parent_drive_id, $parent_node_key, (string) $topic_matches[0]->drive_item_id, $topic_matches, $existing_path, 'unit_topic_match_number_mismatch');
+                }
+                if (count($topic_matches) > 1) {
+                    return $this->make_item($spec, 'conflict', $parent_drive_id, $parent_node_key, '', $topic_matches, $path, 'duplicate_unit_topic_matches');
+                }
+            }
             $normalized = $this->normalizer->normalize_text($expected);
             $similar = array_values(array_filter($siblings, function ($folder) use ($normalized) {
                 return $this->names_are_similar($normalized, $this->normalizer->normalize_text($folder->item_name));
@@ -271,6 +284,26 @@ class Olama_Media_Folder_Provisioning
         if (!$expected_tokens || !$actual_tokens) { return false; }
         $shared = count(array_intersect($expected_tokens, $actual_tokens));
         return $shared >= 2 && ($shared / max(count($expected_tokens), count($actual_tokens))) >= 0.5;
+    }
+
+    /** Compare the descriptive part of a unit name independently from its sequence label. */
+    private function unit_topic($name)
+    {
+        $tokens = explode(' ', $this->normalizer->normalize_text($name));
+        $sequence_tokens = array(
+            'وحده','الوحده','unit',
+            'اول','الاول','اولي','الاولي','اوله','الاوليه',
+            'ثاني','الثاني','ثانيه','الثانيه','ثالث','الثالث','ثالثه','الثالثه',
+            'رابع','الرابع','رابعه','الرابعه','خامس','الخامس','خامسه','الخامسه',
+            'سادس','السادس','سادسه','السادسه','سابع','السابع','سابعه','السابعه',
+            'ثامن','الثامن','ثامنه','الثامنه','تاسع','التاسع','تاسعه','التاسعه',
+            'عاشر','العاشر','عاشره','العاشره','حادي','الحادي','حاديه','الحاديه',
+            'عشر','العشر','عشره','العشره',
+        );
+        $topic = array_values(array_filter($tokens, function ($token) use ($sequence_tokens) {
+            return $token !== '' && !ctype_digit($token) && !in_array($token, $sequence_tokens, true);
+        }));
+        return implode(' ', $topic);
     }
 
     private function find_item_index($items, $node_type)

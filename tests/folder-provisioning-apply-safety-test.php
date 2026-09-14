@@ -62,4 +62,15 @@ $inspect->setAccessible(true);
 $live = $inspect->invoke($service, new FolderApplyTestDrive(), 'semester-id', (object) array('node_type'=>'grade', 'expected_name'=>'خامس أساسي'));
 assert_folder_apply_safety(count($live['exact']) === 1 && $live['exact'][0]['id'] === 'grade-5', 'Live revalidation must recognize the canonical Arabic grade folder without matching another grade.');
 
+class FolderApplyUnitTestDrive {
+    public function list_folder_children_page($parent, $token, $size) {
+        return array('next_page_token'=>'', 'items'=>array(
+            array('id'=>'fa-folder', 'name'=>'الوحدة الحادية عشر : حرف الفاء', 'mime_type'=>'application/vnd.google-apps.folder', 'trashed'=>false),
+            array('id'=>'sad-folder', 'name'=>'الوحدة الثانية عشر : حرف الصاد', 'mime_type'=>'application/vnd.google-apps.folder', 'trashed'=>false),
+        ));
+    }
+}
+$live_unit = $inspect->invoke($service, new FolderApplyUnitTestDrive(), 'subject-id', (object) array('node_type'=>'unit', 'expected_name'=>'الوحدة الثانية عشرة: حرف الفاء'));
+assert_folder_apply_safety(count($live_unit['exact']) === 1 && $live_unit['exact'][0]['id'] === 'fa-folder', 'Live execution must revalidate the same semantic unit topic selected during preview.');
+
 echo "Folder provisioning apply safety tests passed.\n";

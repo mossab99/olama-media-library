@@ -14,6 +14,8 @@ Administrators can scan, preview/apply matches, review or manually relink files,
 
 The link-check workflow supports both a complete safe Drive inventory and a folder-specific safe inventory for the selected academic year, semester, grade, and subject. A folder-specific run rescans the selected subject subtree, preserves unaffected observations from the latest completed inventory, and publishes the merged result as the next complete inventory snapshot. Both modes are read-only in Google Drive.
 
+Folder-tree preview compares both the complete normalized unit name and its descriptive topic. A unique topic match such as `حرف الفاء` can reuse an existing folder when only the stored sequence wording differs; the UI discloses that mismatch and never renames the Drive folder. Stage 3 also provides an explicit guarded transition into the Stage 4 lesson-matching preview.
+
 ## Curriculum Video Coverage Report
 
 Administrators can open the coverage report to review every lesson in an academic year and semester. The report can be narrowed by grade and subject, marks uploaded and missing videos, and calculates coverage for each curriculum, subject, grade, and the full filtered curriculum set. A lesson is covered when it has a linked asset whose Drive upload completed successfully.

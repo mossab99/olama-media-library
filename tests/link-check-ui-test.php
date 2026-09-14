@@ -21,6 +21,10 @@ foreach (range(1, 5) as $step) {
 foreach (array('btn-folder-provisioning-preview', 'folder-provisioning-summary', 'folder-provisioning-table', 'folder-provisioning-body') as $control) {
     assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Folder provisioning stage must include {$control}.");
 }
+foreach (array('folder-provisioning-next-step', 'folder-provisioning-next-message', 'btn-go-reconciliation') as $control) {
+    assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "The stage 3 to stage 4 transition must include {$control}.");
+}
+assert_link_check_ui(strpos($script, "$('#btn-go-reconciliation').on('click'") !== false, 'The transition action must open the lesson reconciliation preview.');
 foreach (array('folder-provisioning-apply-gate', 'btn-folder-provisioning-readiness', 'folder-provisioning-confirmation', 'btn-folder-provisioning-apply', 'folder-provisioning-apply-result') as $control) {
     assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Guarded folder execution must include {$control}.");
 }

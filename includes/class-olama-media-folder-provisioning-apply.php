@@ -241,7 +241,28 @@ class Olama_Media_Folder_Provisioning_Apply
     private function node_name_matches($node_type, $expected, $actual)
     {
         if ($expected !== '' && ($expected === $actual || str_replace(' ', '', $expected) === str_replace(' ', '', $actual))) { return true; }
+        if ($node_type === 'unit') {
+            $expected_topic = $this->unit_topic($expected);
+            if ($expected_topic !== '' && hash_equals($expected_topic, $this->unit_topic($actual))) { return true; }
+        }
         return $node_type === 'grade' && $this->grade_number($expected) !== null && $this->grade_number($expected) === $this->grade_number($actual);
+    }
+
+    private function unit_topic($name)
+    {
+        $tokens = explode(' ', $this->normalizer->normalize_text($name));
+        $sequence_tokens = array(
+            'وحده','الوحده','unit','اول','الاول','اولي','الاولي','اوله','الاوليه',
+            'ثاني','الثاني','ثانيه','الثانيه','ثالث','الثالث','ثالثه','الثالثه',
+            'رابع','الرابع','رابعه','الرابعه','خامس','الخامس','خامسه','الخامسه',
+            'سادس','السادس','سادسه','السادسه','سابع','السابع','سابعه','السابعه',
+            'ثامن','الثامن','ثامنه','الثامنه','تاسع','التاسع','تاسعه','التاسعه',
+            'عاشر','العاشر','عاشره','العاشره','حادي','الحادي','حاديه','الحاديه',
+            'عشر','العشر','عشره','العشره',
+        );
+        return implode(' ', array_values(array_filter($tokens, function ($token) use ($sequence_tokens) {
+            return $token !== '' && !ctype_digit($token) && !in_array($token, $sequence_tokens, true);
+        })));
     }
 
     private function grade_number($name)

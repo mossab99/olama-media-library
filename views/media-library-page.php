@@ -316,6 +316,10 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                         <thead><tr><th><?php esc_html_e('مستوى الشجرة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('Drive ID / المرشحات', 'olama-media-library'); ?></th><th><?php esc_html_e('السبب', 'olama-media-library'); ?></th></tr></thead>
                         <tbody id="folder-provisioning-body"></tbody>
                     </table>
+                    <div id="folder-provisioning-next-step" class="olama-workflow-transition notice notice-info inline" hidden>
+                        <p id="folder-provisioning-next-message"></p>
+                        <button type="button" class="button button-primary" id="btn-go-reconciliation" disabled><?php esc_html_e('الانتقال إلى مراجعة مطابقة الدروس', 'olama-media-library'); ?></button>
+                    </div>
                     <div id="folder-provisioning-apply-gate" class="olama-folder-apply-gate notice notice-warning inline" hidden>
                         <p><strong><?php esc_html_e('تنفيذ خطة المجلدات المراجعة', 'olama-media-library'); ?></strong></p>
                         <p><?php esc_html_e('يعيد فحص Drive مباشرة قبل كل خطوة، ثم ينشئ المجلدات الناقصة فقط ويحفظ معرفاتها. لا يحذف أو ينقل أو يعيد تسمية أي مجلد أو ملف.', 'olama-media-library'); ?></p>
@@ -329,7 +333,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     </div>
                 </article>
                 <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="4">
-                    <div class="olama-workflow-heading"><span class="olama-step-number">4</span><div><h2><?php esc_html_e('مراجعة مطابقة الدروس', 'olama-media-library'); ?></h2><p><?php esc_html_e('راجع المقترحات وسجّل قرارًا لكل ملف. لا تنتقل للربط النهائي قبل وصول القرارات المعلقة إلى صفر.', 'olama-media-library'); ?></p></div></div>
+                    <div class="olama-workflow-heading"><span class="olama-step-number">4</span><div><h2><?php esc_html_e('مراجعة مطابقة الدروس', 'olama-media-library'); ?></h2><p><?php esc_html_e('تُفتح هذه المرحلة بعد اعتماد مجلد المادة واكتمال معاينة الشجرة دون تعارضات. راجع المقترحات وسجّل قرارًا لكل ملف.', 'olama-media-library'); ?></p></div></div>
                     <p><?php esc_html_e('يستخدم Drive ID للمادة المعتمدة ويقترح الوحدة والدرس لكل ملف من الجرد. يمكنك تسجيل قرار مرحلي لكل ملف، لكن هذه القرارات لا تغيّر مكتبة الفيديوهات أو Drive.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-reconciliation-preview" disabled><?php esc_html_e('إنشاء المعاينة', 'olama-media-library'); ?></button>
                     <div id="reconciliation-summary" class="notice notice-info inline" hidden><p></p></div>

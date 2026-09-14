@@ -1,6 +1,8 @@
 <?php
 define('ABSPATH', __DIR__ . '/');
 function wp_strip_all_tags($value) { return strip_tags((string) $value); }
+function sanitize_text_field($value) { return trim((string) $value); }
+function absint($value) { return abs((int) $value); }
 function assert_folder_plan_safety($condition, $message) { if (!$condition) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } }
 
 $root = dirname(__DIR__);
@@ -45,5 +47,27 @@ $grade = new ReflectionMethod($service, 'node_name_matches');
 $grade->setAccessible(true);
 $grade_spec = array('node_type'=>'grade', 'expected_name'=>'خامس أساسي');
 assert_folder_plan_safety($grade->invoke($service, $grade_spec, 'الصف الخامس') === true, 'Canonical Arabic grade aliases must reuse the existing grade folder.');
+
+$topic = new ReflectionMethod($service, 'unit_topic');
+$topic->setAccessible(true);
+assert_folder_plan_safety($topic->invoke($service, 'الوحدة الثانية عشرة: حرف الفاء') === 'حرف الفاء', 'Arabic unit sequencing words must be excluded from the semantic topic.');
+assert_folder_plan_safety($topic->invoke($service, 'الوحدة الحادية عشر : حرف الفاء') === 'حرف الفاء', 'A numbering mismatch must retain the same exact semantic topic.');
+assert_folder_plan_safety($topic->invoke($service, 'الوحدة الثانية عشر : حرف الصاد') === 'حرف الصاد', 'Different unit topics must remain distinct despite similar numbering.');
+assert_folder_plan_safety(strpos($source, 'unit_topic_match_number_mismatch') !== false, 'A unique exact unit-topic match must be reported explicitly.');
+
+$plan_child = new ReflectionMethod($service, 'plan_child');
+$plan_child->setAccessible(true);
+$semantic_plan = $plan_child->invoke($service, array(
+    'node_key'=>'unit:12', 'node_type'=>'unit', 'entity_id'=>12, 'unit_id'=>12,
+    'unit_number'=>'12', 'expected_name'=>'الوحدة الثانية عشرة: حرف الفاء',
+), 'subject-id', 'subject', 'Root/Arabic', array(
+    'subject-id'=>array(
+        (object) array('drive_item_id'=>'fa-folder','item_name'=>'الوحدة الحادية عشر : حرف الفاء'),
+        (object) array('drive_item_id'=>'sad-folder','item_name'=>'الوحدة الثانية عشر : حرف الصاد'),
+    ),
+), false);
+assert_folder_plan_safety($semantic_plan['planned_action'] === 'reuse', 'A unique exact semantic topic must reuse the existing folder without Drive mutation.');
+assert_folder_plan_safety($semantic_plan['existing_drive_folder_id'] === 'fa-folder', 'The topic match must select حرف الفاء, not the similarly numbered حرف الصاد folder.');
+assert_folder_plan_safety($semantic_plan['reason'] === 'unit_topic_match_number_mismatch', 'The reused folder must disclose its numbering mismatch.');
 
 echo "Folder provisioning safety tests passed.\n";

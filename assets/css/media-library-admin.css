@@ -182,6 +182,8 @@
 }
 
 .olama-inventory-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.olama-workflow-transition { margin-top: 14px !important; padding: 12px; }
+.olama-workflow-transition p { margin: 0 0 10px; font-weight: 600; }
 
 .olama-workflow-card-wide { grid-column: 1 / -1; }
 .folder-plan-reuse td { background: #f0f8f2; }
