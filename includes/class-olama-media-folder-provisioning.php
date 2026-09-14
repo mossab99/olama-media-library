@@ -65,7 +65,7 @@ class Olama_Media_Folder_Provisioning
         );
 
         $items = array();
-        $counts = array('existing'=>0, 'create'=>0, 'conflict'=>0, 'blocked'=>0);
+        $counts = array('existing'=>0, 'create'=>0, 'rename'=>0, 'conflict'=>0, 'blocked'=>0);
         $parent_drive_id = (string) $run->root_folder_id;
         $parent_node_key = 'root';
         $path = sanitize_text_field($run->root_name);
@@ -88,7 +88,7 @@ class Olama_Media_Folder_Provisioning
             $spec = $specs[$index];
             $planned = $this->plan_child($spec, $parent_drive_id, $parent_node_key, $path, $children, $upstream_conflict);
             $items[] = $planned;
-            $counts[$planned['planned_action']]++;
+            $counts[$planned['planned_action'] === 'reuse' ? 'existing' : $planned['planned_action']]++;
             $path = $planned['path_snapshot'];
             $parent_node_key = $spec['node_key'];
             if ($planned['planned_action'] === 'reuse') {
@@ -106,7 +106,7 @@ class Olama_Media_Folder_Provisioning
         if ($mapping && $subject_item_index !== null) {
             $subject_item = $items[$subject_item_index];
             if ($subject_item['planned_action'] !== 'reuse' || !hash_equals((string) $mapping->drive_folder_id, (string) $subject_item['existing_drive_folder_id'])) {
-                $counts[$subject_item['planned_action']]--;
+                $counts[$subject_item['planned_action'] === 'reuse' ? 'existing' : $subject_item['planned_action']]--;
                 $counts['conflict']++;
                 $subject_item['planned_action'] = 'conflict';
                 $subject_item['reason'] = 'confirmed_subject_mapping_mismatch';
@@ -127,7 +127,7 @@ class Olama_Media_Folder_Provisioning
             );
             $planned = $this->plan_child($spec, $subject_drive_id, 'subject', $subject_path, $children, $upstream_conflict);
             $items[] = $planned;
-            $counts[$planned['planned_action']]++;
+            $counts[$planned['planned_action'] === 'reuse' ? 'existing' : $planned['planned_action']]++;
         }
 
         $plan_hash = hash('sha256', wp_json_encode(array(
@@ -155,7 +155,8 @@ class Olama_Media_Folder_Provisioning
                 'anchor_drive_folder_id'=>sanitize_text_field($run->root_folder_id), 'subject_drive_folder_id'=>sanitize_text_field($subject_drive_id),
                 'root_config_hash'=>sanitize_text_field($run->root_config_hash), 'plan_hash'=>$plan_hash,
                 'plan_status'=>$status, 'items_total'=>count($items), 'existing_count'=>$counts['existing'],
-                'create_count'=>$counts['create'], 'conflict_count'=>$counts['conflict'], 'blocked_count'=>$counts['blocked'],
+                'create_count'=>$counts['create'], 'rename_count'=>$counts['rename'],
+                'conflict_count'=>$counts['conflict'], 'blocked_count'=>$counts['blocked'],
                 'summary'=>wp_json_encode(array('drive_mutations'=>0)), 'created_by'=>get_current_user_id(),
                 'created_at'=>$now, 'updated_at'=>$now,
             ))) { throw new RuntimeException('Could not save the folder provisioning plan.'); }
@@ -208,8 +209,7 @@ class Olama_Media_Folder_Provisioning
                     return $this->unit_topic((string) $folder->item_name) === $expected_topic;
                 }));
                 if (count($topic_matches) === 1) {
-                    $existing_path = rtrim((string) $parent_path, '/') . '/' . sanitize_text_field($topic_matches[0]->item_name);
-                    return $this->make_item($spec, 'reuse', $parent_drive_id, $parent_node_key, (string) $topic_matches[0]->drive_item_id, $topic_matches, $existing_path, 'unit_topic_match_number_mismatch');
+                    return $this->make_item($spec, 'conflict', $parent_drive_id, $parent_node_key, '', $topic_matches, $path, 'unit_topic_match_requires_decision');
                 }
                 if (count($topic_matches) > 1) {
                     return $this->make_item($spec, 'conflict', $parent_drive_id, $parent_node_key, '', $topic_matches, $path, 'duplicate_unit_topic_matches');
@@ -312,6 +312,124 @@ class Olama_Media_Folder_Provisioning
         return null;
     }
 
+    /** Record an administrator's explicit decision for one conflicting unit folder. */
+    public function resolve_unit_conflict($plan_id, $node_key, $decision, $candidate_folder_id = '')
+    {
+        global $wpdb;
+        $plans = $wpdb->prefix . 'olama_drive_folder_plans';
+        $nodes_table = $wpdb->prefix . 'olama_drive_folder_plan_nodes';
+        if (false === $wpdb->query('START TRANSACTION')) {
+            return new WP_Error('folder_resolution_transaction_failed', __('Could not start the folder review transaction.', 'olama-media-library'));
+        }
+        try {
+            $plan = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$plans} WHERE id=%d FOR UPDATE", absint($plan_id)));
+            if (!$plan || !in_array((string) $plan->plan_status, array('blocked','ready_for_review'), true)) {
+                throw new RuntimeException(__('This folder plan is no longer available for review.', 'olama-media-library'));
+            }
+            $latest = $this->inventory->get_latest_completed_run();
+            if (!$latest || absint($latest->id) !== absint($plan->discovery_run_id)) {
+                throw new RuntimeException(__('A newer Drive inventory exists. Create a new folder plan.', 'olama-media-library'));
+            }
+            $nodes = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$nodes_table} WHERE plan_id=%d ORDER BY id FOR UPDATE", absint($plan->id)));
+            $target = null;
+            foreach ($nodes as $node) {
+                if ((string) $node->node_key === (string) $node_key) { $target = $node; break; }
+            }
+            $prior_reason = $target ? json_decode((string) $target->reasons, true) : array();
+            $previously_reviewed = is_array($prior_reason) && !empty($prior_reason['review_decision']);
+            if (!$target || $target->node_type !== 'unit' || ($target->planned_action !== 'conflict' && !$previously_reviewed)) {
+                throw new RuntimeException(__('Only an unresolved unit-folder conflict can be reviewed here.', 'olama-media-library'));
+            }
+            $decision = sanitize_key($decision);
+            if (!in_array($decision, array('reuse','rename','create'), true)) {
+                throw new RuntimeException(__('Choose whether to approve, rename, or reject and create the unit folder.', 'olama-media-library'));
+            }
+            $candidate_ids = json_decode((string) $target->candidate_drive_folder_ids, true);
+            $candidate_names = json_decode((string) $target->candidate_names, true);
+            $candidate_ids = is_array($candidate_ids) ? array_values($candidate_ids) : array();
+            $candidate_names = is_array($candidate_names) ? array_values($candidate_names) : array();
+            $candidate_folder_id = sanitize_text_field($candidate_folder_id);
+            $selected_name = '';
+            if (in_array($decision, array('reuse','rename'), true)) {
+                $index = array_search($candidate_folder_id, $candidate_ids, true);
+                if ($index === false) { throw new RuntimeException(__('Select one of the reviewed Drive folder candidates.', 'olama-media-library')); }
+                $selected_name = sanitize_text_field($candidate_names[$index] ?? '');
+                foreach ($nodes as $node) {
+                    if ($node->id !== $target->id && in_array($node->planned_action, array('reuse','rename'), true) &&
+                        hash_equals((string) $node->existing_drive_folder_id, $candidate_folder_id)) {
+                        throw new RuntimeException(__('This Drive folder is already assigned to another curriculum unit.', 'olama-media-library'));
+                    }
+                }
+            }
+            $parent_path = preg_replace('~/[^/]*$~u', '', (string) $target->path_snapshot);
+            $new_action = $decision;
+            $new_path = rtrim((string) $parent_path, '/') . '/' . ($decision === 'reuse' ? $selected_name : (string) $target->expected_name);
+            $reason = array(
+                'reason' => $decision === 'reuse' ? 'administrator_approved_existing_folder'
+                    : ($decision === 'rename' ? 'administrator_approved_folder_rename' : 'administrator_rejected_candidates_create_expected'),
+                'review_decision' => $decision,
+                'reviewed_candidate_id' => $candidate_folder_id,
+                'reviewed_by' => get_current_user_id(),
+                'reviewed_at' => current_time('mysql'),
+            );
+            $updated = $wpdb->update($nodes_table, array(
+                'planned_action'=>$new_action,
+                'existing_drive_folder_id'=>in_array($decision, array('reuse','rename'), true) ? $candidate_folder_id : null,
+                'path_snapshot'=>sanitize_text_field($new_path), 'reasons'=>wp_json_encode($reason),
+            ), array('id'=>absint($target->id)));
+            if ($updated === false) { throw new RuntimeException(__('Could not save the folder review decision.', 'olama-media-library')); }
+
+            $nodes = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$nodes_table} WHERE plan_id=%d ORDER BY id", absint($plan->id)));
+            $items = $this->items_from_nodes($nodes);
+            $counts = array('existing'=>0,'create'=>0,'rename'=>0,'conflict'=>0,'blocked'=>0);
+            foreach ($items as $item) {
+                $counts[$item['planned_action'] === 'reuse' ? 'existing' : $item['planned_action']]++;
+            }
+            $plan_hash = hash('sha256', wp_json_encode(array(
+                'run_id'=>absint($plan->discovery_run_id), 'scope_key'=>(string) $plan->scope_key,
+                'root_id'=>(string) $plan->anchor_drive_folder_id, 'items'=>$items,
+            )));
+            $status = ($counts['conflict'] || $counts['blocked']) ? 'blocked' : 'ready_for_review';
+            if (false === $wpdb->update($plans, array(
+                'plan_hash'=>$plan_hash, 'plan_status'=>$status, 'existing_count'=>$counts['existing'],
+                'create_count'=>$counts['create'], 'rename_count'=>$counts['rename'],
+                'conflict_count'=>$counts['conflict'], 'blocked_count'=>$counts['blocked'],
+                'summary'=>wp_json_encode(array('reviewed_decisions'=>true,'drive_mutations'=>0)),
+                'updated_at'=>current_time('mysql'),
+            ), array('id'=>absint($plan->id)))) {
+                throw new RuntimeException(__('Could not update the reviewed folder plan.', 'olama-media-library'));
+            }
+            if (false === $wpdb->query('COMMIT')) { throw new RuntimeException(__('Could not commit the folder review decision.', 'olama-media-library')); }
+            $plan->plan_status = $status;
+            return $this->report($plan, $items, $counts, absint($plan->subject_mapping_id), (string) $plan->scope_key);
+        } catch (Throwable $error) {
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('folder_resolution_failed', $error->getMessage());
+        }
+    }
+
+    private function items_from_nodes($nodes)
+    {
+        $items = array();
+        foreach ((array) $nodes as $node) {
+            $candidate_ids = json_decode((string) $node->candidate_drive_folder_ids, true);
+            $candidate_names = json_decode((string) $node->candidate_names, true);
+            $reasons = json_decode((string) $node->reasons, true);
+            $items[] = array(
+                'node_key'=>(string) $node->node_key, 'node_type'=>(string) $node->node_type,
+                'entity_id'=>absint($node->curriculum_entity_id), 'unit_id'=>absint($node->unit_id),
+                'unit_number'=>(string) $node->unit_number, 'expected_name'=>(string) $node->expected_name,
+                'normalized_name'=>(string) $node->normalized_name, 'planned_action'=>(string) $node->planned_action,
+                'parent_node_key'=>(string) $node->parent_node_key, 'parent_drive_folder_id'=>(string) $node->parent_drive_folder_id,
+                'existing_drive_folder_id'=>(string) $node->existing_drive_folder_id,
+                'candidate_drive_folder_ids'=>is_array($candidate_ids) ? array_values($candidate_ids) : array(),
+                'candidate_names'=>is_array($candidate_names) ? array_values($candidate_names) : array(),
+                'path_snapshot'=>(string) $node->path_snapshot, 'reason'=>(string) ($reasons['reason'] ?? ''),
+            );
+        }
+        return $items;
+    }
+
     private function current_root_config_hash()
     {
         $settings = get_option('academy_media_library_settings', array());
@@ -328,7 +446,7 @@ class Olama_Media_Folder_Provisioning
             'plan_id'=>absint($plan->id), 'plan_uuid'=>(string) $plan->plan_uuid,
             'status'=>(string) $plan->plan_status, 'scope_key'=>$scope_key,
             'subject_mapping_id'=>absint($mapping_id), 'subject_mapping_required'=>!$mapping_id,
-            'total'=>count($items), 'existing'=>$counts['existing'], 'create'=>$counts['create'],
+            'total'=>count($items), 'existing'=>$counts['existing'], 'create'=>$counts['create'], 'rename'=>$counts['rename'],
             'conflicts'=>$counts['conflict'], 'blocked'=>$counts['blocked'], 'items'=>$items,
             'ready_for_review'=>$counts['conflict'] === 0 && $counts['blocked'] === 0,
             'ready_for_reconciliation'=>boolval($mapping_id) && $counts['conflict'] === 0 && $counts['blocked'] === 0,

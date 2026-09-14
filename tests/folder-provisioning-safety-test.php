@@ -30,8 +30,11 @@ assert_folder_plan_safety(strpos($ajax, 'drive_folder_provisioning_preview') !==
 foreach (array('olama_drive_folder_plans', 'olama_drive_folder_plan_nodes', 'scope_key', 'node_key', 'node_type', 'parent_node_key', 'subject_mapping_id', 'subject_drive_folder_id', 'plan_hash', 'planned_action', 'parent_drive_folder_id', 'candidate_drive_folder_ids') as $schema) {
     assert_folder_plan_safety(strpos($db, $schema) !== false, "Folder plan schema must include {$schema}.");
 }
-assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.10.1'") !== false, 'Plugin version must be 2.10.1.');
-assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.8.0'") !== false, 'Database version must trigger full-tree plan table creation.');
+foreach (array('rename_count', 'applied_renamed_count') as $schema) {
+    assert_folder_plan_safety(strpos($db, $schema) !== false, "Folder plan schema must include {$schema}.");
+}
+assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.11.0'") !== false, 'Plugin version must be 2.11.0.');
+assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.9.0'") !== false, 'Database version must trigger reviewed rename columns.');
 assert_folder_plan_safety(strpos($ajax, "preg_match('/^subject:(\\d+):(\\d+):(\\d+):(\\d+)$/'") !== false, 'Folder preview must validate the server-issued curriculum scope key.');
 assert_folder_plan_safety(strpos($script, 'scope_key: mappingScopeKey') !== false, 'Folder preview must reuse the scope key returned by subject discovery.');
 
@@ -53,7 +56,7 @@ $topic->setAccessible(true);
 assert_folder_plan_safety($topic->invoke($service, 'الوحدة الثانية عشرة: حرف الفاء') === 'حرف الفاء', 'Arabic unit sequencing words must be excluded from the semantic topic.');
 assert_folder_plan_safety($topic->invoke($service, 'الوحدة الحادية عشر : حرف الفاء') === 'حرف الفاء', 'A numbering mismatch must retain the same exact semantic topic.');
 assert_folder_plan_safety($topic->invoke($service, 'الوحدة الثانية عشر : حرف الصاد') === 'حرف الصاد', 'Different unit topics must remain distinct despite similar numbering.');
-assert_folder_plan_safety(strpos($source, 'unit_topic_match_number_mismatch') !== false, 'A unique exact unit-topic match must be reported explicitly.');
+assert_folder_plan_safety(strpos($source, 'unit_topic_match_requires_decision') !== false, 'A unique exact unit-topic match must require an explicit decision.');
 
 $plan_child = new ReflectionMethod($service, 'plan_child');
 $plan_child->setAccessible(true);
@@ -66,8 +69,14 @@ $semantic_plan = $plan_child->invoke($service, array(
         (object) array('drive_item_id'=>'sad-folder','item_name'=>'الوحدة الثانية عشر : حرف الصاد'),
     ),
 ), false);
-assert_folder_plan_safety($semantic_plan['planned_action'] === 'reuse', 'A unique exact semantic topic must reuse the existing folder without Drive mutation.');
-assert_folder_plan_safety($semantic_plan['existing_drive_folder_id'] === 'fa-folder', 'The topic match must select حرف الفاء, not the similarly numbered حرف الصاد folder.');
-assert_folder_plan_safety($semantic_plan['reason'] === 'unit_topic_match_number_mismatch', 'The reused folder must disclose its numbering mismatch.');
+assert_folder_plan_safety($semantic_plan['planned_action'] === 'conflict', 'A unique semantic topic mismatch must require an administrator decision.');
+assert_folder_plan_safety($semantic_plan['candidate_drive_folder_ids'] === array('fa-folder'), 'The topic match must offer حرف الفاء, not the similarly numbered حرف الصاد folder.');
+assert_folder_plan_safety($semantic_plan['reason'] === 'unit_topic_match_requires_decision', 'The candidate must disclose that approval or rename is required.');
+assert_folder_plan_safety(strpos($ajax, 'wp_ajax_olama_media_folder_provisioning_resolve') !== false, 'Conflict resolution must use an authenticated endpoint.');
+assert_folder_plan_safety(strpos($ajax, 'wp_ajax_nopriv_olama_media_folder_provisioning_resolve') === false, 'Folder conflict resolution must never be public.');
+assert_folder_plan_safety(strpos($script, "action: 'olama_media_folder_provisioning_resolve'") !== false, 'The UI must persist explicit folder decisions.');
+assert_folder_plan_safety(strpos($script, "data-decision=\"rename\"") !== false, 'The UI must offer a reviewed rename decision.');
+assert_folder_plan_safety(strpos($script, "data-decision=\"create\"") !== false, 'The UI must let administrators reject candidates and create the catalog folder.');
+assert_folder_plan_safety(strpos($source, "=== 'reuse' ? 'existing'") !== false, 'Reused folder counts must be reported under the existing count.');
 
 echo "Folder provisioning safety tests passed.\n";

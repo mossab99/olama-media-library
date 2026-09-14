@@ -1,10 +1,10 @@
 <?php
 if (!defined('ABSPATH')) { exit; }
 
-/** Executes one immutable, reviewed folder plan. It never moves, renames, or deletes Drive items. */
+/** Executes one reviewed folder plan. It may create or rename explicitly approved folders; it never moves or deletes. */
 class Olama_Media_Folder_Provisioning_Apply
 {
-    const CONFIRMATION_PHRASE = 'CREATE REVIEWED FOLDERS';
+    const CONFIRMATION_PHRASE = 'APPLY REVIEWED FOLDER PLAN';
 
     private $drive;
     private $inventory;
@@ -57,16 +57,17 @@ class Olama_Media_Folder_Provisioning_Apply
             return new WP_Error('folder_plan_integrity_failed', __('The reviewed folder plan changed after it was generated. Create a new plan.', 'olama-media-library'));
         }
         foreach ($nodes as $node) {
-            if (!in_array($node->planned_action, array('reuse', 'create'), true)) {
+            if (!in_array($node->planned_action, array('reuse', 'create', 'rename'), true)) {
                 return new WP_Error('folder_plan_node_unsafe', __('The folder plan contains an unsafe or unresolved node.', 'olama-media-library'));
             }
         }
         return array(
             'ready'=>true, 'already_applied'=>false, 'plan_id'=>absint($plan->id),
             'total'=>count($nodes), 'planned_create'=>absint($plan->create_count),
-            'planned_reuse'=>absint($plan->existing_count), 'confirmation_phrase'=>self::CONFIRMATION_PHRASE,
-            'drive_mutations_planned'=>absint($plan->create_count),
-            'deletes'=>0, 'moves'=>0, 'renames'=>0,
+            'planned_reuse'=>absint($plan->existing_count), 'planned_rename'=>absint($plan->rename_count),
+            'confirmation_phrase'=>self::CONFIRMATION_PHRASE,
+            'drive_mutations_planned'=>absint($plan->create_count) + absint($plan->rename_count),
+            'deletes'=>0, 'moves'=>0, 'renames'=>absint($plan->rename_count),
         );
     }
 
@@ -108,10 +109,13 @@ class Olama_Media_Folder_Provisioning_Apply
         $resolved = array('root'=>(string) $plan->anchor_drive_folder_id);
         $created = 0;
         $reused = 0;
+        $renamed = 0;
         foreach ($nodes as $node) {
             if ($node->apply_status === 'completed' && (string) $node->resolved_drive_folder_id !== '') {
                 $resolved[$node->node_key] = (string) $node->resolved_drive_folder_id;
-                $node->resolution_type === 'created' ? $created++ : $reused++;
+                if ($node->resolution_type === 'created') { $created++; }
+                elseif ($node->resolution_type === 'renamed') { $renamed++; }
+                else { $reused++; }
                 continue;
             }
             $parent_id = $resolved[$node->parent_node_key] ?? '';
@@ -126,16 +130,29 @@ class Olama_Media_Folder_Provisioning_Apply
                 $live = $this->inspect_live_child($drive, $parent_id, $node);
                 if (is_wp_error($live)) { return $this->fail($plan, $node, $live); }
                 if ($node->planned_action === 'reuse') {
-                    if (count($live['exact']) !== 1 || !hash_equals((string) $node->existing_drive_folder_id, (string) $live['exact'][0]['id'])) {
+                    $selected = $this->folder_by_id($live['folders'], $node->existing_drive_folder_id);
+                    if (!$selected) {
                         return $this->fail($plan, $node, new WP_Error('folder_apply_reuse_changed', __('An existing folder changed after review. Run a new inventory and plan.', 'olama-media-library')));
                     }
-                    $result = array('id'=>(string) $live['exact'][0]['id'], 'created'=>false);
-                } elseif (count($live['exact']) === 1) {
-                    // Idempotent retry or another operator created the exact child.
-                    $result = array('id'=>(string) $live['exact'][0]['id'], 'created'=>false);
-                } elseif (count($live['exact']) > 1 || !empty($live['similar'])) {
-                    return $this->fail($plan, $node, new WP_Error('folder_apply_live_conflict', __('A duplicate or similar folder appeared after review. No new folder was created for this node.', 'olama-media-library')));
+                    $result = array('id'=>(string) $selected['id'], 'created'=>false, 'renamed'=>false);
+                } elseif ($node->planned_action === 'rename') {
+                    $selected = $this->folder_by_id($live['folders'], $node->existing_drive_folder_id);
+                    if (!$selected || $this->has_other_strict_name_match($live['folders'], $node->expected_name, $node->existing_drive_folder_id)) {
+                        return $this->fail($plan, $node, new WP_Error('folder_apply_rename_changed', __('The reviewed rename is no longer safe because the candidate moved or the target name now exists.', 'olama-media-library')));
+                    }
+                    $result = $drive->rename_reviewed_folder($node->existing_drive_folder_id, $node->expected_name, $parent_id);
+                    if (is_wp_error($result)) { return $this->fail($plan, $node, $result); }
                 } else {
+                    if ($this->has_other_strict_name_match($live['folders'], $node->expected_name, '')) {
+                        return $this->fail($plan, $node, new WP_Error('folder_apply_exact_appeared', __('A folder with the catalog name now exists. Create a new inventory and review the plan.', 'olama-media-library')));
+                    }
+                    $reviewed_ids = json_decode((string) $node->candidate_drive_folder_ids, true);
+                    $reviewed_ids = is_array($reviewed_ids) ? array_values($reviewed_ids) : array();
+                    foreach (array_merge($live['exact'], $live['similar']) as $candidate) {
+                        if (!in_array((string) $candidate['id'], $reviewed_ids, true)) {
+                            return $this->fail($plan, $node, new WP_Error('folder_apply_live_conflict', __('A new similar folder appeared after review. No folder was created.', 'olama-media-library')));
+                        }
+                    }
                     $result = $drive->create_reviewed_folder($node->expected_name, $parent_id);
                     if (is_wp_error($result)) { return $this->fail($plan, $node, $result); }
                 }
@@ -143,7 +160,7 @@ class Olama_Media_Folder_Provisioning_Apply
 
             $folder_id = sanitize_text_field($result['id'] ?? '');
             if ($folder_id === '') { return $this->fail($plan, $node, new WP_Error('folder_apply_created_id_missing', __('Google Drive did not return a folder ID.', 'olama-media-library'))); }
-            $resolution = !empty($result['created']) ? 'created' : 'reused';
+            $resolution = !empty($result['renamed']) ? 'renamed' : (!empty($result['created']) ? 'created' : 'reused');
             $checkpointed = $wpdb->update($nodes_table, array(
                 'apply_status'=>'completed', 'resolved_drive_folder_id'=>$folder_id,
                 'resolution_type'=>$resolution, 'apply_error'=>null, 'applied_at'=>current_time('mysql'),
@@ -152,7 +169,9 @@ class Olama_Media_Folder_Provisioning_Apply
                 return $this->fail($plan, $node, new WP_Error('folder_apply_checkpoint_failed', __('The created Drive folder ID could not be checkpointed safely.', 'olama-media-library')));
             }
             $resolved[$node->node_key] = $folder_id;
-            $resolution === 'created' ? $created++ : $reused++;
+            if ($resolution === 'created') { $created++; }
+            elseif ($resolution === 'renamed') { $renamed++; }
+            else { $reused++; }
         }
 
         $subject_id = $resolved['subject'] ?? '';
@@ -164,9 +183,9 @@ class Olama_Media_Folder_Provisioning_Apply
         $completed = $wpdb->update($plans, array(
             'plan_status'=>'completed', 'subject_mapping_id'=>absint($mapping_id),
             'subject_drive_folder_id'=>sanitize_text_field($subject_id),
-            'applied_created_count'=>$created, 'applied_reused_count'=>$reused,
+            'applied_created_count'=>$created, 'applied_reused_count'=>$reused, 'applied_renamed_count'=>$renamed,
             'apply_error'=>null, 'apply_finished_at'=>current_time('mysql'), 'updated_at'=>current_time('mysql'),
-            'summary'=>wp_json_encode(array('created'=>$created, 'reused'=>$reused, 'deletes'=>0, 'moves'=>0, 'renames'=>0)),
+            'summary'=>wp_json_encode(array('created'=>$created, 'reused'=>$reused, 'renamed'=>$renamed, 'deletes'=>0, 'moves'=>0)),
         ), array('id'=>absint($plan->id)));
         if ($completed === false) {
             return $this->fail($plan, null, new WP_Error('folder_apply_completion_failed', __('The completed folder plan could not be finalized in WordPress.', 'olama-media-library')));
@@ -207,7 +226,26 @@ class Olama_Media_Folder_Provisioning_Apply
                 $similar[] = $folder;
             }
         }
-        return array('exact'=>$exact, 'similar'=>$similar);
+        return array('exact'=>$exact, 'similar'=>$similar, 'folders'=>$folders);
+    }
+
+    private function folder_by_id($folders, $folder_id)
+    {
+        foreach ((array) $folders as $folder) {
+            if (hash_equals((string) $folder_id, (string) ($folder['id'] ?? ''))) { return $folder; }
+        }
+        return null;
+    }
+
+    private function has_other_strict_name_match($folders, $expected_name, $excluded_id)
+    {
+        $expected = $this->normalizer->normalize_text($expected_name);
+        foreach ((array) $folders as $folder) {
+            if ((string) ($folder['id'] ?? '') === (string) $excluded_id) { continue; }
+            $actual = $this->normalizer->normalize_text($folder['name'] ?? '');
+            if ($expected !== '' && ($expected === $actual || str_replace(' ', '', $expected) === str_replace(' ', '', $actual))) { return true; }
+        }
+        return false;
     }
 
     private function verify_plan_hash($plan, $nodes)
@@ -318,8 +356,9 @@ class Olama_Media_Folder_Provisioning_Apply
             'subject_mapping_id'=>absint($plan->subject_mapping_id),
             'subject_drive_folder_id'=>(string) $plan->subject_drive_folder_id,
             'created'=>absint($plan->applied_created_count), 'reused'=>absint($plan->applied_reused_count),
-            'deletes'=>0, 'moves'=>0, 'renames'=>0,
-            'inventory_refresh_required'=>true, 'drive_mutations'=>absint($plan->applied_created_count),
+            'renamed'=>absint($plan->applied_renamed_count), 'deletes'=>0, 'moves'=>0,
+            'inventory_refresh_required'=>true,
+            'drive_mutations'=>absint($plan->applied_created_count) + absint($plan->applied_renamed_count),
         );
     }
 

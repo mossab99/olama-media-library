@@ -184,10 +184,13 @@
 .olama-inventory-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .olama-workflow-transition { margin-top: 14px !important; padding: 12px; }
 .olama-workflow-transition p { margin: 0 0 10px; font-weight: 600; }
+.olama-folder-resolution { display: grid; gap: 6px; min-width: 190px; }
+.olama-folder-resolution select { width: 100%; max-width: 280px; }
 
 .olama-workflow-card-wide { grid-column: 1 / -1; }
 .folder-plan-reuse td { background: #f0f8f2; }
 .folder-plan-create td { background: #f0f6fc; }
+.folder-plan-rename td { background: #fff8e5; }
 .folder-plan-conflict td { background: #fff1f0; color: #8a2424; }
 .folder-plan-blocked td { background: #f6f7f7; color: #646970; }
 .olama-linked-upload td { background: #f0f8f2; }

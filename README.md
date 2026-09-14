@@ -14,7 +14,7 @@ Administrators can scan, preview/apply matches, review or manually relink files,
 
 The link-check workflow supports both a complete safe Drive inventory and a folder-specific safe inventory for the selected academic year, semester, grade, and subject. A folder-specific run rescans the selected subject subtree, preserves unaffected observations from the latest completed inventory, and publishes the merged result as the next complete inventory snapshot. Both modes are read-only in Google Drive.
 
-Folder-tree preview compares both the complete normalized unit name and its descriptive topic. A unique topic match such as `حرف الفاء` can reuse an existing folder when only the stored sequence wording differs; the UI discloses that mismatch and never renames the Drive folder. Stage 3 also provides an explicit guarded transition into the Stage 4 lesson-matching preview.
+Folder-tree preview compares both the complete normalized unit name and its descriptive topic. When a candidate such as `حرف الفاء` has different sequence wording, Stage 3 requires an explicit administrator decision: approve it as-is, stage a rename to the catalog name, or reject the candidates and stage creation of the catalog folder. No Drive change occurs during review. The final guarded apply revalidates every direct child, then performs only the reviewed creates and renames; it never moves or deletes. Stage 3 also provides an explicit guarded transition into the Stage 4 lesson-matching preview.
 
 ## Curriculum Video Coverage Report
 

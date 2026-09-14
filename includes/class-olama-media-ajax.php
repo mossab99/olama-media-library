@@ -55,6 +55,7 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_drive_mapping_candidates', array($this, 'drive_mapping_candidates'));
         add_action('wp_ajax_olama_media_drive_confirm_mapping', array($this, 'drive_confirm_mapping'));
         add_action('wp_ajax_olama_media_folder_provisioning_preview', array($this, 'drive_folder_provisioning_preview'));
+        add_action('wp_ajax_olama_media_folder_provisioning_resolve', array($this, 'drive_folder_provisioning_resolve'));
         add_action('wp_ajax_olama_media_folder_provisioning_readiness', array($this, 'drive_folder_provisioning_readiness'));
         add_action('wp_ajax_olama_media_folder_provisioning_apply', array($this, 'drive_folder_provisioning_apply'));
         add_action('wp_ajax_olama_media_reconciliation_preview', array($this, 'drive_reconciliation_preview'));
@@ -1842,6 +1843,20 @@ class Olama_Media_Ajax
         $this->require_drive_administration();
         $this->require_approve();
         $result = (new Olama_Media_Folder_Provisioning_Apply())->readiness(absint($_POST['plan_id'] ?? 0));
+        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+    }
+
+    public function drive_folder_provisioning_resolve()
+    {
+        $this->verify_nonce();
+        $this->require_drive_administration();
+        $this->require_approve();
+        $result = (new Olama_Media_Folder_Provisioning())->resolve_unit_conflict(
+            absint($_POST['plan_id'] ?? 0),
+            sanitize_text_field(wp_unslash($_POST['node_key'] ?? '')),
+            sanitize_key(wp_unslash($_POST['decision'] ?? '')),
+            sanitize_text_field(wp_unslash($_POST['candidate_folder_id'] ?? ''))
+        );
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 

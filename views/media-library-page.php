@@ -313,7 +313,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     <button type="button" class="button" id="btn-folder-provisioning-preview" disabled><?php esc_html_e('إنشاء خطة المجلدات', 'olama-media-library'); ?></button>
                     <div id="folder-provisioning-summary" class="notice notice-info inline" hidden><p></p></div>
                     <table class="wp-list-table widefat striped" id="folder-provisioning-table" hidden>
-                        <thead><tr><th><?php esc_html_e('مستوى الشجرة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('Drive ID / المرشحات', 'olama-media-library'); ?></th><th><?php esc_html_e('السبب', 'olama-media-library'); ?></th></tr></thead>
+                        <thead><tr><th><?php esc_html_e('مستوى الشجرة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراء المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th><th><?php esc_html_e('Drive ID / المرشحات', 'olama-media-library'); ?></th><th><?php esc_html_e('السبب', 'olama-media-library'); ?></th><th><?php esc_html_e('قرار المراجعة', 'olama-media-library'); ?></th></tr></thead>
                         <tbody id="folder-provisioning-body"></tbody>
                     </table>
                     <div id="folder-provisioning-next-step" class="olama-workflow-transition notice notice-info inline" hidden>
@@ -322,13 +322,13 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                     </div>
                     <div id="folder-provisioning-apply-gate" class="olama-folder-apply-gate notice notice-warning inline" hidden>
                         <p><strong><?php esc_html_e('تنفيذ خطة المجلدات المراجعة', 'olama-media-library'); ?></strong></p>
-                        <p><?php esc_html_e('يعيد فحص Drive مباشرة قبل كل خطوة، ثم ينشئ المجلدات الناقصة فقط ويحفظ معرفاتها. لا يحذف أو ينقل أو يعيد تسمية أي مجلد أو ملف.', 'olama-media-library'); ?></p>
+                        <p><?php esc_html_e('يعيد فحص Drive مباشرة قبل كل خطوة، ثم ينفذ فقط قرارات الإنشاء وإعادة التسمية التي راجعتها. لا يحذف أو ينقل أي مجلد أو ملف.', 'olama-media-library'); ?></p>
                         <p class="description"><?php esc_html_e('إذا توقف التنفيذ بعد إنشاء بعض المجلدات، لا يحذفها النظام؛ تحفظ معرفاتها وتعيد المحاولة استخدامها بأمان.', 'olama-media-library'); ?></p>
                         <button type="button" class="button" id="btn-folder-provisioning-readiness"><?php esc_html_e('فحص جاهزية إنشاء المجلدات', 'olama-media-library'); ?></button>
                         <div id="folder-provisioning-readiness-result" class="olama-media-result" hidden></div>
-                        <p><label for="folder-provisioning-confirmation"><?php esc_html_e('بعد نجاح الفحص اكتب:', 'olama-media-library'); ?> <code>CREATE REVIEWED FOLDERS</code></label></p>
+                        <p><label for="folder-provisioning-confirmation"><?php esc_html_e('بعد نجاح الفحص اكتب:', 'olama-media-library'); ?> <code>APPLY REVIEWED FOLDER PLAN</code></label></p>
                         <input type="text" id="folder-provisioning-confirmation" class="regular-text" autocomplete="off" disabled>
-                        <button type="button" class="button button-primary" id="btn-folder-provisioning-apply" disabled><?php esc_html_e('إنشاء المجلدات الناقصة', 'olama-media-library'); ?></button>
+                        <button type="button" class="button button-primary" id="btn-folder-provisioning-apply" disabled><?php esc_html_e('تنفيذ خطة المجلدات', 'olama-media-library'); ?></button>
                         <pre id="folder-provisioning-apply-result" class="olama-media-result" hidden></pre>
                     </div>
                 </article>

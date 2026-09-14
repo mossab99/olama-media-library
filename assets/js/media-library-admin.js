@@ -2032,9 +2032,17 @@ jQuery(function ($) {
                 setWorkflowStep(3, 'active');
                 return;
             }
-            const data = response.data;
+            renderFolderProvisioning(response.data);
+        }).fail(function () {
+            $summary.text(cfg.i18n.error);
+        }).always(function () {
+            $button.prop('disabled', false);
+        });
+    });
+
+    function renderFolderProvisioning(data) {
             currentFolderPlanId = Number(data.plan_id) || 0;
-            const labels = { reuse: 'استخدام المجلد الموجود', create: 'مطلوب إنشاؤه', conflict: 'يحتاج مراجعة', blocked: 'محظور بسبب الأصل' };
+            const labels = { reuse: 'اعتماد المجلد الموجود', create: 'إنشاء باسم الفهرس', rename: 'إعادة تسمية معتمدة', conflict: 'يحتاج قراراً', blocked: 'محظور بسبب الأصل' };
             const types = { academic_year: 'السنة الدراسية', semester: 'الفصل', grade: 'الصف', subject: 'المادة', unit: 'الوحدة' };
             const reasons = {
                 configured_root_matches_node: 'المجلد الجذر المحدد هو هذا المستوى من المنهج',
@@ -2042,23 +2050,31 @@ jQuery(function ($) {
                 invalid_curriculum_folder_name: 'اسم المجلد في المنهج فارغ أو غير صالح',
                 duplicate_exact_sibling_folders: 'أكثر من مجلد مطابق تحت المادة',
                 possible_existing_folder_requires_review: 'يوجد مجلد مشابه وقد يكون هو المقصود',
-                unit_topic_match_number_mismatch: 'موضوع الوحدة مطابق، لكن رقم الوحدة أو صياغته مختلفان؛ سيُستخدم المجلد الموجود دون إعادة تسميته',
+                unit_topic_match_requires_decision: 'موضوع الوحدة مطابق، لكن رقم الوحدة أو صياغته مختلفان؛ اختر اعتماد الاسم الحالي أو إعادة تسميته',
                 duplicate_unit_topic_matches: 'أكثر من مجلد يحمل موضوع الوحدة نفسه؛ يلزم الحسم يدوياً',
                 no_existing_sibling_candidate: 'لا يوجد مجلد مطابق أو مشابه تحت الأصل الصحيح',
                 parent_will_be_created: 'سيُنشأ بعد إنشاء المجلد الأب ضمن الخطة',
                 blocked_by_parent_conflict: 'لا يمكن تحديد الأصل قبل حل التعارض الأعلى',
-                confirmed_subject_mapping_mismatch: 'Drive ID المعتمد للمادة لا يطابق مسار الشجرة الحالي'
+                confirmed_subject_mapping_mismatch: 'Drive ID المعتمد للمادة لا يطابق مسار الشجرة الحالي',
+                administrator_approved_existing_folder: 'اعتمد المستخدم المجلد باسمه الحالي',
+                administrator_approved_folder_rename: 'اعتمد المستخدم إعادة تسمية المجلد لاسم الفهرس',
+                administrator_rejected_candidates_create_expected: 'رفض المستخدم المرشحات واختار إنشاء مجلد باسم الفهرس'
             };
             const next = data.subject_mapping_required
                 ? 'المادة غير موجودة أو غير مرتبطة؛ الخطة جاهزة للمراجعة، لكن مطابقة الدروس تبقى مقفلة حتى تنفيذ إنشاء الشجرة وربط Drive ID الجديد.'
                 : 'مجلد المادة مرتبط؛ يمكن متابعة مطابقة الدروس إذا لم توجد تعارضات.';
-            $summary.html(`<strong>خطة رقم ${esc(data.plan_id)}</strong> · عناصر الشجرة: ${esc(data.total)} · موجود: ${esc(data.existing)} · مطلوب إنشاؤه: ${esc(data.create)} · تعارضات: ${esc(data.conflicts)} · محظور: ${esc(data.blocked)} · تغييرات Drive: 0<br><span>${esc(next)}</span>`);
+            $summary.html(`<strong>خطة رقم ${esc(data.plan_id)}</strong> · عناصر الشجرة: ${esc(data.total)} · معتمد: ${esc(data.existing)} · إنشاء: ${esc(data.create)} · إعادة تسمية: ${esc(data.rename || 0)} · تعارضات: ${esc(data.conflicts)} · محظور: ${esc(data.blocked)}<br><span>${esc(next)}</span>`);
             $('#folder-provisioning-table').removeAttr('hidden');
             $('#folder-provisioning-body').html((data.items || []).map(function (item) {
                 const ids = item.candidate_drive_folder_ids || [];
                 const names = item.candidate_names || [];
                 const candidates = ids.map(function (id, index) { return `${names[index] || '-'} (${id})`; }).join(' · ');
-                return `<tr class="folder-plan-${esc(item.planned_action)}"><td><small>${esc(types[item.node_type] || item.node_type)}</small><br><strong>${esc(item.unit_number || '')} ${esc(item.expected_name)}</strong></td><td>${esc(labels[item.planned_action] || item.planned_action)}</td><td><small>${esc(item.path_snapshot)}</small></td><td><code>${esc(item.existing_drive_folder_id || candidates || '-')}</code></td><td>${esc(reasons[item.reason] || item.reason)}</td></tr>`;
+                const options = ids.map(function (id, index) { return `<option value="${esc(id)}">${esc(names[index] || id)}</option>`; }).join('');
+                const reviewedDecision = String(item.reason || '').indexOf('administrator_') === 0;
+                const review = item.node_type === 'unit' && ids.length && (item.planned_action === 'conflict' || reviewedDecision)
+                    ? `<div class="olama-folder-resolution"><select class="folder-resolution-candidate">${options}</select><button type="button" class="button btn-folder-resolution" data-node-key="${esc(item.node_key)}" data-decision="reuse">اعتماد كما هو</button><button type="button" class="button button-primary btn-folder-resolution" data-node-key="${esc(item.node_key)}" data-decision="rename">إعادة تسمية لاسم الفهرس</button><button type="button" class="button btn-folder-resolution" data-node-key="${esc(item.node_key)}" data-decision="create">رفض وإنشاء جديد</button></div>`
+                    : (item.planned_action === 'create' ? '<span>سيُنشأ بعد تنفيذ الخطة</span>' : '<span>تم حسم القرار</span>');
+                return `<tr class="folder-plan-${esc(item.planned_action)}"><td><small>${esc(types[item.node_type] || item.node_type)}</small><br><strong>${esc(item.unit_number || '')} ${esc(item.expected_name)}</strong></td><td>${esc(labels[item.planned_action] || item.planned_action)}</td><td><small>${esc(item.path_snapshot)}</small></td><td><code>${esc(item.existing_drive_folder_id || candidates || '-')}</code></td><td>${esc(reasons[item.reason] || item.reason)}</td><td>${review}</td></tr>`;
             }).join(''));
             setWorkflowStep(3, data.conflicts || data.blocked ? 'active' : (data.subject_mapping_required ? 'ready' : 'complete'));
             setWorkflowStep(4, data.ready_for_reconciliation ? 'active' : '');
@@ -2070,14 +2086,39 @@ jQuery(function ($) {
                     ? 'المرحلة 4 مقفلة: اعتمد مجلد المادة أو نفّذ إنشاء الشجرة، ثم شغّل الجرد من جديد.'
                     : `المرحلة 4 مقفلة: يجب حل ${Number(data.conflicts || 0)} تعارض و${Number(data.blocked || 0)} عنصر محظور في الشجرة أولاً.`));
             $('#btn-go-reconciliation').prop('disabled', !data.ready_for_reconciliation);
-            const canApply = Boolean(data.ready_for_review && Number(data.create || 0) > 0);
+            const canApply = Boolean(data.ready_for_review && (Number(data.create || 0) > 0 || Number(data.rename || 0) > 0));
             $('#folder-provisioning-apply-gate').prop('hidden', !canApply);
             $('#folder-provisioning-readiness-result, #folder-provisioning-apply-result').attr('hidden', 'hidden').empty();
             $('#folder-provisioning-confirmation, #btn-folder-provisioning-apply').val('').prop('disabled', true);
+    }
+
+    $(document).on('click', '.btn-folder-resolution', function () {
+        if (!currentFolderPlanId) return;
+        const $button = $(this);
+        const decision = String($button.data('decision') || '');
+        const candidateId = decision === 'create' ? '' : String($button.closest('tr').find('.folder-resolution-candidate').val() || '');
+        const prompts = {
+            reuse: 'اعتماد المجلد المحدد باسمه الحالي؟ لن يتغير Google Drive.',
+            rename: 'اعتماد إعادة تسمية المجلد المحدد إلى اسم الوحدة في الفهرس؟ سيحدث التغيير عند تنفيذ الخطة.',
+            create: 'رفض المرشحات وإنشاء مجلد جديد باسم الوحدة في الفهرس عند تنفيذ الخطة؟'
+        };
+        if (!window.confirm(prompts[decision] || 'حفظ القرار؟')) return;
+        $('.btn-folder-resolution').prop('disabled', true);
+        $.post(cfg.ajaxurl, {
+            action: 'olama_media_folder_provisioning_resolve', nonce: cfg.nonce,
+            plan_id: currentFolderPlanId, node_key: $button.data('node-key'),
+            decision: decision, candidate_folder_id: candidateId
+        }).done(function (response) {
+            if (!response.success) {
+                notify(typeof response.data === 'string' ? response.data : cfg.i18n.error, 'error');
+                return;
+            }
+            renderFolderProvisioning(response.data);
+            notify('تم حفظ قرار المجلد في الخطة. لم يُعدّل Google Drive بعد.', 'success');
         }).fail(function () {
-            $summary.text(cfg.i18n.error);
+            notify(cfg.i18n.error, 'error');
         }).always(function () {
-            $button.prop('disabled', false);
+            $('.btn-folder-resolution').prop('disabled', false);
         });
     });
 
@@ -2103,7 +2144,7 @@ jQuery(function ($) {
                 $result.text(`تم تنفيذ الخطة مسبقاً. أُنشئ ${data.created || 0}، أُعيد استخدام ${data.reused || 0}. شغّل جرداً جديداً.`);
                 return;
             }
-            $result.text(`جاهز. إنشاء مخطط: ${data.planned_create || 0}، إعادة استخدام: ${data.planned_reuse || 0}، حذف: 0، نقل: 0، إعادة تسمية: 0.`);
+            $result.text(`جاهز. إنشاء: ${data.planned_create || 0}، إعادة تسمية: ${data.planned_rename || 0}، اعتماد كما هو: ${data.planned_reuse || 0}، حذف: 0، نقل: 0.`);
             $('#folder-provisioning-confirmation').prop('disabled', false).trigger('input');
         }).fail(function () {
             $result.text(cfg.i18n.error);
@@ -2113,13 +2154,13 @@ jQuery(function ($) {
     });
 
     $('#folder-provisioning-confirmation').on('input', function () {
-        $('#btn-folder-provisioning-apply').prop('disabled', $(this).val().trim() !== 'CREATE REVIEWED FOLDERS');
+        $('#btn-folder-provisioning-apply').prop('disabled', $(this).val().trim() !== 'APPLY REVIEWED FOLDER PLAN');
     });
 
     $('#btn-folder-provisioning-apply').on('click', function () {
         if (!currentFolderPlanId) return;
         const phrase = $('#folder-provisioning-confirmation').val().trim();
-        if (phrase !== 'CREATE REVIEWED FOLDERS') return;
+        if (phrase !== 'APPLY REVIEWED FOLDER PLAN') return;
         const $button = $(this).prop('disabled', true);
         const $result = $('#folder-provisioning-apply-result').removeAttr('hidden').text(cfg.i18n.loading);
         $.post(cfg.ajaxurl, {
@@ -2136,7 +2177,7 @@ jQuery(function ($) {
             $('#folder-provisioning-confirmation').val('').prop('disabled', true);
             $('#btn-folder-provisioning-readiness').prop('disabled', true);
             $('#btn-reconciliation-preview').prop('disabled', true);
-            notify(`تم تنفيذ خطة المجلدات: إنشاء ${data.created || 0}، إعادة استخدام ${data.reused || 0}. لا حذف ولا نقل ولا إعادة تسمية. شغّل جرد Drive جديداً قبل مطابقة الدروس.`, 'success');
+            notify(`تم تنفيذ خطة المجلدات: إنشاء ${data.created || 0}، إعادة تسمية ${data.renamed || 0}، اعتماد كما هو ${data.reused || 0}. لا حذف ولا نقل. شغّل الجرد الآمن للمجلد المحدد قبل مطابقة الدروس.`, 'success');
             setWorkflowStep(3, 'complete');
             setWorkflowStep(1, 'active');
         }).fail(function () {

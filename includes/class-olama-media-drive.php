@@ -307,6 +307,39 @@ class Olama_Media_Drive
         return $this->get_or_create_single_folder($folder_name, $parent_id, true, true);
     }
 
+    /** Rename one explicitly reviewed folder without moving it. */
+    public function rename_reviewed_folder($folder_id, $folder_name, $parent_id)
+    {
+        if (!$this->service) {
+            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
+        }
+        if (!defined('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED') || OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED !== true) {
+            return new WP_Error('reviewed_folder_apply_disabled', __('Reviewed Drive folder plan execution is disabled.', 'olama-media-library'));
+        }
+        $folder_id = sanitize_text_field($folder_id);
+        $folder_name = trim(wp_strip_all_tags((string) $folder_name));
+        $parent_id = sanitize_text_field($parent_id);
+        if ($folder_id === '' || $folder_name === '' || $parent_id === '') {
+            return new WP_Error('reviewed_folder_rename_invalid', __('The reviewed folder rename is invalid.', 'olama-media-library'));
+        }
+        try {
+            $current = $this->service->files->get($folder_id, array(
+                'fields' => 'id,name,mimeType,parents,trashed', 'supportsAllDrives' => true,
+            ));
+            if ((bool) $current->trashed || $current->mimeType !== 'application/vnd.google-apps.folder' ||
+                !in_array($parent_id, (array) $current->parents, true)) {
+                return new WP_Error('reviewed_folder_rename_changed', __('The reviewed Drive folder changed or moved before rename.', 'olama-media-library'));
+            }
+            $metadata = new Google_Service_Drive_DriveFile(array('name' => $folder_name));
+            $updated = $this->service->files->update($folder_id, $metadata, array(
+                'fields' => 'id,name,parents', 'supportsAllDrives' => true,
+            ));
+            return array('id'=>(string) $updated->id, 'name'=>(string) $updated->name, 'renamed'=>true);
+        } catch (Exception $e) {
+            return new WP_Error('reviewed_folder_rename_failed', $this->extract_error($e));
+        }
+    }
+
     public function init_resumable_upload($filename, $mime_type, $folder_id, $total_size)
     {
         if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
