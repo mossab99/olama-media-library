@@ -74,7 +74,8 @@ class Olama_Media_Admin
         $settings = get_option('academy_media_library_settings', array());
         $max_size_mb = max(1, absint($settings['max_file_size'] ?? 2048));
         $server_limit = $this->server_upload_limit();
-        $max_size = min($max_size_mb * 1024 * 1024, $server_limit);
+        // PHP limits individual requests; streamed uploads send chunks and direct uploads bypass PHP.
+        $max_size = $max_size_mb * 1024 * 1024;
         $drive_auth_health = (new Olama_Media_Drive())->get_auth_health();
         $transport_mode = sanitize_key($settings['olama_media_upload_transport_mode'] ?? $settings['upload_transport_mode'] ?? 'auto');
         if (!in_array($transport_mode, array('wordpress_streamed', 'direct_google', 'auto'), true)) {
@@ -111,8 +112,7 @@ class Olama_Media_Admin
                 'auth_warning' => (!$drive_auth_health['is_configured'] || !$drive_auth_health['has_refresh_token'] || !$drive_auth_health['can_refresh']) ? __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library') : '',
             ),
             'autoSyncV2OnCurriculumLoad' => $drive_sync_enabled && (current_user_can('manage_options') || current_user_can('olama_media_drive_settings')),
-            // Phase 1 still proxies chunks through PHP before sending them to Drive.
-            // Keep chunks smaller for reliability until uploads move to a background/direct flow.
+            // WordPress uploads (including direct-upload fallback) must keep each chunk within PHP limits.
             'chunkSize' => min(5 * 1024 * 1024, max(1024 * 1024, (int) floor($server_limit * 0.7))),
             'i18n' => $this->i18n(),
         ));
