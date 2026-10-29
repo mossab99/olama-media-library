@@ -62,7 +62,8 @@ $service = new Olama_Media_Folder_Provisioning(
 $result = $service->resolve_unit_conflict(12, 'unit:12', 'rename', 'fa-folder');
 assert_folder_resolution(!is_wp_error($result), 'An administrator should be able to stage a reviewed rename.');
 assert_folder_resolution($result['rename'] === 1 && $result['conflicts'] === 0, 'The resolved plan must count one rename and no remaining conflict.');
-assert_folder_resolution($result['ready_for_review'] === true && $result['ready_for_reconciliation'] === true, 'Resolving the final conflict must unlock the reviewed plan and Stage 4.');
+assert_folder_resolution($result['ready_for_review'] === true && $result['requires_apply'] === true, 'Resolving the final conflict must unlock execution of the reviewed plan.');
+assert_folder_resolution($result['ready_for_reconciliation'] === false, 'A staged rename must not unlock Stage 4 before it is executed and inventoried.');
 assert_folder_resolution($result['items'][0]['existing_drive_folder_id'] === 'fa-folder', 'The exact reviewed Drive ID must be retained for execution.');
 assert_folder_resolution($result['items'][0]['reason'] === 'administrator_approved_folder_rename', 'The administrator rename decision must be auditable.');
 

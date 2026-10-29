@@ -442,6 +442,9 @@ class Olama_Media_Folder_Provisioning
 
     private function report($plan, $items, $counts, $mapping_id, $scope_key)
     {
+        $has_changes = $counts['create'] > 0 || $counts['rename'] > 0;
+        $requires_apply = $has_changes && $plan->plan_status !== 'completed';
+        $requires_inventory = $plan->plan_status === 'completed';
         return array(
             'plan_id'=>absint($plan->id), 'plan_uuid'=>(string) $plan->plan_uuid,
             'status'=>(string) $plan->plan_status, 'scope_key'=>$scope_key,
@@ -449,7 +452,9 @@ class Olama_Media_Folder_Provisioning
             'total'=>count($items), 'existing'=>$counts['existing'], 'create'=>$counts['create'], 'rename'=>$counts['rename'],
             'conflicts'=>$counts['conflict'], 'blocked'=>$counts['blocked'], 'items'=>$items,
             'ready_for_review'=>$counts['conflict'] === 0 && $counts['blocked'] === 0,
-            'ready_for_reconciliation'=>boolval($mapping_id) && $counts['conflict'] === 0 && $counts['blocked'] === 0,
+            'requires_apply'=>$requires_apply, 'inventory_refresh_required'=>$requires_inventory,
+            'ready_for_reconciliation'=>boolval($mapping_id) && $counts['conflict'] === 0 && $counts['blocked'] === 0
+                && !$requires_apply && !$requires_inventory,
             'authoritative_state_changed'=>false, 'drive_mutations'=>0,
         );
     }

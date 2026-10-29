@@ -2061,7 +2061,13 @@ jQuery(function ($) {
                 administrator_approved_folder_rename: 'اعتمد المستخدم إعادة تسمية المجلد لاسم الفهرس',
                 administrator_rejected_candidates_create_expected: 'رفض المستخدم المرشحات واختار إنشاء مجلد باسم الفهرس'
             };
-            const next = data.subject_mapping_required
+            const requiresApply = Boolean(data.requires_apply);
+            const requiresInventory = Boolean(data.inventory_refresh_required);
+            const next = requiresInventory
+                ? 'تم تنفيذ الخطة. شغّل الجرد الآمن للمجلد المحدد لتحديث المجلدات قبل الرفع أو مطابقة الدروس.'
+                : requiresApply
+                ? `لم تُنفّذ الخطة بعد. يلزم إنشاء ${Number(data.create || 0)} مجلد وإعادة تسمية ${Number(data.rename || 0)}. الجرد والمعاينة لا ينشئان المجلدات؛ أكمل تنفيذ الخطة أدناه أولاً.`
+                : data.subject_mapping_required
                 ? 'المادة غير موجودة أو غير مرتبطة؛ الخطة جاهزة للمراجعة، لكن مطابقة الدروس تبقى مقفلة حتى تنفيذ إنشاء الشجرة وربط Drive ID الجديد.'
                 : 'مجلد المادة مرتبط؛ يمكن متابعة مطابقة الدروس إذا لم توجد تعارضات.';
             $summary.html(`<strong>خطة رقم ${esc(data.plan_id)}</strong> · عناصر الشجرة: ${esc(data.total)} · معتمد: ${esc(data.existing)} · إنشاء: ${esc(data.create)} · إعادة تسمية: ${esc(data.rename || 0)} · تعارضات: ${esc(data.conflicts)} · محظور: ${esc(data.blocked)}<br><span>${esc(next)}</span>`);
@@ -2077,18 +2083,23 @@ jQuery(function ($) {
                     : (item.planned_action === 'create' ? '<span>سيُنشأ بعد تنفيذ الخطة</span>' : '<span>تم حسم القرار</span>');
                 return `<tr class="folder-plan-${esc(item.planned_action)}"><td><small>${esc(types[item.node_type] || item.node_type)}</small><br><strong>${esc(item.unit_number || '')} ${esc(item.expected_name)}</strong></td><td>${esc(labels[item.planned_action] || item.planned_action)}</td><td><small>${esc(item.path_snapshot)}</small></td><td><code>${esc(item.existing_drive_folder_id || candidates || '-')}</code></td><td>${esc(reasons[item.reason] || item.reason)}</td><td>${review}</td></tr>`;
             }).join(''));
-            setWorkflowStep(3, data.conflicts || data.blocked ? 'active' : (data.subject_mapping_required ? 'ready' : 'complete'));
+            setWorkflowStep(3, data.conflicts || data.blocked ? 'active' : (requiresApply || requiresInventory || data.subject_mapping_required ? 'ready' : 'complete'));
             setWorkflowStep(4, data.ready_for_reconciliation ? 'active' : '');
             $('#btn-reconciliation-preview').prop('disabled', !data.ready_for_reconciliation);
             $('#folder-provisioning-next-step').removeAttr('hidden').toggleClass('notice-success', Boolean(data.ready_for_reconciliation)).toggleClass('notice-warning', !data.ready_for_reconciliation);
             $('#folder-provisioning-next-message').text(data.ready_for_reconciliation
                 ? 'اكتملت معاينة الشجرة ومجلد المادة معتمد. يمكنك الآن الانتقال مباشرة إلى مراجعة مطابقة ملفات Drive بالدروس.'
-                : (data.subject_mapping_required
+                : (requiresInventory
+                    ? 'المرحلة 4 مقفلة: شغّل الجرد الآمن للمجلد المحدد، ثم أنشئ معاينة جديدة للشجرة.'
+                    : (requiresApply && data.ready_for_review
+                    ? 'المرحلة 4 مقفلة: المجلدات لم تُنشأ أو تُعدّل بعد. اضغط فحص جاهزية إنشاء المجلدات أدناه، ثم أكّد تنفيذ الخطة.'
+                    : (data.subject_mapping_required
                     ? 'المرحلة 4 مقفلة: اعتمد مجلد المادة أو نفّذ إنشاء الشجرة، ثم شغّل الجرد من جديد.'
-                    : `المرحلة 4 مقفلة: يجب حل ${Number(data.conflicts || 0)} تعارض و${Number(data.blocked || 0)} عنصر محظور في الشجرة أولاً.`));
+                    : `المرحلة 4 مقفلة: يجب حل ${Number(data.conflicts || 0)} تعارض و${Number(data.blocked || 0)} عنصر محظور في الشجرة أولاً.`))));
             $('#btn-go-reconciliation').prop('disabled', !data.ready_for_reconciliation);
-            const canApply = Boolean(data.ready_for_review && (Number(data.create || 0) > 0 || Number(data.rename || 0) > 0));
+            const canApply = Boolean(data.ready_for_review && requiresApply);
             $('#folder-provisioning-apply-gate').prop('hidden', !canApply);
+            $('#btn-folder-provisioning-readiness').prop('disabled', !canApply);
             $('#folder-provisioning-readiness-result, #folder-provisioning-apply-result').attr('hidden', 'hidden').empty();
             $('#folder-provisioning-confirmation, #btn-folder-provisioning-apply').val('').prop('disabled', true);
     }
@@ -2178,8 +2189,13 @@ jQuery(function ($) {
             $('#folder-provisioning-confirmation').val('').prop('disabled', true);
             $('#btn-folder-provisioning-readiness').prop('disabled', true);
             $('#btn-reconciliation-preview').prop('disabled', true);
+            $('#btn-go-reconciliation').prop('disabled', true);
+            $('#folder-provisioning-next-step').removeAttr('hidden').removeClass('notice-success').addClass('notice-warning');
+            $('#folder-provisioning-next-message').text('تم تنفيذ الخطة في Google Drive. شغّل الجرد الآمن للمجلد المحدد، ثم أعد معاينة الشجرة قبل الرفع أو مطابقة الدروس.');
+            $('#folder-provisioning-summary').find('p').text(`تم تنفيذ الخطة: إنشاء ${data.created || 0}، إعادة تسمية ${data.renamed || 0}، اعتماد كما هو ${data.reused || 0}. الخطوة التالية: الجرد الآمن للمجلد المحدد.`);
             notify(`تم تنفيذ خطة المجلدات: إنشاء ${data.created || 0}، إعادة تسمية ${data.renamed || 0}، اعتماد كما هو ${data.reused || 0}. لا حذف ولا نقل. شغّل الجرد الآمن للمجلد المحدد قبل مطابقة الدروس.`, 'success');
             setWorkflowStep(3, 'complete');
+            setWorkflowStep(4, '');
             setWorkflowStep(1, 'active');
         }).fail(function () {
             $result.text(cfg.i18n.error);
