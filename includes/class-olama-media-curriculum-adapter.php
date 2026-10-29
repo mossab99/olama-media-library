@@ -75,6 +75,20 @@ class Olama_Media_Curriculum_Adapter
         return $db->get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id);
     }
 
+    /** Verify relationships before allowing an upload to create a Drive branch. */
+    public function is_valid_scope($academic_year_id, $semester_id, $grade_id, $subject_id)
+    {
+        global $wpdb;
+        return (bool) $wpdb->get_var($wpdb->prepare(
+            "SELECT 1 FROM {$wpdb->prefix}olama_semesters sem
+             INNER JOIN {$wpdb->prefix}olama_academic_years y ON y.id=sem.academic_year_id
+             INNER JOIN {$wpdb->prefix}olama_subjects s ON s.id=%d
+             INNER JOIN {$wpdb->prefix}olama_grades g ON g.id=s.grade_id
+             WHERE sem.id=%d AND y.id=%d AND g.id=%d LIMIT 1",
+            absint($subject_id), absint($semester_id), absint($academic_year_id), absint($grade_id)
+        ));
+    }
+
     public function get_names($academic_year_id, $semester_id, $grade_id, $subject_id)
     {
         global $wpdb;

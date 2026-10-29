@@ -53,6 +53,10 @@ Uploaded to Drive does not mean ready for preview or approved for students.
 
 ## Google Drive Behavior
 
+Both direct and WordPress-streamed uploads prepare the selected lesson's folder branch before creating the video/upload session. The server verifies curriculum IDs and names, walks the configured root → academic year → semester → grade → subject → unit in Drive, reuses unique existing folders, and creates only the missing branch. It saves the subject mapping by the returned Drive ID and revalidates folder parents. Uploads do not require an inventory scan or manual folder-plan execution first.
+
+Preparation stops for duplicate/similar candidates, changed or unconfirmed existing mappings, invalid curriculum scope, inaccessible folders, or a root configuration change. It never renames, moves, or deletes existing Drive items. Root and subject locks serialize uploads and reviewed folder plans; retrying a partially completed preparation reuses the folders already created. Folder preparation uses the upload feature gate, while unrestricted legacy folder creation remains disabled. Inventory and reviewed folder plans remain available for reconciliation and resolving ambiguous paths.
+
 Normal curriculum loading reads the local database only. It does not call Google Drive.
 
 Administrators can use the Drive sync tool in the Migration tab to reconcile videos that already exist in the configured curriculum folders. It performs exact normalized filename matching against lesson titles, supports a dry run, refuses ambiguous matches, and is safe to repeat.

@@ -27,7 +27,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
             </div>
         <?php elseif ($drive_upload_enabled) : ?>
             <div class="notice notice-success inline">
-                <p><strong><?php esc_html_e('الرفع الآمن مفعّل:', 'olama-media-library'); ?></strong> <?php esc_html_e('يُرفع الفيديو فقط إلى مجلد وحدة موجود داخل مجلد مادة معتمد. لا تنشئ عملية الرفع مجلدات جديدة.', 'olama-media-library'); ?></p>
+                <p><strong><?php esc_html_e('الرفع الآمن مفعّل:', 'olama-media-library'); ?></strong> <?php esc_html_e('يتحقق النظام من مسار المنهج في Drive، ويعيد استخدام المجلدات الموجودة وينشئ الناقص تلقائياً قبل رفع الفيديو. عند وجود مجلدات متكررة أو مسار غير واضح، يتوقف الرفع ويطلب مراجعة الربط.', 'olama-media-library'); ?></p>
             </div>
         <?php endif; ?>
         <?php if (empty($drive_auth_health['is_configured']) || empty($drive_auth_health['has_refresh_token']) || empty($drive_auth_health['can_refresh'])) : ?>
@@ -309,7 +309,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                 </article>
                 <article class="olama-workflow-card olama-workflow-card-wide" data-workflow-step="3">
                     <div class="olama-workflow-heading"><span class="olama-step-number">3</span><div><h2><?php esc_html_e('معاينة شجرة مجلدات المنهج', 'olama-media-library'); ?></h2><p><?php esc_html_e('يفحص السنة والفصل والصف والمادة والوحدات بالترتيب، ويعرض ما سيُعاد استخدامه وما يحتاج إلى إنشاء أو مراجعة.', 'olama-media-library'); ?></p></div></div>
-                    <p><?php esc_html_e('هذه معاينة للقراءة فقط. لا تنشئ أو تنقل أو تعيد تسمية أي مجلد في Google Drive. إذا كان مجلد المادة أو وحداتها مفقوداً، أنشئ الخطة ثم أكمل فحص الجاهزية وتنفيذها أدناه، وبعد ذلك شغّل جرداً جديداً قبل الرفع.', 'olama-media-library'); ?></p>
+                    <p><?php esc_html_e('هذه معاينة للقراءة فقط. لا تنشئ أو تنقل أو تعيد تسمية أي مجلد في Google Drive. يمكنك تنفيذ الخطة المراجعة أدناه ثم تشغيل جرد جديد لمطابقة الفيديوهات الموجودة. عند رفع فيديو جديد، ينشئ النظام المجلدات الناقصة تلقائياً إذا كان المسار واضحاً.', 'olama-media-library'); ?></p>
                     <button type="button" class="button" id="btn-folder-provisioning-preview" disabled><?php esc_html_e('إنشاء خطة المجلدات', 'olama-media-library'); ?></button>
                     <div id="folder-provisioning-summary" class="notice notice-info inline" hidden><p></p></div>
                     <table class="wp-list-table widefat striped" id="folder-provisioning-table" hidden>

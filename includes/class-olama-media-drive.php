@@ -307,6 +307,21 @@ class Olama_Media_Drive
         return $this->get_or_create_single_folder($folder_name, $parent_id, true, true);
     }
 
+    /** Create/reuse one folder after the upload resolver verifies its parent path. */
+    public function create_upload_folder($folder_name, $parent_id)
+    {
+        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
+            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
+        }
+        if (!$this->service) { return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library')); }
+        $folder_name = trim(wp_strip_all_tags((string) $folder_name));
+        $parent_id = sanitize_text_field($parent_id);
+        if ($folder_name === '' || $parent_id === '') {
+            return new WP_Error('safe_upload_folder_invalid', __('اسم المجلد أو معرف المجلد الأب غير صالح.', 'olama-media-library'));
+        }
+        return $this->get_or_create_single_folder($folder_name, $parent_id, true, true);
+    }
+
     /** Rename one explicitly reviewed folder without moving it. */
     public function rename_reviewed_folder($folder_id, $folder_name, $parent_id)
     {

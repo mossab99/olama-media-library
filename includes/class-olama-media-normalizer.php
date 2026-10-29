@@ -21,6 +21,25 @@ class Olama_Media_Normalizer
         return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text));
     }
 
+    /** Canonical grade aliases shared by upload preparation and reviewed folder tools. */
+    public function grade_number($name)
+    {
+        $name = $this->normalize_text($name);
+        if (preg_match('/(?:^| )(?:اول|الاول|1) (?:ثانوي|الثانوي)(?: |$)/u', $name)) { return 11; }
+        if (preg_match('/(?:^| )(?:ثاني|الثاني|2) (?:ثانوي|الثانوي)(?: |$)/u', $name)) { return 12; }
+        if (preg_match('/(?:^| )([0-9]{1,2})(?: |$)/u', $name, $match)) { return (int) $match[1]; }
+        $ordinals = array(
+            12=>array('ثاني عشر','الثاني عشر','twelve'), 11=>array('حادي عشر','الحادي عشر','eleven'),
+            10=>array('عاشر','العاشر','ten'), 9=>array('تاسع','التاسع','nine'), 8=>array('ثامن','الثامن','eight'),
+            7=>array('سابع','السابع','seven'), 6=>array('سادس','السادس','six'), 5=>array('خامس','الخامس','five'),
+            4=>array('رابع','الرابع','four'), 3=>array('ثالث','الثالث','three'), 2=>array('ثاني','الثاني','two'), 1=>array('اول','الاول','one'),
+        );
+        foreach ($ordinals as $number => $aliases) {
+            foreach ($aliases as $alias) { if (preg_match('/(?:^| )' . preg_quote($alias, '/') . '(?: |$)/u', $name)) { return $number; } }
+        }
+        return null;
+    }
+
     public function normalize_filename($filename)
     {
         return $this->normalize_text(pathinfo((string) $filename, PATHINFO_FILENAME));

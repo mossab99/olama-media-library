@@ -19,8 +19,8 @@ define('OLAMA_MEDIA_LIBRARY_FILE', __FILE__);
 define('OLAMA_MEDIA_LIBRARY_PATH', plugin_dir_path(__FILE__));
 define('OLAMA_MEDIA_LIBRARY_URL', plugin_dir_url(__FILE__));
 
-// Server-side rollout gates. Uploads now use the reviewed, read-only folder
-// resolver; legacy sync and general-purpose folder creation stay frozen.
+// Uploads prepare only the verified curriculum branch. Legacy synchronization
+// and unrestricted folder creation remain disabled.
 if (!defined('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED')) {
     define('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED', true);
 }

@@ -1236,10 +1236,14 @@ class Olama_Media_Ajax
         if (!in_array($transport_mode, array('wordpress_streamed', 'direct_google', 'auto'), true)) {
             $transport_mode = 'auto';
         }
+        $root_folder_id = trim(sanitize_text_field($_POST['root_folder_id'] ?? ''), " \t\n\r\0\x0B.");
+        $same_root = $root_folder_id === (string) ($current['root_folder_id'] ?? '');
         $settings = array(
             'client_id' => $client_id,
             'client_secret' => $client_secret,
-            'root_folder_id' => trim(sanitize_text_field($_POST['root_folder_id'] ?? ''), " \t\n\r\0\x0B."),
+            'root_folder_id' => $root_folder_id,
+            'root_scope_level' => $same_root ? sanitize_key($current['root_scope_level'] ?? 'unknown') : 'unknown',
+            'root_scope_id' => $same_root ? absint($current['root_scope_id'] ?? 0) : 0,
             'max_file_size' => max(1, absint($_POST['max_file_size'] ?? 2048)),
             'olama_media_upload_transport_mode' => $transport_mode,
             'olama_media_direct_upload_threshold_mb' => max(1, absint($_POST['olama_media_direct_upload_threshold_mb'] ?? $_POST['direct_upload_threshold_mb'] ?? 20)),
@@ -1938,7 +1942,7 @@ class Olama_Media_Ajax
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 
-    /** Resolve an existing reviewed unit Drive ID. Uploads never create folders. */
+    /** Verify/create the canonical lesson branch before starting either upload transport. */
     private function resolve_upload_folder($drive, $meta)
     {
         return (new Olama_Media_Safe_Upload_Folder_Resolver())->resolve($drive, (array) $meta);
@@ -2230,14 +2234,13 @@ class Olama_Media_Ajax
         $message_ar = __('تعذر رفع هذا الجزء مؤقتا. سيتم إعادة المحاولة تلقائيا.', 'olama-media-library');
         $error_code = sanitize_key($code ?: 'upload_failed');
 
-        // Safe routing failures describe a curriculum/Drive state that must be
-        // corrected by an administrator. Retrying either transport cannot make
-        // that state valid, so preserve the resolver's actionable message.
+        // Keep actionable preparation errors. Only explicitly transient errors
+        // (such as another request holding the folder lock) may be retried.
         if (strpos($error_code, 'safe_upload_') === 0) {
             return array(
                 'error_code' => $error_code,
                 'message_ar' => $message,
-                'retryable' => false,
+                'retryable' => !empty($data['retryable']),
             );
         }
 

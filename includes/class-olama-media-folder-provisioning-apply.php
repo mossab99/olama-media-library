@@ -11,6 +11,7 @@ class Olama_Media_Folder_Provisioning_Apply
     private $mapping;
     private $normalizer;
     private $scope_lock_name = '';
+    private $root_lock_name = '';
 
     public function __construct($drive = null, $inventory = null, $mapping = null, $normalizer = null)
     {
@@ -98,6 +99,13 @@ class Olama_Media_Folder_Provisioning_Apply
             $wpdb->update($plans, array('plan_status'=>'ready_for_review', 'apply_error'=>'Another folder plan is executing for this curriculum scope.', 'updated_at'=>current_time('mysql')), array('id'=>absint($plan->id)));
             $this->scope_lock_name = '';
             return new WP_Error('folder_scope_apply_locked', __('Another folder plan is currently executing for this curriculum scope.', 'olama-media-library'));
+        }
+        $this->root_lock_name = 'olama_upload_' . substr(hash('sha256', (string) $plan->anchor_drive_folder_id), 0, 40);
+        if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)', $this->root_lock_name)) !== 1) {
+            $this->root_lock_name = '';
+            $wpdb->update($plans, array('plan_status'=>'ready_for_review', 'updated_at'=>current_time('mysql')), array('id'=>absint($plan->id)));
+            $this->release_scope_lock();
+            return new WP_Error('folder_root_apply_locked', __('Drive folders are being prepared by another upload or plan. Try again shortly.', 'olama-media-library'));
         }
         $drive = $this->drive ?: new Olama_Media_Drive();
         $root = $drive->test_connection();
@@ -305,12 +313,7 @@ class Olama_Media_Folder_Provisioning_Apply
 
     private function grade_number($name)
     {
-        if (preg_match('/(?:^| )([0-9]{1,2})(?: |$)/u', $name, $match)) { return (int) $match[1]; }
-        $ordinals = array(1=>array('اول','الاول'),2=>array('ثاني','الثاني'),3=>array('ثالث','الثالث'),4=>array('رابع','الرابع'),5=>array('خامس','الخامس'),6=>array('سادس','السادس'),7=>array('سابع','السابع'),8=>array('ثامن','الثامن'),9=>array('تاسع','التاسع'),10=>array('عاشر','العاشر'),11=>array('حادي عشر','الحادي عشر'),12=>array('ثاني عشر','الثاني عشر'));
-        foreach ($ordinals as $number => $aliases) {
-            foreach ($aliases as $alias) { if (preg_match('/(?:^| )' . preg_quote($alias, '/') . '(?: |$)/u', $name)) { return $number; } }
-        }
-        return null;
+        return $this->normalizer->grade_number($name);
     }
 
     private function names_are_similar($expected, $actual)
@@ -342,6 +345,10 @@ class Olama_Media_Folder_Provisioning_Apply
     private function release_scope_lock()
     {
         global $wpdb;
+        if ($this->root_lock_name !== '') {
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $this->root_lock_name));
+            $this->root_lock_name = '';
+        }
         if ($this->scope_lock_name !== '') {
             $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $this->scope_lock_name));
             $this->scope_lock_name = '';

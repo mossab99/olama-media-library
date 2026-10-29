@@ -260,19 +260,7 @@ class Olama_Media_Folder_Provisioning
 
     private function grade_number($name)
     {
-        if (preg_match('/(?:^| )([0-9]{1,2})(?: |$)/u', $name, $match)) { return (int) $match[1]; }
-        $ordinals = array(
-            1=>array('اول','الاول'), 2=>array('ثاني','الثاني'), 3=>array('ثالث','الثالث'),
-            4=>array('رابع','الرابع'), 5=>array('خامس','الخامس'), 6=>array('سادس','السادس'),
-            7=>array('سابع','السابع'), 8=>array('ثامن','الثامن'), 9=>array('تاسع','التاسع'),
-            10=>array('عاشر','العاشر'), 11=>array('حادي عشر','الحادي عشر'), 12=>array('ثاني عشر','الثاني عشر'),
-        );
-        foreach ($ordinals as $number => $aliases) {
-            foreach ($aliases as $alias) {
-                if (preg_match('/(?:^| )' . preg_quote($alias, '/') . '(?: |$)/u', $name)) { return $number; }
-            }
-        }
-        return null;
+        return $this->normalizer->grade_number($name);
     }
 
     private function names_are_similar($expected, $actual)

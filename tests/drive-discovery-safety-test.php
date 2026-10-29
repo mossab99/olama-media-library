@@ -19,10 +19,11 @@ function get_option($name, $default = array()) { return $default; }
 function __($text) { return $text; }
 function get_current_user_id() { return 1; }
 
+require_once dirname(__DIR__) . '/includes/class-olama-media-normalizer.php';
 require_once dirname(__DIR__) . '/includes/class-olama-media-drive-discovery.php';
 require_once dirname(__DIR__) . '/includes/class-olama-media-drive-mapping.php';
 
-class DiscoveryTestNormalizer {
+class DiscoveryTestNormalizer extends Olama_Media_Normalizer {
     public function normalize_text($value) { return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', strtolower((string) $value))); }
 }
 

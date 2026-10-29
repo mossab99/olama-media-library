@@ -1240,7 +1240,7 @@ jQuery(function ($) {
                 current_chunk_index: index,
                 uploaded_bytes: start,
                 current_stage: 'wordpress_chunk_upload',
-                last_message: `جاري رفع الجزء ${index + 1} من ${totalChunks}`
+                last_message: index === 0 ? cfg.i18n.upload_folder_preparing : `جاري رفع الجزء ${index + 1} من ${totalChunks}`
             }, `بدأ رفع الجزء ${index + 1} من ${totalChunks}`);
 
             if (retryAttempt > 0) {
@@ -1249,7 +1249,7 @@ jQuery(function ($) {
                     .replace('%2$s', totalChunks)
                     .replace('%3$s', retryAttempt));
             } else {
-                $text.text(`${cfg.i18n.transport_wordpress} - ${cfg.i18n.uploading} ${index + 1}/${totalChunks}`);
+                $text.text(index === 0 ? cfg.i18n.upload_folder_preparing : `${cfg.i18n.transport_wordpress} - ${cfg.i18n.uploading} ${index + 1}/${totalChunks}`);
             }
             $bar.css('background', '#2271b1');
 
@@ -2064,7 +2064,7 @@ jQuery(function ($) {
             const requiresApply = Boolean(data.requires_apply);
             const requiresInventory = Boolean(data.inventory_refresh_required);
             const next = requiresInventory
-                ? 'تم تنفيذ الخطة. شغّل الجرد الآمن للمجلد المحدد لتحديث المجلدات قبل الرفع أو مطابقة الدروس.'
+                ? 'تم تنفيذ الخطة. شغّل الجرد الآمن للمجلد المحدد لتحديث المجلدات قبل مطابقة الدروس. يمكنك رفع فيديو جديد مباشرة من تبويب رفع الفيديوهات.'
                 : requiresApply
                 ? `لم تُنفّذ الخطة بعد. يلزم إنشاء ${Number(data.create || 0)} مجلد وإعادة تسمية ${Number(data.rename || 0)}. الجرد والمعاينة لا ينشئان المجلدات؛ أكمل تنفيذ الخطة أدناه أولاً.`
                 : data.subject_mapping_required
@@ -2191,7 +2191,7 @@ jQuery(function ($) {
             $('#btn-reconciliation-preview').prop('disabled', true);
             $('#btn-go-reconciliation').prop('disabled', true);
             $('#folder-provisioning-next-step').removeAttr('hidden').removeClass('notice-success').addClass('notice-warning');
-            $('#folder-provisioning-next-message').text('تم تنفيذ الخطة في Google Drive. شغّل الجرد الآمن للمجلد المحدد، ثم أعد معاينة الشجرة قبل الرفع أو مطابقة الدروس.');
+            $('#folder-provisioning-next-message').text('تم تنفيذ الخطة في Google Drive. شغّل الجرد الآمن للمجلد المحدد، ثم أعد معاينة الشجرة قبل مطابقة الدروس. رفع فيديو جديد متاح مباشرة من تبويب رفع الفيديوهات.');
             $('#folder-provisioning-summary').find('p').text(`تم تنفيذ الخطة: إنشاء ${data.created || 0}، إعادة تسمية ${data.renamed || 0}، اعتماد كما هو ${data.reused || 0}. الخطوة التالية: الجرد الآمن للمجلد المحدد.`);
             notify(`تم تنفيذ خطة المجلدات: إنشاء ${data.created || 0}، إعادة تسمية ${data.renamed || 0}، اعتماد كما هو ${data.reused || 0}. لا حذف ولا نقل. شغّل الجرد الآمن للمجلد المحدد قبل مطابقة الدروس.`, 'success');
             setWorkflowStep(3, 'complete');

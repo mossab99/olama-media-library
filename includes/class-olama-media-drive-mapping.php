@@ -40,7 +40,7 @@ class Olama_Media_Drive_Mapping
             $score = 60;
             $reasons = array('subject_name_exact');
             foreach (array('grade'=>15, 'semester'=>10, 'academic_year'=>10) as $key => $points) {
-                if ($normalized[$key] !== '' && $this->context_matches($key, $path, $normalized[$key])) {
+                if ($normalized[$key] !== '' && $this->context_matches($key, $path, $normalized[$key], (string) $folder->path_snapshot)) {
                     $score += $points;
                     $reasons[] = $key . '_path_match';
                 }
@@ -170,25 +170,18 @@ class Olama_Media_Drive_Mapping
         return preg_match('/(?:^| )' . preg_quote($segment, '/') . '(?: |$)/u', $path) === 1;
     }
 
-    private function context_matches($key, $path, $expected)
+    private function context_matches($key, $path, $expected, $raw_path = '')
     {
-        if ($this->path_contains_segment($path, $expected)) { return true; }
-        if ($key !== 'grade') { return false; }
-        $ordinals = array(
-            1=>array('اول','الاول','one'), 2=>array('ثاني','الثاني','two'), 3=>array('ثالث','الثالث','three'),
-            4=>array('رابع','الرابع','four'), 5=>array('خامس','الخامس','five'), 6=>array('سادس','السادس','six'),
-            7=>array('سابع','السابع','seven'), 8=>array('ثامن','الثامن','eight'), 9=>array('تاسع','التاسع','nine'),
-            10=>array('عاشر','العاشر','ten'), 11=>array('حادي عشر','الحادي عشر','eleven'), 12=>array('ثاني عشر','الثاني عشر','twelve'),
-        );
-        foreach ($ordinals as $number => $words) {
-            $expected_matches = in_array((string) $number, explode(' ', $expected), true);
-            foreach ($words as $word) { $expected_matches = $expected_matches || $this->path_contains_segment($expected, $word); }
-            if (!$expected_matches) { continue; }
-            $aliases = array('الصف ' . $words[1], 'grade ' . $number, 'grade ' . $words[count($words) - 1]);
-            foreach (array_merge($words, $aliases) as $alias) {
-                if ($this->path_contains_segment($path, $alias)) { return true; }
-            }
+        if ($key === 'grade') {
+            // A subject's direct parent must be this grade. Do not mistake the
+            // first semester or grade twelve's "second" word for another grade.
+            $segments = explode('/', trim($raw_path, '/'));
+            if (count($segments) < 2) { return false; }
+            $actual = $this->normalizer->normalize_text($segments[count($segments) - 2]);
+            return $this->names_match($expected, $actual) || ($this->normalizer->grade_number($expected) !== null
+                && $this->normalizer->grade_number($expected) === $this->normalizer->grade_number($actual));
         }
+        if ($this->path_contains_segment($path, $expected)) { return true; }
         return false;
     }
 
@@ -216,6 +209,43 @@ class Olama_Media_Drive_Mapping
             'confidence'=>min(100, absint($score)), 'reasons'=>$reasons, 'conflict_reason'=>$conflict,
             'direct_file_count'=>absint($folder->direct_file_count),
         );
+    }
+
+    public function get_mapping_for_scope($scope_key)
+    {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}olama_curriculum_drive_map WHERE scope_key=%s LIMIT 1", sanitize_text_field($scope_key)));
+    }
+
+    /** Record the live-verified upload path without replacing a reviewed mapping. */
+    public function confirm_upload_subject($scope_key, $drive_folder_id, $root_config_hash, array $evidence)
+    {
+        global $wpdb;
+        if (!preg_match('/^subject:(\d+):(\d+):(\d+):(\d+)$/', (string) $scope_key, $matches) || $drive_folder_id === '') {
+            return new WP_Error('safe_upload_mapping_invalid', __('تعذر حفظ مسار المادة بسبب بيانات غير مكتملة.', 'olama-media-library'));
+        }
+        if (!hash_equals($this->current_root_config_hash(), $root_config_hash)) {
+            return new WP_Error('safe_upload_root_changed', __('تغيّرت إعدادات Drive أثناء تجهيز المجلدات. أعد المحاولة.', 'olama-media-library'));
+        }
+        $existing = $this->get_mapping_for_scope($scope_key);
+        if ($existing) {
+            if ($existing->mapping_status !== 'confirmed' || !hash_equals((string) $existing->drive_folder_id, $drive_folder_id)
+                || !hash_equals((string) $existing->root_config_hash, $root_config_hash)) {
+                return new WP_Error('safe_upload_mapping_changed', __('يوجد ربط مختلف أو يحتاج مراجعة لهذه المادة. راجع فحص الربط.', 'olama-media-library'));
+            }
+            return absint($existing->id);
+        }
+        $now = current_time('mysql');
+        $ok = $wpdb->insert($wpdb->prefix . 'olama_curriculum_drive_map', array(
+            'scope_key'=>$scope_key, 'scope_type'=>'subject',
+            'academic_year_id'=>absint($matches[1]), 'semester_id'=>absint($matches[2]),
+            'grade_id'=>absint($matches[3]), 'subject_id'=>absint($matches[4]),
+            'drive_folder_id'=>sanitize_text_field($drive_folder_id), 'mapping_status'=>'confirmed',
+            'confirmation_method'=>'upload_verified_path', 'confirmation_evidence'=>wp_json_encode($evidence),
+            'root_config_hash'=>$root_config_hash, 'confirmed_by'=>get_current_user_id(),
+            'confirmed_at'=>$now, 'updated_at'=>$now, 'created_at'=>$now,
+        ));
+        return $ok ? absint($wpdb->insert_id) : new WP_Error('safe_upload_mapping_save_failed', __('تعذر حفظ معرف مجلد المادة. لم يبدأ رفع الفيديو؛ أعد المحاولة.', 'olama-media-library'), array('retryable'=>true));
     }
 
     public function get_confirmed_mapping_for_scope($scope_key)
