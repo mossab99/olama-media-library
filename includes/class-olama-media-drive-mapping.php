@@ -217,8 +217,8 @@ class Olama_Media_Drive_Mapping
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}olama_curriculum_drive_map WHERE scope_key=%s LIMIT 1", sanitize_text_field($scope_key)));
     }
 
-    /** Record the live-verified upload path without replacing a reviewed mapping. */
-    public function confirm_upload_subject($scope_key, $drive_folder_id, $root_config_hash, array $evidence)
+    /** Persist a live-verified path, or renew exactly the mapping inspected by the resolver. */
+    public function confirm_upload_subject($scope_key, $drive_folder_id, $root_config_hash, array $evidence, $previous_mapping = null)
     {
         global $wpdb;
         if (!preg_match('/^subject:(\d+):(\d+):(\d+):(\d+)$/', (string) $scope_key, $matches) || $drive_folder_id === '') {
@@ -229,23 +229,62 @@ class Olama_Media_Drive_Mapping
         }
         $existing = $this->get_mapping_for_scope($scope_key);
         if ($existing) {
-            if ($existing->mapping_status !== 'confirmed' || !hash_equals((string) $existing->drive_folder_id, $drive_folder_id)
-                || !hash_equals((string) $existing->root_config_hash, $root_config_hash)) {
-                return new WP_Error('safe_upload_mapping_changed', __('يوجد ربط مختلف أو يحتاج مراجعة لهذه المادة. راجع فحص الربط.', 'olama-media-library'));
+            if ($existing->mapping_status === 'confirmed' && hash_equals((string) $existing->drive_folder_id, $drive_folder_id)
+                && hash_equals((string) $existing->root_config_hash, $root_config_hash)) {
+                return absint($existing->id);
             }
-            return absint($existing->id);
+            if (!$previous_mapping || !$this->same_upload_mapping($existing, $previous_mapping)
+                || !in_array($existing->mapping_status, array('confirmed', 'proposed_for_revalidation'), true)) {
+                return new WP_Error('safe_upload_mapping_changed', __('تغيّر ربط المادة أثناء تجهيز الرفع. أعد المحاولة، أو راجع فحص الربط إذا استمر التعارض.', 'olama-media-library'));
+            }
+            $same_folder = hash_equals((string) $existing->drive_folder_id, $drive_folder_id);
+            $legacy_repair = ($evidence['mapping_repair_reason'] ?? '') === 'legacy_secondary_grade_alias'
+                && in_array($existing->confirmation_method ?? '', array('scoped_candidate', 'provisioned_plan'), true);
+            if (!$same_folder && !$legacy_repair) {
+                return new WP_Error('safe_upload_mapping_changed', __('المجلد الحالي يختلف عن ربط المادة السابق. راجع فحص الربط؛ لم يُستبدل الربط.', 'olama-media-library'));
+            }
+            $evidence['previous_mapping'] = array(
+                'drive_folder_id'=>(string) $existing->drive_folder_id, 'mapping_status'=>(string) $existing->mapping_status,
+                'root_config_hash'=>(string) $existing->root_config_hash, 'confirmation_method'=>(string) ($existing->confirmation_method ?? ''),
+                'confirmation_evidence'=>(string) ($existing->confirmation_evidence ?? ''),
+            );
+        } elseif ($previous_mapping) {
+            return new WP_Error('safe_upload_mapping_changed', __('حُذف ربط المادة أثناء تجهيز الرفع. أعد المحاولة.', 'olama-media-library'));
+        }
+        if (($evidence['subject']['id'] ?? '') !== $drive_folder_id && ($evidence['root_folder_id'] ?? '') !== $drive_folder_id) {
+            return new WP_Error('safe_upload_mapping_invalid', __('لم يكتمل التحقق المباشر من مجلد المادة.', 'olama-media-library'));
         }
         $now = current_time('mysql');
-        $ok = $wpdb->insert($wpdb->prefix . 'olama_curriculum_drive_map', array(
+        $data = array(
             'scope_key'=>$scope_key, 'scope_type'=>'subject',
             'academic_year_id'=>absint($matches[1]), 'semester_id'=>absint($matches[2]),
             'grade_id'=>absint($matches[3]), 'subject_id'=>absint($matches[4]),
             'drive_folder_id'=>sanitize_text_field($drive_folder_id), 'mapping_status'=>'confirmed',
             'confirmation_method'=>'upload_verified_path', 'confirmation_evidence'=>wp_json_encode($evidence),
             'root_config_hash'=>$root_config_hash, 'confirmed_by'=>get_current_user_id(),
-            'confirmed_at'=>$now, 'updated_at'=>$now, 'created_at'=>$now,
-        ));
+            'confirmed_at'=>$now, 'updated_at'=>$now,
+        );
+        if ($existing) {
+            // Do not overwrite a mapping changed by another request after verification.
+            $updated = $wpdb->update($wpdb->prefix . 'olama_curriculum_drive_map', $data, array(
+                'id'=>absint($existing->id), 'drive_folder_id'=>$existing->drive_folder_id,
+                'mapping_status'=>$existing->mapping_status, 'root_config_hash'=>$existing->root_config_hash,
+                'confirmation_method'=>$existing->confirmation_method,
+            ));
+            if ($updated === 1) { return absint($existing->id); }
+            return new WP_Error('safe_upload_mapping_save_failed', __('تعذر تحديث ربط المادة بعد التحقق منه. لم يبدأ الرفع؛ أعد المحاولة.', 'olama-media-library'), array('retryable'=>true));
+        }
+        $data['created_at'] = $now;
+        $ok = $wpdb->insert($wpdb->prefix . 'olama_curriculum_drive_map', $data);
         return $ok ? absint($wpdb->insert_id) : new WP_Error('safe_upload_mapping_save_failed', __('تعذر حفظ معرف مجلد المادة. لم يبدأ رفع الفيديو؛ أعد المحاولة.', 'olama-media-library'), array('retryable'=>true));
+    }
+
+    private function same_upload_mapping($a, $b)
+    {
+        foreach (array('id', 'drive_folder_id', 'mapping_status', 'root_config_hash', 'confirmation_method') as $key) {
+            if ((string) ($a->$key ?? '') !== (string) ($b->$key ?? '')) { return false; }
+        }
+        return true;
     }
 
     public function get_confirmed_mapping_for_scope($scope_key)

@@ -80,8 +80,9 @@ class Olama_Media_Safe_Upload_Folder_Resolver
         $root_id = sanitize_text_field($settings['root_folder_id']);
         $root_hash = $this->root_hash($settings);
         $mapping = $this->mapping->get_mapping_for_scope($scope_key);
-        if ($mapping && ($mapping->mapping_status !== 'confirmed' || !hash_equals((string) $mapping->root_config_hash, $root_hash))) {
-            return $this->mapping_changed();
+        if ($mapping) { $mapping = clone $mapping; }
+        if ($mapping && !in_array($mapping->mapping_status, array('confirmed', 'proposed_for_revalidation'), true)) {
+            return $this->mapping_changed(__('حالة ربط المادة لا تسمح باستخدامه أثناء الرفع. راجع فحص الربط.', 'olama-media-library'));
         }
         $root = $drive->get_file_metadata($root_id);
         if (is_wp_error($root)) { return $this->drive_error($root); }
@@ -90,22 +91,29 @@ class Olama_Media_Safe_Upload_Folder_Resolver
         }
         $start = $this->root_start_index($root, $specs, $settings);
         if (is_wp_error($start)) { return $start; }
+        // Older automatic mappings treated first secondary as grade one.
+        // Repair only that proven alias bug inside the current configured root.
+        $legacy_repair = $mapping ? $this->is_legacy_secondary_mapping($drive, $mapping, $specs, $root_id, $start) : false;
+        $bound_mapping = $legacy_repair ? null : $mapping;
         $subject_id = $start === 4 ? $root_id : '';
-        if ($subject_id !== '' && $mapping && !hash_equals((string) $mapping->drive_folder_id, $subject_id)) { return $this->mapping_changed(); }
+        if ($subject_id !== '' && $bound_mapping && !hash_equals((string) $bound_mapping->drive_folder_id, $subject_id)) { return $this->mapping_changed(); }
         $branch = array_slice($specs, $start);
         $parent_id = $root_id;
         $evidence = array('root_folder_id'=>$root_id);
+        if ($legacy_repair) { $evidence['mapping_repair_reason'] = 'legacy_secondary_grade_alias'; }
         // Inspect the entire existing prefix before creating anything. Never
         // recreate missing ancestors of an already confirmed subject folder.
         foreach ($branch as &$spec) {
             $spec['folder_id'] = '';
             if ($parent_id !== '') {
-                $bound_id = $spec['type'] === 'subject' && $mapping ? (string) $mapping->drive_folder_id : '';
-                $found = $this->find_child($drive, $parent_id, $spec, $bound_id, $spec['type'] === 'subject' && (bool) $mapping);
+                $bound_id = $spec['type'] === 'subject' && $bound_mapping ? (string) $bound_mapping->drive_folder_id : '';
+                $found = $this->find_child($drive, $parent_id, $spec, $bound_id, $spec['type'] === 'subject' && (bool) $bound_mapping);
                 if (is_wp_error($found)) { return $found; }
                 $spec['folder_id'] = $found;
             }
-            if ($spec['type'] === 'subject' && $mapping && $spec['folder_id'] === '') { return $this->mapping_changed(); }
+            if ($spec['type'] === 'subject' && $bound_mapping && $spec['folder_id'] === '') {
+                return $this->mapping_changed(__('أحد المجلدات الأب في المسار المختار مفقود، بينما للمادة ربط سابق. لم يُنشأ مسار بديل؛ راجع ربط السنة والفصل والصف.', 'olama-media-library'));
+            }
             $parent_id = $spec['folder_id'];
         }
         unset($spec);
@@ -113,7 +121,7 @@ class Olama_Media_Safe_Upload_Folder_Resolver
         foreach ($branch as $spec) {
             if (!$this->root_unchanged($root_hash)) { return $this->root_changed(); }
             // Re-list immediately before every reuse/create, including newly created parents.
-            $allow_renamed = $spec['type'] === 'subject' && (bool) $mapping;
+            $allow_renamed = $spec['type'] === 'subject' && (bool) $bound_mapping;
             $folder_id = $this->find_child($drive, $parent_id, $spec, $spec['folder_id'], $allow_renamed);
             if (is_wp_error($folder_id)) { return $folder_id; }
             if ($folder_id === '') {
@@ -138,7 +146,7 @@ class Olama_Media_Safe_Upload_Folder_Resolver
         }
         // Recheck every ancestor after creation, before saving the mapping or starting a session.
         foreach ($evidence as $type => $item) {
-            if ($type === 'root_folder_id') { continue; }
+            if (!is_array($item)) { continue; }
             $live = $drive->get_file_metadata($item['id']);
             if (is_wp_error($live)) { return $this->drive_error($live); }
             if (!$this->valid_folder($live, $item['id']) || !in_array($item['parent_id'], (array) ($live['parents'] ?? array()), true)
@@ -150,8 +158,32 @@ class Olama_Media_Safe_Upload_Folder_Resolver
         if (is_wp_error($root_live)) { return $this->drive_error($root_live); }
         if (!$this->valid_folder($root_live, $root_id) || $root_live['name'] !== $root['name']) { return $this->root_changed(); }
         if (!$this->root_unchanged($root_hash)) { return $this->root_changed(); }
-        $saved = $this->mapping->confirm_upload_subject($scope_key, $subject_id, $root_hash, $evidence);
+        $saved = $this->mapping->confirm_upload_subject($scope_key, $subject_id, $root_hash, $evidence, $mapping);
         return is_wp_error($saved) ? $saved : $parent_id;
+    }
+
+    private function is_legacy_secondary_mapping($drive, $mapping, $specs, $root_id, $start)
+    {
+        if ($start > 2 || !in_array($mapping->confirmation_method ?? '', array('scoped_candidate', 'provisioned_plan'), true)) { return false; }
+        $grade = $this->grade_number($specs[2]['name']);
+        if (!in_array($grade, array(11, 12), true) || !preg_match('/(?:^| )(?:ثانوي|الثانوي)(?: |$)/u', $this->normalizer->normalize_text($specs[2]['name']))) { return false; }
+        $folder = $drive->get_file_metadata((string) $mapping->drive_folder_id);
+        // Inaccessibility/deletion does not prove the old grade-number bug.
+        if (is_wp_error($folder) || !$this->valid_folder($folder, (string) $mapping->drive_folder_id)
+            || !$this->name_matches($specs[3], $folder['name']) || count((array) ($folder['parents'] ?? array())) !== 1) { return false; }
+        $parent_id = $folder['parents'][0];
+        $old_grade = $drive->get_file_metadata($parent_id);
+        if (is_wp_error($old_grade) || !$this->valid_folder($old_grade, $parent_id)
+            || $this->grade_number($old_grade['name']) !== $grade - 10 || count((array) ($old_grade['parents'] ?? array())) !== 1) { return false; }
+        $parent_id = $old_grade['parents'][0];
+        for ($index = 1; $index >= 0; $index--) {
+            $parent = $drive->get_file_metadata($parent_id);
+            if (is_wp_error($parent) || !$this->valid_folder($parent, $parent_id) || !$this->name_matches($specs[$index], $parent['name'])) { return false; }
+            if ($index + 1 === $start) { return hash_equals($root_id, $parent_id); }
+            if (count((array) ($parent['parents'] ?? array())) !== 1) { return false; }
+            $parent_id = $parent['parents'][0];
+        }
+        return hash_equals($root_id, $parent_id);
     }
 
     private function root_start_index($root, $specs, $settings)
@@ -207,7 +239,9 @@ class Olama_Media_Safe_Upload_Folder_Resolver
             return new WP_Error('safe_upload_folder_ambiguous', sprintf(__('يوجد تعارض أو أكثر من مجلد مطابق لـ «%s» تحت الأصل نفسه. راجع فحص الربط قبل الرفع.', 'olama-media-library'), $spec['name']));
         }
         if ($bound_id !== '') {
-            if (!$bound || (!$allow_renamed && !isset($exact[$bound_id]))) { return $this->mapping_changed(); }
+            if (!$bound || (!$allow_renamed && !isset($exact[$bound_id]))) {
+                return $this->mapping_changed(sprintf(__('المجلد المرتبط بـ «%s» غير موجود تحت المجلد الأب المتوقع أو تغيّر اسمه. راجع ربطه؛ لم تُنشأ نسخة بديلة.', 'olama-media-library'), $spec['name']));
+            }
             return $bound_id;
         }
         if ($exact) { return (string) key($exact); }
@@ -251,6 +285,6 @@ class Olama_Media_Safe_Upload_Folder_Resolver
     }
     private function root_unchanged($hash) { return hash_equals($hash, $this->root_hash(get_option('academy_media_library_settings', array()))); }
     private function root_changed() { return new WP_Error('safe_upload_root_changed', __('تغيّرت إعدادات المجلد الجذر أثناء التجهيز. أعد محاولة الرفع بعد مراجعة الإعدادات.', 'olama-media-library')); }
-    private function mapping_changed() { return new WP_Error('safe_upload_mapping_changed', __('المسار الحالي لا يطابق ربط المادة أو المجلد الذي تم التحقق منه. راجع فحص الربط قبل الرفع.', 'olama-media-library')); }
+    private function mapping_changed($message = '') { return new WP_Error('safe_upload_mapping_changed', $message ?: __('المسار الحالي لا يطابق ربط المادة أو المجلد الذي تم التحقق منه. راجع فحص الربط قبل الرفع.', 'olama-media-library')); }
     private function drive_error($error) { return new WP_Error('safe_upload_drive_error', sprintf(__('تعذر تجهيز مجلدات Drive ولم يبدأ رفع الفيديو: %s', 'olama-media-library'), $error->get_error_message())); }
 }

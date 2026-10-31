@@ -57,6 +57,8 @@ Both direct and WordPress-streamed uploads prepare the selected lesson's folder 
 
 Preparation stops for duplicate/similar candidates, changed or unconfirmed existing mappings, invalid curriculum scope, inaccessible folders, or a root configuration change. It never renames, moves, or deletes existing Drive items. Root and subject locks serialize uploads and reviewed folder plans; retrying a partially completed preparation reuses the folders already created. Folder preparation uses the upload feature gate, while unrestricted legacy folder creation remains disabled. Inventory and reviewed folder plans remain available for reconciliation and resolving ambiguous paths.
 
+An inventory revalidation flag or old root hash does not by itself block an upload: the same subject Drive ID can be revalidated against the full live path and its mapping renewed with the previous evidence retained. Older automatic mappings that incorrectly interpreted first/second secondary as grades one/two can also be corrected, but only when live metadata proves the old subject, grade, semester, year, and current root. Manual folder choices, inaccessible paths, other scope mismatches, and duplicate destinations still require review. Corrections preserve all existing Drive content and use a conditional database update so concurrent mapping changes are not overwritten.
+
 Normal curriculum loading reads the local database only. It does not call Google Drive.
 
 Administrators can use the Drive sync tool in the Migration tab to reconcile videos that already exist in the configured curriculum folders. It performs exact normalized filename matching against lesson titles, supports a dry run, refuses ambiguous matches, and is safe to repeat.

@@ -47,6 +47,14 @@ class SafeUploadWpdb {
         if ($this->save_fails) { return false; }
         $data['id'] = ++$this->insert_id; $this->mapping = (object) $data; return 1;
     }
+    public $before_update = null;
+    public function update($table, $data, $where) {
+        if ($this->before_update) { ($this->before_update)($this); }
+        if ($this->save_fails) { return false; }
+        foreach ($where as $key=>$value) { if ((string) ($this->mapping->$key ?? '') !== (string) $value) { return 0; } }
+        foreach ($data as $key=>$value) { $this->mapping->$key = $value; }
+        return 1;
+    }
 }
 class SafeUploadCurriculum {
     public $valid = true;
@@ -158,6 +166,75 @@ foreach (array('confirmed','proposed_for_revalidation') as $status) {
 }
 list($resolver, $drive) = fixture_safe_upload(); bind_safe_subject(); $wpdb->mapping->root_config_hash = 'old';
 expect_safe_error($resolver->resolve($drive, $meta), 'safe_upload_mapping_changed');
+
+// A stale hash or inventory revalidation flag must not block a valid live path.
+foreach (array('confirmed','proposed_for_revalidation') as $status) {
+    list($resolver, $drive) = fixture_safe_upload();
+    $drive->add('subject', 'الرياضيات', 'grade'); bind_safe_subject('subject', $status);
+    $wpdb->mapping->root_config_hash = 'old'; $wpdb->mapping->confirmation_evidence = '{"review":"prior"}';
+    assert_safe_upload($resolver->resolve($drive, $meta) === 'created-1', 'Revalidate the same subject ID live and create its missing unit.');
+    assert_safe_upload($wpdb->mapping->mapping_status === 'confirmed' && $wpdb->mapping->root_config_hash === hash('sha256', wp_json_encode($GLOBALS['safe_upload_settings'])), 'Save the current root and confirmed state only after live verification.');
+    $evidence = json_decode($wpdb->mapping->confirmation_evidence, true);
+    assert_safe_upload($evidence['previous_mapping']['root_config_hash'] === 'old' && $evidence['previous_mapping']['confirmation_evidence'] === '{"review":"prior"}', 'Preserve prior review evidence when renewing a stale mapping.');
+    assert_safe_upload(!$wpdb->locks, 'Renewal must release locks.');
+}
+
+// Regression from the original screenshots: an automatic first-secondary
+// mapping was recorded beneath grade one before grade aliases were fixed.
+function add_legacy_secondary_mapping($drive, $method = 'scoped_candidate') {
+    global $wpdb;
+    $drive->add('old-grade', 'الصف الأول', 'semester');
+    $drive->add('old-subject', 'الرياضيات', 'old-grade');
+    $drive->add('old-video', 'previous.mp4', 'old-subject', array('mime_type'=>'video/mp4'));
+    bind_safe_subject('old-subject'); $wpdb->mapping->confirmation_method = $method;
+}
+foreach (array('scoped_candidate','provisioned_plan') as $method) {
+    list($resolver, $drive) = fixture_safe_upload(); add_legacy_secondary_mapping($drive, $method);
+    $before = $drive->folders;
+    assert_safe_upload($resolver->resolve($drive, $meta) === 'created-2', 'Correct a proven automatic grade-one / first-secondary alias mapping.');
+    assert_safe_upload($drive->created[0]['parents'] === array('grade') && $wpdb->mapping->drive_folder_id === 'created-1', 'Create/rebind Mathematics inside grade eleven.');
+    $evidence = json_decode($wpdb->mapping->confirmation_evidence, true);
+    assert_safe_upload($evidence['mapping_repair_reason'] === 'legacy_secondary_grade_alias' && $evidence['previous_mapping']['drive_folder_id'] === 'old-subject', 'Audit the old folder and exact correction reason.');
+    foreach ($before as $id=>$folder) { assert_safe_upload($drive->folders[$id] === $folder, 'Legacy correction must never move, rename, or delete existing items.'); }
+    assert_safe_upload($resolver->resolve($drive, $meta) === 'created-2' && count($drive->created) === 2, 'Retry after repair must reuse the new path.');
+}
+// Existing correct Mathematics must be reused when correcting the old mapping.
+list($resolver, $drive) = fixture_safe_upload(); add_legacy_secondary_mapping($drive);
+$drive->add('subject', 'الرياضيات', 'grade');
+assert_safe_upload($resolver->resolve($drive, $meta) === 'created-1' && $drive->created[0]['parents'] === array('subject'), 'Repair must reuse an existing unique subject under grade eleven.');
+foreach (array('year','semester') as $root_id) {
+    list($resolver, $drive) = fixture_safe_upload();
+    $GLOBALS['safe_upload_settings']['root_folder_id'] = $root_id;
+    if ($root_id === 'semester') { $GLOBALS['safe_upload_settings']['root_scope_level'] = 'semester'; $GLOBALS['safe_upload_settings']['root_scope_id'] = 2; }
+    add_legacy_secondary_mapping($drive);
+    assert_safe_upload($resolver->resolve($drive, $meta) === 'created-2', 'Verify legacy alias correction up to a scoped ' . $root_id . ' root.');
+}
+list($resolver, $drive, $curriculum) = fixture_safe_upload(); add_legacy_secondary_mapping($drive);
+$curriculum->names['grade'] = 'ثاني ثانوي'; $drive->folders['grade']['name'] = 'الثاني عشر'; $drive->folders['old-grade']['name'] = 'الصف الثاني';
+assert_safe_upload($resolver->resolve($drive, $meta) === 'created-2' && $drive->created[0]['parents'] === array('grade'), 'Repair the corresponding grade-two / second-secondary bug into grade twelve.');
+// Do not reinterpret explicit manual choices or folders in another scope.
+foreach (array('manual','semester','year','root','grade','name','trashed') as $case) {
+    list($resolver, $drive) = fixture_safe_upload(); add_legacy_secondary_mapping($drive);
+    if ($case === 'manual') { $wpdb->mapping->confirmation_method = 'manual_verified'; }
+    if ($case === 'semester') { $drive->folders['semester']['name'] = 'Second Semester'; }
+    if ($case === 'year') { $drive->folders['year']['name'] = '2025-2026'; }
+    if ($case === 'root') { $drive->folders['year']['parents'] = array('other-root'); }
+    if ($case === 'grade') { $drive->folders['old-grade']['name'] = 'الصف الثاني'; }
+    if ($case === 'name') { $drive->folders['old-subject']['name'] = 'اللغة العربية'; }
+    if ($case === 'trashed') { $drive->folders['old-subject']['trashed'] = true; }
+    expect_safe_error($resolver->resolve($drive, $meta), 'safe_upload_mapping_changed');
+    assert_safe_upload(!$drive->created && $wpdb->mapping->drive_folder_id === 'old-subject' && !$wpdb->locks, 'Unproven or manually reviewed mappings must remain unchanged.');
+}
+// Real duplicates must still stop a proven legacy correction.
+list($resolver, $drive) = fixture_safe_upload(); add_legacy_secondary_mapping($drive);
+$drive->add('subject', 'الرياضيات', 'grade'); $drive->add('duplicate', 'الرياضيات', 'grade');
+expect_safe_error($resolver->resolve($drive, $meta), 'safe_upload_folder_ambiguous');
+assert_safe_upload(!$drive->created && $wpdb->mapping->drive_folder_id === 'old-subject', 'Do not repair into an ambiguous destination.');
+// A concurrent mapping edit must win over the upload's previously inspected state.
+list($resolver, $drive) = fixture_safe_upload(); $drive->add('subject', 'الرياضيات', 'grade'); bind_safe_subject('subject', 'proposed_for_revalidation');
+$wpdb->before_update = function ($db) { $db->mapping->drive_folder_id = 'changed-by-another-request'; };
+expect_safe_error($resolver->resolve($drive, $meta), 'safe_upload_mapping_save_failed');
+assert_safe_upload($wpdb->mapping->drive_folder_id === 'changed-by-another-request' && !$wpdb->locks, 'Conditional update must not overwrite a concurrent mapping change.');
 
 // Partial failure is recoverable by reuse, without a scan or duplicate subject.
 list($resolver, $drive) = fixture_safe_upload(); $drive->fail_create = 'الاقترانات والمقادير الجبرية';
