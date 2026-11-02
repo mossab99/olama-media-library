@@ -23,7 +23,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
     <section id="tab-library" class="olama-media-tab active">
         <?php if (Olama_Media_Feature_Flags::phase_zero_active()) : ?>
             <div class="notice notice-warning inline">
-                <p><strong><?php esc_html_e('وضع الحماية:', 'olama-media-library'); ?></strong> <?php esc_html_e('تم إيقاف رفع الملفات ومزامنة Google Drive وإنشاء المجلدات مؤقتاً إلى حين اكتمال ربط مجلدات المنهج بشكل آمن.', 'olama-media-library'); ?></p>
+                <p><?php esc_html_e('رفع الفيديوهات ومزامنة Drive معطلان حالياً. يمكن للمسؤول تفعيل الميزات المطلوبة من إعدادات Drive.', 'olama-media-library'); ?></p>
             </div>
         <?php elseif ($drive_upload_enabled) : ?>
             <div class="notice notice-success inline">
@@ -88,12 +88,12 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
             <?php if ($can_administer) : ?><button type="button" class="button" id="btn-select-drive-folder" disabled><?php esc_html_e('اختيار / تغيير المجلد', 'olama-media-library'); ?></button><?php endif; ?>
         </div>
         <?php if (!$drive_sync_enabled) : ?>
-            <div class="notice notice-warning inline"><p><?php esc_html_e('المزامنة واختيار الفيديوهات من Drive معطلان في إعدادات التشغيل.', 'olama-media-library'); ?>
-            <?php if ($can_administer) : ?><?php esc_html_e('على مسؤول الموقع تفعيل OLAMA_MEDIA_DRIVE_SYNC_ENABLED في إعدادات الموقع. اختيار المجلد لا يفعّل المزامنة تلقائياً.', 'olama-media-library'); ?><?php endif; ?></p></div>
+            <div class="notice notice-warning inline"><p><?php esc_html_e('المزامنة واختيار الفيديوهات من Drive معطلان حالياً.', 'olama-media-library'); ?>
+            <?php if ($can_administer) : ?><a href="#settings" class="button button-small nav-tab-jump" data-tab="settings"><?php esc_html_e('تفعيل من إعدادات Drive', 'olama-media-library'); ?></a><?php else : ?><?php esc_html_e('اطلب من المسؤول تفعيلهما من إعدادات Drive.', 'olama-media-library'); ?><?php endif; ?></p></div>
         <?php endif; ?>
         <?php if (!$drive_upload_enabled) : ?>
-            <div class="notice notice-warning inline"><p><?php esc_html_e('رفع الفيديوهات معطل حالياً. راجع مسؤول الموقع لتفعيل الرفع.', 'olama-media-library'); ?>
-            <?php if ($can_administer) : ?><code>OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED</code><?php endif; ?></p></div>
+            <div class="notice notice-warning inline"><p><?php esc_html_e('رفع الفيديوهات معطل حالياً.', 'olama-media-library'); ?>
+            <?php if ($can_administer) : ?><a href="#settings" class="button button-small nav-tab-jump" data-tab="settings"><?php esc_html_e('تفعيل من إعدادات Drive', 'olama-media-library'); ?></a><?php else : ?><?php esc_html_e('اطلب من المسؤول تفعيله من إعدادات Drive.', 'olama-media-library'); ?><?php endif; ?></p></div>
         <?php endif; ?>
         <?php if ($can_administer) : ?>
             <div class="olama-drive-sync-bar">
@@ -179,6 +179,18 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
         <div class="olama-media-panel">
             <h2><?php esc_html_e('Google Drive Settings', 'olama-media-library'); ?></h2>
             <form id="drive-settings-form">
+                <input type="hidden" name="drive_features_present" value="1">
+                <fieldset class="olama-drive-feature-settings">
+                    <legend><strong><?php esc_html_e('تشغيل ميزات Google Drive', 'olama-media-library'); ?></strong></legend>
+                    <?php foreach (array(
+                        Olama_Media_Feature_Flags::DRIVE_SYNC => __('تفعيل المزامنة واختيار الفيديوهات من Drive', 'olama-media-library'),
+                        Olama_Media_Feature_Flags::DRIVE_UPLOAD => __('تفعيل رفع الفيديوهات إلى Drive', 'olama-media-library'),
+                    ) as $feature => $feature_label) : ?>
+                        <p><label><input type="checkbox" name="<?php echo esc_attr($feature . '_enabled'); ?>" value="1" <?php checked(Olama_Media_Feature_Flags::enabled($feature)); ?> <?php disabled(Olama_Media_Feature_Flags::is_overridden($feature)); ?>> <?php echo esc_html($feature_label); ?></label>
+                        <?php if (Olama_Media_Feature_Flags::is_overridden($feature)) : ?><br><span class="description"><?php esc_html_e('هذا الإعداد محدد برمجياً في إعدادات الموقع ولا يمكن تغييره من الشاشة. يمكن لمسؤول الموقع إزالة التعريف البرمجي للتحكم به من هنا.', 'olama-media-library'); ?></span><?php endif; ?></p>
+                    <?php endforeach; ?>
+                    <p class="description"><?php esc_html_e('فعّل الميزات المطلوبة ثم اضغط حفظ. تفعيل المزامنة لا يغيّر الملفات أو صلاحيات مشاركتها في Drive.', 'olama-media-library'); ?></p>
+                </fieldset>
                 <table class="form-table">
                     <tr>
                         <th><label for="client_id"><?php esc_html_e('Client ID', 'olama-media-library'); ?></label></th>

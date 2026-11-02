@@ -1560,7 +1560,13 @@ jQuery(function ($) {
         event.preventDefault();
         $('#settings-status').text(cfg.i18n.loading);
         $.post(cfg.ajaxurl, $(this).serialize() + '&action=academy_save_drive_settings&nonce=' + encodeURIComponent(cfg.nonce))
-            .done((response) => $('#settings-status').text(response.success ? response.data : (response.data || cfg.i18n.error)));
+            .done(function (response) {
+                $('#settings-status').text(response.data || cfg.i18n.error);
+                if (response.success) {
+                    window.location.hash = 'settings';
+                    window.location.reload();
+                }
+            }).fail(() => $('#settings-status').text(cfg.i18n.error));
     });
 
     $('#btn-test-connection').on('click', function () {
@@ -2447,4 +2453,6 @@ jQuery(function ($) {
         }
     });
     $(document).on('click', '.btn-v2-run-details', function () { window.alert($(this).attr('data-summary') || '{}'); });
+    const initialTab = window.location.hash.slice(1);
+    if (['library', 'settings', 'coverage', 'link-check'].includes(initialTab) && $(`.nav-tab[data-tab="${initialTab}"]`).length) activateTab(initialTab);
 });

@@ -557,3 +557,4 @@
 .olama-action-menu > div .button { display:block; width:100%; margin:4px 0; }
 .olama-v2-video small { display:block; max-width:300px; overflow-wrap:anywhere; }
 @media(max-width:600px) { .olama-binding-bar { align-items:stretch; flex-direction:column; } .olama-drive-picker { padding:16px; } .olama-picker-item { flex-wrap:wrap; } .olama-picker-item strong { flex-basis:100%; } }
+.olama-drive-feature-settings { border:1px solid #dcdcde; border-radius:6px; padding:12px 18px; margin:12px 0 20px; }

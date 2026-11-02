@@ -33,7 +33,7 @@ foreach (array('olama_drive_folder_plans', 'olama_drive_folder_plan_nodes', 'sco
 foreach (array('rename_count', 'applied_renamed_count') as $schema) {
     assert_folder_plan_safety(strpos($db, $schema) !== false, "Folder plan schema must include {$schema}.");
 }
-assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.11.0'") !== false, 'Plugin version must be 2.11.0.');
+assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.11.1'") !== false, 'Plugin version must be 2.11.1.');
 assert_folder_plan_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.9.0'") !== false, 'Database version must trigger reviewed rename columns.');
 assert_folder_plan_safety(strpos($ajax, "preg_match('/^subject:(\\d+):(\\d+):(\\d+):(\\d+)$/'") !== false, 'Folder preview must validate the server-issued curriculum scope key.');
 assert_folder_plan_safety(strpos($script, 'scope_key: mappingScopeKey') !== false, 'Folder preview must reuse the scope key returned by subject discovery.');

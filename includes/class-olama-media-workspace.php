@@ -38,7 +38,7 @@ class Olama_Media_Workspace
                 'root_folder_id'=>sanitize_text_field($settings['root_folder_id'] ?? '')));
         }
         if (in_array($op, array('sync', 'browse_videos', 'link'), true) && !Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC)) {
-            wp_send_json_error(__('مزامنة Drive معطلة في إعدادات التشغيل. يراجع مسؤول الموقع OLAMA_MEDIA_DRIVE_SYNC_ENABLED. اختيار المجلد لا يغيّر هذا الإعداد.', 'olama-media-library'));
+            wp_send_json_error(Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_SYNC)->get_error_message());
         }
         $drive = new Olama_Media_Drive();
         if ($op === 'bind') {

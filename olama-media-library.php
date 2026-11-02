@@ -3,7 +3,7 @@
  * Plugin Name: Olama Media Library
  * Plugin URI: https://olama.online
  * Description: Standalone media library and Google Drive upload module for Olama School curriculum lessons.
- * Version: 2.11.0
+ * Version: 2.11.1
  * Author: Olama
  * Text Domain: olama-media-library
  * Domain Path: /languages
@@ -13,20 +13,14 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('OLAMA_MEDIA_LIBRARY_VERSION', '2.11.0');
+define('OLAMA_MEDIA_LIBRARY_VERSION', '2.11.1');
 define('OLAMA_MEDIA_LIBRARY_DB_VERSION', '2.9.0');
 define('OLAMA_MEDIA_LIBRARY_FILE', __FILE__);
 define('OLAMA_MEDIA_LIBRARY_PATH', plugin_dir_path(__FILE__));
 define('OLAMA_MEDIA_LIBRARY_URL', plugin_dir_url(__FILE__));
 
-// Uploads prepare only the verified curriculum branch. Legacy synchronization
-// and unrestricted folder creation remain disabled.
-if (!defined('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED')) {
-    define('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED', true);
-}
-if (!defined('OLAMA_MEDIA_DRIVE_SYNC_ENABLED')) {
-    define('OLAMA_MEDIA_DRIVE_SYNC_ENABLED', false);
-}
+// Upload and scoped sync are controlled in Drive settings unless wp-config.php
+// explicitly overrides them. Legacy sync and unrestricted creation stay gated.
 if (!defined('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED')) {
     define('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED', false);
 }

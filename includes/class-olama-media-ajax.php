@@ -1264,6 +1264,7 @@ class Olama_Media_Ajax
             $settings['access_token'] = null;
         }
 
+        $settings = array_merge($settings, Olama_Media_Feature_Flags::settings_from_request($_POST, $current));
         update_option('academy_media_library_settings', $settings);
         wp_send_json_success(__('Settings saved.', 'olama-media-library'));
     }
