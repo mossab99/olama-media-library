@@ -46,7 +46,7 @@ class Olama_Media_Guardian_Library {
                 foreach ((array) (isset($unit->lessons) ? $unit->lessons : array()) as $lesson) {
                     $videos = self::approved_v2_links($repository->get_links_for_lesson($lesson->id));
                     if (!$videos) {
-                        $videos = self::approved_legacy_asset($lesson);
+                        $videos = self::approved_legacy_asset($lesson, $repository);
                     }
                     if (!$videos) {
                         continue;
@@ -105,7 +105,7 @@ class Olama_Media_Guardian_Library {
         return $videos;
     }
 
-    private static function approved_legacy_asset($lesson) {
+    private static function approved_legacy_asset($lesson, $repository) {
         if (
             'approved' !== sanitize_key(isset($lesson->approval_status) ? $lesson->approval_status : '')
             || 'uploaded_to_drive' !== sanitize_key(isset($lesson->upload_status) ? $lesson->upload_status : '')
@@ -113,6 +113,11 @@ class Olama_Media_Guardian_Library {
             || empty($lesson->drive_file_url)
         ) {
             return array();
+        }
+        if (!empty($lesson->drive_file_id)) {
+            $canonical = $repository->get_link_by_drive_file_id($lesson->drive_file_id);
+            if ($canonical && (($canonical->link_status === 'active' && absint($canonical->lesson_id) !== absint($lesson->id))
+                || $canonical->link_status === 'ignored' || $canonical->approval_status === 'rejected')) { return array(); }
         }
         return array(array(
             'id' => 'legacy-' . absint(isset($lesson->media_record_id) ? $lesson->media_record_id : 0),

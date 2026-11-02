@@ -9,7 +9,7 @@ function wp_strip_all_tags($value) { return strip_tags((string) $value); }
 function wp_json_encode($value) { return json_encode($value); }
 function current_time($type) { return '2026-10-29 12:00:00'; }
 function get_current_user_id() { return 1; }
-function get_option($key, $default = array()) { return $GLOBALS['safe_upload_settings'] ?? $default; }
+function get_option($key, $default = array()) { return $key === 'academy_media_library_settings' ? ($GLOBALS['safe_upload_settings'] ?? $default) : ($GLOBALS['workspace_options'][$key] ?? $default); }
 function is_wp_error($value) { return $value instanceof WP_Error; }
 class WP_Error {
     private $code; private $message; private $data;

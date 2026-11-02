@@ -7,9 +7,11 @@ function esc_url_raw($value) { return (string) $value; }
 function wp_generate_uuid4() { static $sequence = 0; return 'test-refresh-' . ++$sequence; }
 function get_transient($key) { return $GLOBALS['workspace_cache'][$key] ?? false; }
 function set_transient($key, $value, $ttl) { $GLOBALS['workspace_cache'][$key] = $value; return true; }
+function update_option($key, $value, $autoload = null) { if (!empty($GLOBALS['fail_report_save'])) return false; $GLOBALS['workspace_options'][$key] = $value; return true; }
 
 class WorkspaceWpdb extends SafeUploadWpdb {
     public $files = array(); public $links = array();
+    public $before_link_update = null;
     public function get_row($sql) {
         if (strpos($sql, 'olama_curriculum_drive_map') !== false) { return $this->mapping ? clone $this->mapping : null; }
         preg_match("/drive_file_id='([^']*)'/", $sql, $match);
@@ -18,6 +20,24 @@ class WorkspaceWpdb extends SafeUploadWpdb {
         return null;
     }
     public function get_results($sql) {
+        if (strpos($sql, 'WHERE l.academic_year_id=') !== false) {
+            $result = array();
+            foreach ($this->links as $link) {
+                if ($link->link_status !== 'active') continue;
+                $matches = true;
+                foreach (array('academic_year_id','semester_id','grade_id','subject_id') as $field) {
+                    preg_match('/l\.' . $field . '=(\d+)/', $sql, $value);
+                    if ((int) $link->$field !== (int) ($value[1] ?? 0)) $matches = false;
+                }
+                if (!$matches) continue;
+                $row = clone $link;
+                foreach ($this->files as $file) if ($file->drive_file_id === $link->drive_file_id) {
+                    $row->filename = $file->filename; $row->drive_path = $file->drive_path ?? ''; $row->web_view_link = $file->web_view_link ?? '';
+                }
+                $result[] = $row;
+            }
+            return $result;
+        }
         preg_match('/l.lesson_id=(\d+)/', $sql, $match);
         return array_values(array_filter($this->links, function ($link) use ($match) { return $link->lesson_id == ($match[1] ?? 0) && $link->link_status === 'active'; }));
     }
@@ -36,8 +56,12 @@ class WorkspaceWpdb extends SafeUploadWpdb {
     public function update($table, $data, $where) {
         if (strpos($table, 'olama_curriculum_drive_map') !== false) return parent::update($table, $data, $where);
         if ($this->save_fails) return false;
+        if (strpos($table, 'olama_lesson_video_links') !== false && $this->before_link_update) ($this->before_link_update)($this);
         $rows = strpos($table, 'olama_lesson_video_links') !== false ? $this->links : $this->files;
-        foreach ($rows as $row) { if ($row->id == $where['id']) { foreach ($data as $key=>$value) $row->$key = $value; return 1; } }
+        foreach ($rows as $row) { if ($row->id == $where['id']) {
+            foreach ($where as $key=>$value) if (($row->$key ?? null) != $value) return 0;
+            foreach ($data as $key=>$value) $row->$key = $value; return 1;
+        } }
         return 0;
     }
 }
@@ -60,7 +84,7 @@ function workspace_fixture() {
     $repo = new Olama_Media_V2_Repository(); $drive = new SafeUploadDrive();
     $drive->add('subject', 'عنوان مختلف تماماً', 'grade');
     $service = new Olama_Media_Workspace($mapping, $curriculum, $db, $repo);
-    $GLOBALS['workspace_cache'] = array(); $_POST = array();
+    $GLOBALS['workspace_cache'] = array(); $GLOBALS['workspace_options'] = array(); $GLOBALS['fail_report_save'] = false; $_POST = array();
     return array($service, $drive, $mapping, $repo, $db);
 }
 $scope = array(1,2,3,4);

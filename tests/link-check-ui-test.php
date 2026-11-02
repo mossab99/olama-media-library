@@ -6,9 +6,9 @@ $view = file_get_contents($root . '/views/media-library-page.php');
 $script = str_replace("\r\n", "\n", file_get_contents($root . '/assets/js/media-library-admin.js'));
 $style = file_get_contents($root . '/assets/css/media-library-admin.css');
 
-assert_link_check_ui(strpos($view, 'data-tab="link-check"') !== false, 'Administrators must have a separate link-check tab.');
-assert_link_check_ui(strpos($view, 'id="tab-link-check"') !== false, 'Link-check content must live in its own tab section.');
-assert_link_check_ui(strpos($view, "esc_html_e('إصلاح الربط (متقدم)'") !== false, 'Repair tools must be labelled as advanced administration.');
+assert_link_check_ui(strpos($view, 'data-tab="link-check"') === false, 'Everyday repair must be merged into the videos workspace, not a separate tab.');
+assert_link_check_ui(strpos($view, 'id="tab-link-check" class="olama-maintenance-area') !== false, 'Legacy repair tools must remain isolated as maintenance.');
+assert_link_check_ui(strpos($view, "esc_html_e('أدوات الصيانة والترحيل القديمة'") !== false, 'Legacy tools must be explicitly labelled as maintenance.');
 foreach (array('audit-year-id', 'audit-semester', 'audit-grade', 'audit-subject', 'btn-audit-scope') as $control) {
     assert_link_check_ui(strpos($view, 'id="' . $control . '"') !== false, "Link-check scope must include {$control}.");
 }

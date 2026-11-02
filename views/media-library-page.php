@@ -22,10 +22,9 @@ $drive_connected = !empty($drive_auth_health['is_configured']) && !empty($drive_
     </header>
 
     <h2 class="nav-tab-wrapper">
-        <a href="#library" class="nav-tab nav-tab-active" data-tab="library"><span class="dashicons dashicons-video-alt3" aria-hidden="true"></span><?php esc_html_e('رفع الفيديوهات', 'olama-media-library'); ?></a>
+        <a href="#library" class="nav-tab nav-tab-active" data-tab="library"><span class="dashicons dashicons-video-alt3" aria-hidden="true"></span><?php esc_html_e('الفيديوهات', 'olama-media-library'); ?></a>
         <?php if ($can_administer) : ?><a href="#coverage" class="nav-tab" data-tab="coverage"><span class="dashicons dashicons-chart-bar" aria-hidden="true"></span><?php esc_html_e('تغطية المنهج', 'olama-media-library'); ?></a><?php endif; ?>
         <?php if ($can_administer) : ?><a href="#settings" class="nav-tab" data-tab="settings"><span class="dashicons dashicons-admin-generic" aria-hidden="true"></span><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a><?php endif; ?>
-        <?php if ($can_administer) : ?><a href="#link-check" class="nav-tab olama-repair-tab" data-tab="link-check"><span class="dashicons dashicons-admin-tools" aria-hidden="true"></span><?php esc_html_e('إصلاح الربط (متقدم)', 'olama-media-library'); ?></a><?php endif; ?>
     </h2>
 
     <section id="tab-library" class="olama-media-tab active">
@@ -115,7 +114,7 @@ $drive_connected = !empty($drive_auth_health['is_configured']) && !empty($drive_
                     <strong><?php esc_html_e('مزامنة Google Drive', 'olama-media-library'); ?></strong>
                     <span><?php esc_html_e('يفحص المجلد المرتبط ويضيف المطابقات المؤكدة بانتظار الاعتماد. استخدم «اختر من Drive» لبقية الفيديوهات.', 'olama-media-library'); ?></span>
                 </div>
-                <button type="button" id="btn-v2-sync-now" class="button button-primary" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('فحص ومزامنة Google Drive', 'olama-media-library'); ?></button>
+                <button type="button" id="btn-v2-sync-now" class="button button-primary" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('فحص ومزامنة', 'olama-media-library'); ?></button>
             </div>
         <?php endif; ?>
 
@@ -134,26 +133,24 @@ $drive_connected = !empty($drive_auth_health['is_configured']) && !empty($drive_
         </details>
 
         <div id="olama-v2-auto-sync-status" class="notice notice-info inline" hidden><p></p></div>
+        <section id="olama-subject-workflow" class="olama-media-panel olama-subject-workflow" hidden aria-labelledby="olama-workflow-title">
+            <div class="olama-workflow-summary"><div><h2 id="olama-workflow-title"></h2><p id="olama-workflow-description"></p><small id="olama-workflow-date"></small></div>
+                <div class="olama-workflow-actions"><button type="button" class="button" id="btn-workflow-folder">اختيار / إنشاء مجلد المادة</button><button type="button" class="button" id="btn-workflow-upload">انتقل إلى الدروس للرفع</button><button type="button" class="button" id="btn-workflow-retry">إعادة الفحص</button></div>
+            </div>
+            <?php if ($can_administer) : ?>
+            <div id="olama-workflow-inbox" hidden>
+                <div class="olama-inbox-heading"><div><h3>ملفات تحتاج قرارًا</h3><p>اختر الدرس ثم اربط الفيديو، أو تجاهله. يمكنك إكمال البقية لاحقًا.</p></div><button type="button" class="button button-primary" id="btn-workflow-apply">ربط المحدد</button></div>
+                <div id="workflow-confirm" class="olama-inbox-confirm" hidden><strong>تأكيد تصحيح الربط</strong><p>ستُنقل الفيديوهات التالية إلى الدروس المختارة وتعود بانتظار الاعتماد.</p><ul id="workflow-confirm-items"></ul><button type="button" class="button button-primary" id="workflow-confirm-apply">تأكيد التصحيح</button><button type="button" class="button" id="workflow-confirm-cancel">إلغاء</button></div>
+                <div class="olama-inbox-scroll"><table class="wp-list-table widefat striped olama-inbox-table"><thead><tr><th><input type="checkbox" id="workflow-select-page" aria-label="تحديد ملفات الصفحة"></th><th>الفيديو</th><th>الحالة</th><th>الدرس والجزء</th><th>الإجراء</th></tr></thead><tbody id="olama-workflow-items"></tbody></table></div>
+                <div class="olama-inbox-pagination"><button type="button" class="button" id="workflow-prev">السابق</button><span id="workflow-page-label"></span><button type="button" class="button" id="workflow-next">التالي</button></div>
+            </div>
+            <?php endif; ?>
+        </section>
         <div id="curriculum-container" class="olama-media-lessons">
             <div class="olama-library-empty"><span class="dashicons dashicons-playlist-video" aria-hidden="true"></span><h2><?php esc_html_e('محتوى دروسك يبدأ من هنا', 'olama-media-library'); ?></h2><p><?php esc_html_e('اختر الصف والمادة أعلاه، ثم اضغط «تحميل المنهاج» لرفع الفيديوهات أو ربطها من Drive.', 'olama-media-library'); ?></p></div>
         </div>
 
-        <?php if ($can_administer) : ?>
-            <div id="olama-v2-review-panel" class="olama-media-panel olama-review-panel" hidden>
-                <div class="olama-v2-heading">
-                    <div>
-                        <h2><?php esc_html_e('فيديوهات بانتظار المراجعة', 'olama-media-library'); ?></h2>
-                        <p class="description"><?php esc_html_e('راجع الفيديوهات المرتبطة بالدروس ثم اعتمدها أو ارفضها.', 'olama-media-library'); ?></p>
-                    </div>
-                    <button type="button" class="button" id="btn-v2-review-refresh"><?php esc_html_e('تحديث', 'olama-media-library'); ?></button>
-                </div>
-                <table class="wp-list-table widefat striped"><thead><tr>
-                    <th><?php esc_html_e('ملف Drive', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th>
-                    <th><?php esc_html_e('الدرس المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('الوحدة', 'olama-media-library'); ?></th>
-                    <th><?php esc_html_e('الجزء', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراءات', 'olama-media-library'); ?></th>
-                </tr></thead><tbody id="v2-review-body"><tr><td colspan="7">-</td></tr></tbody></table>
-            </div>
-        <?php endif; ?>
+
     </section>
 
     <?php if ($can_administer) : ?>
@@ -271,11 +268,25 @@ $drive_connected = !empty($drive_auth_health['is_configured']) && !empty($drive_
             <?php endif; ?>
         </div>
 
-    </section>
-
-    <section id="tab-link-check" class="olama-media-tab olama-link-check-tab">
+    <section id="tab-link-check" class="olama-maintenance-area olama-link-check-tab">
         <p><?php esc_html_e('للعمل اليومي استخدم الرفع واختيار الفيديوهات من شاشة المنهج. هذه الأدوات مخصصة لإصلاح الربط والترحيل بواسطة المسؤول.', 'olama-media-library'); ?></p>
-        <details class="olama-repair-tools"><summary><?php esc_html_e('فتح أدوات الإصلاح والترحيل المتقدمة', 'olama-media-library'); ?></summary>
+        <details class="olama-repair-tools"><summary><?php esc_html_e('أدوات الصيانة والترحيل القديمة', 'olama-media-library'); ?></summary>
+        <?php if ($can_administer) : ?>
+            <div id="olama-v2-review-panel" class="olama-media-panel olama-review-panel" hidden>
+                <div class="olama-v2-heading">
+                    <div>
+                        <h2><?php esc_html_e('فيديوهات بانتظار المراجعة', 'olama-media-library'); ?></h2>
+                        <p class="description"><?php esc_html_e('راجع الفيديوهات المرتبطة بالدروس ثم اعتمدها أو ارفضها.', 'olama-media-library'); ?></p>
+                    </div>
+                    <button type="button" class="button" id="btn-v2-review-refresh"><?php esc_html_e('تحديث', 'olama-media-library'); ?></button>
+                </div>
+                <table class="wp-list-table widefat striped"><thead><tr>
+                    <th><?php esc_html_e('ملف Drive', 'olama-media-library'); ?></th><th><?php esc_html_e('المسار', 'olama-media-library'); ?></th>
+                    <th><?php esc_html_e('الدرس المقترح', 'olama-media-library'); ?></th><th><?php esc_html_e('الوحدة', 'olama-media-library'); ?></th>
+                    <th><?php esc_html_e('الجزء', 'olama-media-library'); ?></th><th><?php esc_html_e('الثقة', 'olama-media-library'); ?></th><th><?php esc_html_e('الإجراءات', 'olama-media-library'); ?></th>
+                </tr></thead><tbody id="v2-review-body"><tr><td colspan="7">-</td></tr></tbody></table>
+            </div>
+        <?php endif; ?>
         <div class="olama-link-check-hero">
             <div>
                 <span class="olama-eyebrow"><?php esc_html_e('مراجعة آمنة خطوة بخطوة', 'olama-media-library'); ?></span>
@@ -453,6 +464,7 @@ $drive_connected = !empty($drive_auth_health['is_configured']) && !empty($drive_
             </details>
         </details>
         </details>
+    </section>
     </section>
     <?php endif; ?>
 </div>

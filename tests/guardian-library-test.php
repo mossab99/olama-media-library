@@ -27,7 +27,7 @@ class Olama_Media_DB {
             'unit_name' => 'الإنسان',
             'lessons' => array(
                 (object) array('id' => 10, 'lesson_number' => '1', 'lesson_title' => 'الجهاز التنفسي', 'approval_status' => 'approved', 'upload_status' => 'uploaded_to_drive', 'preview_status' => 'ready', 'drive_file_url' => 'https://legacy.example/10', 'media_record_id' => 40),
-                (object) array('id' => 11, 'lesson_number' => '2', 'lesson_title' => 'الجهاز الهضمي', 'approval_status' => 'approved', 'upload_status' => 'uploaded_to_drive', 'preview_status' => 'ready', 'drive_file_url' => 'https://legacy.example/11', 'media_record_id' => 41),
+                (object) array('id' => 11, 'lesson_number' => '2', 'lesson_title' => 'الجهاز الهضمي', 'approval_status' => 'approved', 'upload_status' => 'uploaded_to_drive', 'preview_status' => 'ready', 'drive_file_id'=>'legacy-11', 'drive_file_url' => 'https://legacy.example/11', 'media_record_id' => 41),
                 (object) array('id' => 12, 'lesson_number' => '3', 'lesson_title' => 'مسودة', 'approval_status' => 'pending', 'upload_status' => 'uploaded_to_drive', 'preview_status' => 'ready', 'drive_file_url' => 'https://legacy.example/12', 'media_record_id' => 42),
             ),
         ));
@@ -35,6 +35,7 @@ class Olama_Media_DB {
 }
 
 class Olama_Media_V2_Repository {
+    public function get_link_by_drive_file_id($id) { return $GLOBALS['canonical_file_links'][$id] ?? null; }
     public function get_links_for_lesson($lesson_id) {
         if (10 === (int) $lesson_id) {
             return array(
@@ -61,5 +62,16 @@ assert_true(2 === count($library['subjects'][0]['units'][0]['lessons']), 'Lesson
 assert_true('https://video.example/approved' === $library['subjects'][0]['units'][0]['lessons'][0]['videos'][0]['url'], 'Approved v2 video should be preferred.');
 assert_true('https://legacy.example/11' === $library['subjects'][0]['units'][0]['lessons'][1]['videos'][0]['url'], 'Approved ready legacy video should remain available.');
 assert_true(!isset($library['subjects'][0]['units'][0]['lessons'][0]['videos'][0]['drive_file_id']), 'Drive identifiers must not be exposed.');
+foreach (array(
+    array('lesson_id'=>99, 'link_status'=>'active', 'approval_status'=>'pending'),
+    array('lesson_id'=>11, 'link_status'=>'ignored', 'approval_status'=>'approved'),
+    array('lesson_id'=>11, 'link_status'=>'active', 'approval_status'=>'rejected'),
+) as $decision) {
+    $GLOBALS['canonical_file_links']['legacy-11'] = (object) $decision;
+    $result = Olama_Media_Guardian_Library::for_curriculum(1,2,3,array(4));
+    assert_true($result['video_count'] === 1, 'A legacy fallback must not resurrect an explicitly corrected, ignored, or rejected association.');
+}
+$GLOBALS['canonical_file_links']['legacy-11'] = (object) array('lesson_id'=>99,'link_status'=>'unlinked','approval_status'=>'pending');
+assert_true(Olama_Media_Guardian_Library::for_curriculum(1,2,3,array(4))['video_count'] === 2, 'An unapplied migration suggestion must not hide an approved legacy video.');
 
 echo "Guardian video library tests passed.\n";

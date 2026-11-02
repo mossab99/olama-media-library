@@ -23,13 +23,17 @@ class Olama_Media_Workspace
         if (!Olama_Media_Admin::can_access()) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
         $op = sanitize_key($_POST['op'] ?? 'status');
         $admin = current_user_can('manage_options') || current_user_can('olama_media_drive_settings');
-        if (in_array($op, array('bind', 'browse_folders', 'create_subject_folder', 'sync'), true) && !$admin) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
+        if (in_array($op, array('bind', 'browse_folders', 'create_subject_folder', 'sync', 'dismiss', 'reassign'), true) && !$admin) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
         if (in_array($op, array('browse_videos', 'link'), true) && !Olama_Media_Admin::can_upload()) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
         $scope = array_map('absint', array($_POST['academic_year_id'] ?? 0, $_POST['semester_id'] ?? 0, $_POST['grade_id'] ?? 0, $_POST['subject_id'] ?? 0));
         if (in_array(0, $scope, true) || !$this->curriculum->is_valid_scope(...$scope)) { wp_send_json_error(__('اختر نطاق المنهج الصحيح أولاً.', 'olama-media-library')); }
         $key = 'subject:' . implode(':', $scope);
         $mapping = $this->mapping->get_mapping_for_scope($key);
         $settings = get_option('academy_media_library_settings', array());
+        if ($op === 'report') {
+            $result = $this->subject_report($scope, $mapping);
+            is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
+        }
         if ($op === 'status') {
             $evidence = $mapping ? json_decode((string) $mapping->confirmation_evidence, true) : array();
             wp_send_json_success(array('folder_id'=>$mapping->drive_folder_id ?? '', 'mapping_id'=>absint($mapping->id ?? 0),
@@ -37,7 +41,7 @@ class Olama_Media_Workspace
                 'folder_label'=>$evidence['folder_label'] ?? $evidence['subject']['name'] ?? '',
                 'root_folder_id'=>sanitize_text_field($settings['root_folder_id'] ?? '')));
         }
-        if (in_array($op, array('sync', 'browse_videos', 'link'), true) && !Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC)) {
+        if (in_array($op, array('sync', 'browse_videos', 'link', 'dismiss', 'reassign'), true) && !Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC)) {
             wp_send_json_error(Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_SYNC)->get_error_message());
         }
         $drive = new Olama_Media_Drive();
@@ -56,8 +60,12 @@ class Olama_Media_Workspace
                 $chain = $this->mapping->validate_binding($drive, $mapping);
                 if (is_wp_error($chain)) { wp_send_json_error($chain->get_error_message()); }
                 $result = $this->browse($drive, sanitize_text_field($_POST['folder_id'] ?? '') ?: $mapping->drive_folder_id, $mapping->drive_folder_id, sanitize_text_field($_POST['page_token'] ?? ''), false);
-            } elseif ($op === 'link') {
-                $result = $this->link($drive, $scope, $mapping, sanitize_text_field($_POST['file_id'] ?? ''), absint($_POST['lesson_id'] ?? 0), absint($_POST['part_number'] ?? 0));
+            } elseif ($op === 'link' || $op === 'reassign') {
+                $revision = $op === 'reassign' ? sanitize_text_field($_POST['link_revision'] ?? '') : '';
+                if ($op === 'reassign' && $revision === '') { wp_send_json_error(__('حدّث النتائج قبل تغيير ربط الفيديو.', 'olama-media-library')); }
+                $result = $this->link($drive, $scope, $mapping, sanitize_text_field($_POST['file_id'] ?? ''), absint($_POST['lesson_id'] ?? 0), absint($_POST['part_number'] ?? 0), $revision);
+            } elseif ($op === 'dismiss') {
+                $result = $this->dismiss($drive, $scope, $mapping, sanitize_text_field($_POST['file_id'] ?? ''));
             } elseif ($op === 'sync') {
                 $result = $this->sync_step($drive, $scope, $mapping, sanitize_key($_POST['token'] ?? ''));
             } else { $result = new WP_Error('unknown_operation', __('طلب غير معروف.', 'olama-media-library')); }
@@ -202,10 +210,10 @@ class Olama_Media_Workspace
         } finally { foreach (array_reverse($acquired) as $lock) { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); } }
     }
 
-    public function link($drive, $scope, $mapping, $file_id, $lesson_id, $part)
+    public function link($drive, $scope, $mapping, $file_id, $lesson_id, $part, $expected_revision = '')
     {
-        return $this->with_binding_lock($drive, $scope, $mapping, function () use ($drive, $scope, $mapping, $file_id, $lesson_id, $part) {
-            return $this->perform_link($drive, $scope, $mapping, $file_id, $lesson_id, $part);
+        return $this->with_binding_lock($drive, $scope, $mapping, function () use ($drive, $scope, $mapping, $file_id, $lesson_id, $part, $expected_revision) {
+            return $this->perform_link($drive, $scope, $mapping, $file_id, $lesson_id, $part, $expected_revision);
         });
     }
 
@@ -223,7 +231,7 @@ class Olama_Media_Workspace
         } finally { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); }
     }
 
-    private function perform_link($drive, $scope, $mapping, $file_id, $lesson_id, $part)
+    private function perform_link($drive, $scope, $mapping, $file_id, $lesson_id, $part, $expected_revision = '')
     {
         $units = $this->db->get_curriculum_with_assets(...$scope);
         if (is_wp_error($units)) { return $units; }
@@ -241,7 +249,59 @@ class Olama_Media_Workspace
         if (!$row_id) { return new WP_Error('save_failed', __('تعذر حفظ الفيديو.', 'olama-media-library')); }
         return $this->repo->attach_video(array('drive_file_id'=>$file_id, 'drive_file_row_id'=>$row_id, 'academic_year_id'=>$scope[0], 'semester_id'=>$scope[1], 'grade_id'=>$scope[2], 'subject_id'=>$scope[3],
             'unit_id'=>absint($target->id), 'lesson_id'=>$lesson_id, 'part_number'=>$part ?: null, 'sequence_order'=>$part ?: $this->repo->next_sequence_order($lesson_id),
-            'match_method'=>'manual', 'match_confidence'=>100, 'approval_status'=>'pending', 'link_status'=>'active', 'linked_by'=>get_current_user_id()), true);
+            'match_method'=>'manual', 'match_confidence'=>100, 'approval_status'=>'pending', 'link_status'=>'active', 'linked_by'=>get_current_user_id()), true, $expected_revision);
+    }
+
+    public function dismiss($drive, $scope, $mapping, $file_id)
+    {
+        return $this->with_binding_lock($drive, $scope, $mapping, function () use ($drive, $scope, $mapping, $file_id) {
+            $file = $drive->get_file_metadata($file_id);
+            if (is_wp_error($file)) { return $file; }
+            if (!empty($file['trashed']) || strpos((string) ($file['mime_type'] ?? ''), 'video/') !== 0 || count((array) ($file['parents'] ?? array())) !== 1) { return new WP_Error('invalid_video', __('تعذر التحقق من الفيديو. أعد الفحص.', 'olama-media-library')); }
+            $chain = $this->mapping->folder_chain($drive, $file['parents'][0], $mapping->drive_folder_id);
+            if (is_wp_error($chain)) { return $chain; }
+            $row_id = $this->observe($file, $file['parents'][0], implode('/', array_reverse(array_column($chain, 'name'))));
+            if (!$row_id) { return new WP_Error('save_failed', __('تعذر حفظ بيانات الفيديو.', 'olama-media-library')); }
+            return $this->repo->dismiss_video(array('drive_file_id'=>$file_id, 'drive_file_row_id'=>$row_id, 'academic_year_id'=>$scope[0], 'semester_id'=>$scope[1], 'grade_id'=>$scope[2], 'subject_id'=>$scope[3], 'linked_by'=>get_current_user_id()));
+        });
+    }
+
+    private function report_key($scope) { return 'olama_media_subject_report_' . md5(implode(':', $scope)); }
+
+    /** Local read only: viewing the subject never triggers Drive requests. */
+    public function subject_report($scope, $mapping)
+    {
+        $units = $this->db->get_curriculum_with_assets(...$scope);
+        if (is_wp_error($units)) { return $units; }
+        $lessons = array(); $seen = array();
+        foreach ($units as $unit) { foreach ($unit->lessons as $lesson) {
+            if (isset($seen[$lesson->id])) { continue; } $seen[$lesson->id] = true;
+            $lessons[] = array('id'=>absint($lesson->id), 'unit_id'=>absint($unit->id), 'label'=>$unit->unit_name . ' / ' . $lesson->lesson_number . ' — ' . $lesson->lesson_title);
+        } }
+        $result = array('state'=>'needs_folder', 'items'=>array(), 'lessons'=>$lessons);
+        if (!$mapping || $mapping->mapping_status !== 'confirmed' || !hash_equals($this->mapping->root_config_hash(), (string) $mapping->root_config_hash) || !$this->mapping->binding_chain_ids($mapping)) { return $result; }
+        $saved = get_option($this->report_key($scope), array());
+        $result['state'] = 'needs_scan';
+        if (!is_array($saved) || ($saved['revision'] ?? '') !== $this->revision($mapping)) { return $result; }
+        $result = array_merge($result, $saved['report']);
+        $result['items'] = array();
+        foreach ((array) ($saved['report']['items'] ?? array()) as $item) {
+            $link = $this->repo->get_link_by_drive_file_id($item['file_id']);
+            if ($link && ($link->link_status === 'ignored' || $link->approval_status === 'rejected')) { continue; }
+            if ($link && $link->link_status === 'active') {
+                $same = true;
+                foreach (array('academic_year_id','semester_id','grade_id','subject_id') as $i=>$field) { if (absint($link->$field) !== $scope[$i]) { $same = false; } }
+                if ($same && !in_array($item['reason'] ?? '', array('link_conflict','not_observed'), true)) { continue; }
+                if ($same && absint($link->lesson_id) !== absint($item['current_lesson_id'] ?? 0)) { continue; }
+                if (($item['reason'] ?? '') !== 'not_observed') { $item['reason'] = 'link_conflict'; }
+                $item['current_lesson_id'] = absint($link->lesson_id);
+                $item['link_revision'] = Olama_Media_V2_Repository::link_revision($link);
+            } else { $item['link_revision'] = ''; }
+            $result['items'][] = $item;
+        }
+        $result['needs_assignment'] = count($result['items']);
+        $result['lessons'] = $lessons;
+        return $result;
     }
 
     private function revision($mapping) { return hash('sha256', wp_json_encode(array($mapping->drive_folder_id, $mapping->mapping_status, $mapping->root_config_hash, $mapping->confirmation_evidence))); }
@@ -279,7 +339,7 @@ class Olama_Media_Workspace
             if (!$state) {
                 // Only a fresh request may initialize; an expired token must never restart silently.
                 if (!$fresh) { return new WP_Error('refresh_expired', __('انتهت جلسة المزامنة. ابدأ فحصاً جديداً؛ الروابط الحالية محفوظة.', 'olama-media-library')); }
-                $state = array('revision'=>$this->revision($mapping), 'scope'=>$scope, 'queue'=>array(array('id'=>$mapping->drive_folder_id, 'path'=>'', 'depth'=>0, 'page'=>'')), 'seen'=>array(), 'files'=>array(), 'folders'=>0);
+                $state = array('revision'=>$this->revision($mapping), 'scope'=>$scope, 'queue'=>array(array('id'=>$mapping->drive_folder_id, 'path'=>'', 'depth'=>0, 'page'=>'')), 'seen'=>array(), 'files'=>array(), 'folders'=>0, 'other_files'=>0);
             }
             if ($state['scope'] !== $scope || $state['revision'] !== $this->revision($mapping)) { return new WP_Error('refresh_changed', __('تغيّر نطاق المزامنة. ابدأ فحصاً جديداً.', 'olama-media-library')); }
             if (isset($state['result'])) { return $state['result']; }
@@ -298,7 +358,7 @@ class Olama_Media_Workspace
                     $state['queue'][] = array('id'=>$file['id'], 'path'=>$node['path'] . '/' . $file['name'], 'depth'=>$node['depth'] + 1, 'page'=>'');
                 } elseif (strpos((string) ($file['mime_type'] ?? ''), 'video/') === 0) {
                     $state['files'][$file['id']] = array('file'=>$file, 'parent'=>$node['id'], 'path'=>$node['path']);
-                }
+                } else { $state['other_files'] = ($state['other_files'] ?? 0) + 1; }
             }
             if (count($state['files']) > 5000 || count($state['queue']) > 1000 || count($state['seen']) > 2000) { return new WP_Error('refresh_limit', __('حجم المجلد كبير جداً. اختر مجلد مادة أصغر.', 'olama-media-library')); }
             if ($page['next_page_token'] !== '') { $state['queue'][0]['page'] = $page['next_page_token']; }
@@ -309,7 +369,13 @@ class Olama_Media_Workspace
                 if (!$current || $this->revision($current) !== $state['revision']) { return new WP_Error('refresh_changed', __('تغيّر الربط أثناء الفحص. ابدأ من جديد.', 'olama-media-library')); }
                 $report = $this->match_refresh($scope, $state['files']);
                 if (is_wp_error($report)) { return $report; }
-                $result = array_merge($result, $report, array('done'=>true));
+                $result = array_merge($result, $report, array('done'=>true, 'other_files'=>$state['other_files'] ?? 0,
+                    'state'=>count($state['files']) ? 'complete' : 'no_videos', 'completed_at'=>current_time('mysql')));
+                $saved_report = $result; unset($saved_report['token']);
+                $snapshot = array('revision'=>$state['revision'], 'report'=>$saved_report);
+                if (!update_option($this->report_key($scope), $snapshot, false) && get_option($this->report_key($scope)) !== $snapshot) {
+                    return new WP_Error('report_save_failed', __('اكتمل الفحص لكن تعذر حفظ قائمته. الروابط المضافة محفوظة؛ أعد الفحص لتحميل النتائج.', 'olama-media-library'));
+                }
                 $state['result'] = $result;
             }
             set_transient($cache_key, $state, 1800);
@@ -323,18 +389,20 @@ class Olama_Media_Workspace
         if (is_wp_error($units)) { return $units; }
         $normalizer = new Olama_Media_Normalizer();
         $candidates = array(); $slots = array(); $lesson_files = array();
-        $report = array('linked'=>0, 'already_linked'=>0, 'needs_assignment'=>0, 'dismissed'=>0, 'errors'=>0);
+        $report = array('linked'=>0, 'already_linked'=>0, 'needs_assignment'=>0, 'dismissed'=>0, 'errors'=>0, 'items'=>array());
+        $issue = function ($observation, $reason, $lesson_id = 0, $part = 0, $existing = null) use (&$report) {
+            $file = $observation['file'];
+            $report['needs_assignment']++;
+            $report['items'][] = array('file_id'=>$file['id'], 'filename'=>$file['name'], 'path'=>$observation['path'],
+                'url'=>$file['web_view_link'] ?? '', 'reason'=>$reason, 'suggested_lesson_id'=>absint($lesson_id), 'part_number'=>$part ?: 0,
+                'current_lesson_id'=>absint($existing->lesson_id ?? 0), 'link_revision'=>$existing ? Olama_Media_V2_Repository::link_revision($existing) : '');
+        };
         foreach ($observations as $id=>$observation) {
             $file = $observation['file'];
+            $row_id = $this->observe($file, $observation['parent'], $observation['path']);
+            if (!$row_id) { $report['errors']++; $issue($observation, 'save_failed'); continue; }
             $existing = $this->repo->get_link_by_drive_file_id($id);
-            if ($existing) {
-                if ($existing->link_status === 'ignored' || $existing->approval_status === 'rejected') { $report['dismissed']++; continue; }
-                if ($existing->link_status === 'active') {
-                    $same_scope = array_map('absint', array($existing->academic_year_id, $existing->semester_id, $existing->grade_id, $existing->subject_id)) === $scope;
-                    $report[$same_scope ? 'already_linked' : 'needs_assignment']++;
-                    continue;
-                }
-            }
+            if ($existing && ($existing->link_status === 'ignored' || $existing->approval_status === 'rejected')) { $report['dismissed']++; continue; }
             $title = $normalizer->normalize_filename($file['name']);
             $raw_title = $title;
             $title = trim(preg_replace('/^(?:(?:الدرس|درس|lesson|l)\s*)?\d+(?:\s+|$)/iu', '', $title));
@@ -346,28 +414,42 @@ class Olama_Media_Workspace
             foreach ($units as $unit) {
                 foreach ($unit->lessons as $lesson) {
                     if ($title !== '' && $title === $normalizer->normalize_text($lesson->lesson_title)
-                        && ($number === null || $number === (int) $normalizer->normalize_text($lesson->lesson_number))) { $matches[] = array($unit, $lesson); }
+                        && ($number === null || $number === (int) $normalizer->normalize_text($lesson->lesson_number))) { $matches[$lesson->id] = array($unit, $lesson); }
                 }
             }
-            if (count($matches) !== 1) { $report['needs_assignment']++; continue; }
+            $matches = array_values($matches);
+            if ($existing && $existing->link_status === 'active') {
+                $same_scope = array_map('absint', array($existing->academic_year_id, $existing->semester_id, $existing->grade_id, $existing->subject_id)) === $scope;
+                if (!$same_scope || (count($matches) === 1 && absint($matches[0][1]->id) !== absint($existing->lesson_id))) {
+                    $issue($observation, 'link_conflict', count($matches) === 1 ? $matches[0][1]->id : 0, $part, $existing);
+                } else { $report['already_linked']++; }
+                continue;
+            }
+            if (count($matches) !== 1) { $issue($observation, count($matches) > 1 ? 'ambiguous' : 'unmatched', 0, $part); continue; }
             list($unit, $lesson) = $matches[0];
             $slot = $lesson->id . ':' . ($part ?: 0);
             $slots[$slot][] = $id;
             $lesson_files[$lesson->id][] = $id;
-            $candidates[$id] = array($observation, $unit, $lesson, $part, $slot);
+            $candidates[$id] = array($observation, $unit, $lesson, $part, $slot, $row_id);
         }
         foreach ($candidates as $id=>$candidate) {
-            list($observation, $unit, $lesson, $part, $slot) = $candidate;
+            list($observation, $unit, $lesson, $part, $slot, $row_id) = $candidate;
             $occupied = false;
             foreach ($this->repo->get_links_for_lesson($lesson->id) as $link) { if (!$part || empty($link->part_number) || (int) $link->part_number === $part) { $occupied = true; } }
             $mixed_parts = isset($slots[$lesson->id . ':0']) && count($lesson_files[$lesson->id]) > 1;
-            if (count($slots[$slot]) !== 1 || $mixed_parts || $occupied || (!empty($lesson->media_record_id) && ($lesson->upload_status ?? '') === 'uploaded_to_drive')) { $report['needs_assignment']++; continue; }
-            $row_id = $this->observe($observation['file'], $observation['parent'], $observation['path']);
-            if (!$row_id) { $report['errors']++; continue; }
+            if (count($slots[$slot]) !== 1 || $mixed_parts || $occupied || (!empty($lesson->media_record_id) && ($lesson->upload_status ?? '') === 'uploaded_to_drive')) {
+                $issue($observation, 'occupied', $lesson->id, $part); continue;
+            }
             $attached = $this->repo->attach_video(array('drive_file_id'=>$id, 'drive_file_row_id'=>$row_id, 'academic_year_id'=>$scope[0], 'semester_id'=>$scope[1], 'grade_id'=>$scope[2], 'subject_id'=>$scope[3],
                 'unit_id'=>absint($unit->id), 'lesson_id'=>absint($lesson->id), 'part_number'=>$part, 'sequence_order'=>$part ?: $this->repo->next_sequence_order($lesson->id),
                 'match_method'=>'bound_exact_title', 'match_confidence'=>100, 'approval_status'=>'pending', 'link_status'=>'active', 'linked_by'=>get_current_user_id()));
-            is_wp_error($attached) ? $report['errors']++ : $report['linked']++;
+            if (is_wp_error($attached)) { $report['errors']++; $issue($observation, 'save_failed', $lesson->id, $part); }
+            else { $report['linked']++; }
+        }
+        // Absence from a complete scan is a review item, never proof of deletion.
+        foreach ($this->repo->get_links_for_scope($scope) as $link) {
+            if (isset($observations[$link->drive_file_id])) { continue; }
+            $issue(array('file'=>array('id'=>$link->drive_file_id,'name'=>$link->filename ?: $link->drive_file_id,'web_view_link'=>$link->web_view_link ?? ''), 'path'=>$link->drive_path ?? ''), 'not_observed', $link->lesson_id, $link->part_number ?? 0, $link);
         }
         return $report;
     }

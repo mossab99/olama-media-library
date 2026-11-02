@@ -90,10 +90,10 @@ $hash = $mapping->root_config_hash();
 $drive->metadata_hook = function () { $GLOBALS['safe_upload_settings']['root_folder_id'] = 'changed-root'; };
 assert_safe_upload(is_wp_error($service->create_subject_folder($drive, $scope, 'grade', $hash)) && !$drive->created && !$wpdb->locks, 'A root change during validation must prevent creation.');
 
-foreach (array('invalid', 'valid') as $nonce) {
-    $_POST = array('nonce'=>$nonce, 'op'=>'create_subject_folder');
+foreach (array('create_subject_folder','dismiss','reassign') as $op) { foreach (array('invalid', 'valid') as $nonce) {
+    $_POST = array('nonce'=>$nonce, 'op'=>$op);
     try { $service->handle(); assert_safe_upload(false, 'Unauthorized creation must be rejected.'); }
     catch (RuntimeException $error) { assert_safe_upload($error->getCode() === 403, 'Creation requires a valid nonce and Drive administration capability, even for upload users.'); }
-}
+} }
 
 echo "Subject folder creation and duplicate-prevention tests passed.\n";

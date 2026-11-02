@@ -34,6 +34,7 @@ jQuery(function ($) {
     });
 
     function activateTab(tab) {
+        if (tab === 'link-check') { tab = 'settings'; $('#tab-link-check .olama-repair-tools').prop('open', true); }
         $('.nav-tab').removeClass('nav-tab-active');
         $(`.nav-tab[data-tab="${tab}"]`).addClass('nav-tab-active');
         $('.olama-media-tab').removeClass('active');
@@ -2478,5 +2479,6 @@ jQuery(function ($) {
     });
     $(document).on('click', '.btn-v2-run-details', function () { window.alert($(this).attr('data-summary') || '{}'); });
     const initialTab = window.location.hash.slice(1);
-    if (['library', 'settings', 'coverage', 'link-check'].includes(initialTab) && $(`.nav-tab[data-tab="${initialTab}"]`).length) activateTab(initialTab);
+    if (initialTab === 'link-check') activateTab('link-check');
+    else if (['library', 'settings', 'coverage'].includes(initialTab) && $(`.nav-tab[data-tab="${initialTab}"]`).length) activateTab(initialTab);
 });

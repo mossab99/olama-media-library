@@ -154,7 +154,7 @@ class Olama_Media_V2_Repository
     }
 
     /** Shared upload/picker/refresh attachment. Retrying never resets review decisions. */
-    public function attach_video($data, $explicit = false)
+    public function attach_video($data, $explicit = false, $expected_revision = '')
     {
         global $wpdb;
         $locks = array('olama_video_' . substr(hash('sha256', $data['drive_file_id']), 0, 40), 'olama_lesson_' . absint($data['lesson_id']));
@@ -165,11 +165,16 @@ class Olama_Media_V2_Repository
                 $acquired[] = $lock;
             }
             $existing = $this->get_link_by_drive_file_id($data['drive_file_id']);
+            if ($expected_revision !== '' && (!$existing || $existing->link_status !== 'active')) { return new WP_Error('link_changed', __('تغيّر الربط منذ الفحص. حدّث النتائج قبل التصحيح.', 'olama-media-library')); }
             if ($existing && $existing->link_status === 'active') {
+                $same_target = true;
                 foreach (array('academic_year_id', 'semester_id', 'grade_id', 'subject_id', 'unit_id', 'lesson_id') as $field) {
-                    if (absint($existing->$field) !== absint($data[$field])) { return new WP_Error('video_already_linked', __('الفيديو مرتبط بدرس آخر. راجع الربط الحالي قبل تغييره.', 'olama-media-library')); }
+                    if (absint($existing->$field) !== absint($data[$field])) { $same_target = false; }
                 }
-                return array('link_id'=>absint($existing->id), 'already_linked'=>true);
+                if ($same_target) { return array('link_id'=>absint($existing->id), 'already_linked'=>true); }
+                if (!$explicit || $expected_revision === '' || !hash_equals(self::link_revision($existing), $expected_revision)) {
+                    return new WP_Error('video_already_linked', __('تغيّر الربط أو أن الفيديو مرتبط بدرس آخر. حدّث النتائج وراجع الربط الحالي قبل تغييره.', 'olama-media-library'));
+                }
             }
             if ($existing && !$explicit && ($existing->link_status === 'ignored' || $existing->approval_status === 'rejected')) { return new WP_Error('video_dismissed', __('تم استبعاد هذا الفيديو سابقاً.', 'olama-media-library')); }
             if (!$explicit) {
@@ -180,7 +185,12 @@ class Olama_Media_V2_Repository
             $data['updated_at'] = current_time('mysql');
             if ($existing) {
                 $data['approved_by'] = null; $data['approved_at'] = null;
-                $ok = $wpdb->update($this->links, $data, array('id'=>$existing->id));
+                $where = array('id'=>$existing->id);
+                if ($expected_revision !== '') {
+                    foreach (array('academic_year_id','semester_id','grade_id','subject_id','unit_id','lesson_id','part_number','sequence_order','link_status','approval_status','approved_by','approved_at','updated_at') as $field) { $where[$field] = $existing->$field ?? null; }
+                }
+                $ok = $wpdb->update($this->links, $data, $where);
+                if ($expected_revision !== '' && $ok !== 1) { return new WP_Error('link_changed', __('تغيّر الربط أثناء الحفظ. حدّث النتائج قبل التصحيح.', 'olama-media-library')); }
                 $id = absint($existing->id);
             } else {
                 $data['created_at'] = current_time('mysql');
@@ -189,6 +199,38 @@ class Olama_Media_V2_Repository
             }
             return false !== $ok && $id ? array('link_id'=>$id, 'already_linked'=>false) : new WP_Error('video_save_failed', __('تعذر حفظ ربط الفيديو. أعد المحاولة.', 'olama-media-library'));
         } finally { foreach (array_reverse($acquired) as $lock) { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); } }
+    }
+
+    public static function link_revision($link)
+    {
+        $fields = array();
+        foreach (array('id','academic_year_id','semester_id','grade_id','subject_id','unit_id','lesson_id','part_number','sequence_order','link_status','approval_status','approved_by','approved_at','updated_at') as $field) {
+            $fields[$field] = $link->$field ?? null;
+        }
+        return hash('sha256', wp_json_encode($fields));
+    }
+
+    public function dismiss_video($data)
+    {
+        global $wpdb;
+        $lock = 'olama_video_' . substr(hash('sha256', $data['drive_file_id']), 0, 40);
+        if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)', $lock)) !== 1) { return new WP_Error('video_busy', __('الفيديو قيد التحديث. أعد المحاولة.', 'olama-media-library')); }
+        try {
+            $existing = $this->get_link_by_drive_file_id($data['drive_file_id']);
+            if ($existing && $existing->link_status === 'active') { return new WP_Error('active_video', __('لا يمكن تجاهل فيديو مرتبط. راجع ربطه الحالي أولاً.', 'olama-media-library')); }
+            if ($existing) {
+                foreach (array('academic_year_id','semester_id','grade_id','subject_id') as $field) {
+                    if (absint($existing->$field) !== absint($data[$field])) { return new WP_Error('video_scope_conflict', __('الفيديو مسجل لمادة أخرى. راجع الربط أولاً.', 'olama-media-library')); }
+                }
+            }
+            $data = array_merge($data, array('lesson_id'=>0,'unit_id'=>null,'part_number'=>null,'sequence_order'=>0,'link_status'=>'ignored','approval_status'=>'pending','match_method'=>'manual_ignored','match_confidence'=>0,'updated_at'=>current_time('mysql')));
+            if ($existing) {
+                $ok = $wpdb->update($this->links, $data, array('id'=>$existing->id,'link_status'=>$existing->link_status,'lesson_id'=>$existing->lesson_id,'approval_status'=>$existing->approval_status,'updated_at'=>$existing->updated_at)); $id = $existing->id;
+                if ($ok === 0 && $existing->link_status !== 'ignored') { return new WP_Error('link_changed', __('تغيّر الربط أثناء الحفظ. أعد تحميل النتائج.', 'olama-media-library')); }
+            }
+            else { $data['created_at'] = current_time('mysql'); $ok = $wpdb->insert($this->links, $data); $id = $wpdb->insert_id; }
+            return $ok !== false && $id ? array('dismissed'=>true) : new WP_Error('dismiss_failed', __('تعذر حفظ التجاهل. أعد المحاولة.', 'olama-media-library'));
+        } finally { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); }
     }
 
     /** Uploaded through this plugin and already linked explicitly to a curriculum lesson. */
@@ -204,6 +246,17 @@ class Olama_Media_V2_Repository
                AND l.link_status='active' AND l.match_method='manual_upload' AND f.scan_status='active'
              ORDER BY l.unit_id,l.lesson_id,l.sequence_order,l.id",
             absint($academic_year_id), absint($semester_id), absint($grade_id), absint($subject_id)
+        ));
+    }
+
+    public function get_links_for_scope($scope)
+    {
+        global $wpdb;
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT l.*,f.filename,f.drive_path,f.web_view_link FROM {$this->links} l
+             LEFT JOIN {$this->files} f ON f.drive_file_id=l.drive_file_id
+             WHERE l.academic_year_id=%d AND l.semester_id=%d AND l.grade_id=%d AND l.subject_id=%d AND l.link_status='active' ORDER BY l.id",
+            ...$scope
         ));
     }
 

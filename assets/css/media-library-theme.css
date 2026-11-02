@@ -181,6 +181,37 @@
 .olama-drive-picker footer { border-color:var(--om-line); }
 .olama-drive-picker footer label { font-size:15px; color:var(--om-muted); }
 .olama-media-modal-box { border-radius:14px; overflow:hidden; }
+.olama-media-library-wrap .olama-subject-workflow { border-color:#c9dece; }
+.olama-subject-workflow[hidden], .olama-subject-workflow [hidden] { display:none !important; }
+.olama-workflow-summary { display:flex; justify-content:space-between; gap:20px; align-items:center; }
+.olama-workflow-summary h2 { margin:0 0 6px; font-size:21px; }
+.olama-workflow-summary p { margin:0; color:var(--om-muted); font-size:15px; }
+.olama-workflow-summary small { display:block; margin-top:8px; color:var(--om-muted); font-size:13px; }
+.olama-workflow-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; flex:0 0 230px; }
+.olama-inbox-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:24px 0 16px; padding-top:20px; border-top:1px solid var(--om-line); }
+.olama-inbox-heading h3 { margin:0 0 5px; font-size:18px; }
+.olama-inbox-heading p { margin:0; color:var(--om-muted); font-size:14px; }
+.olama-inbox-scroll { overflow-x:auto; border:1px solid var(--om-line); border-radius:10px; }
+.olama-inbox-table { min-width:850px; border:0; box-shadow:none; }
+.olama-inbox-table th { background:#e0eae2; font-weight:600; font-size:14px; padding:12px; }
+.olama-inbox-table td { padding:16px 12px; font-size:15px; vertical-align:top; border-bottom:1px solid var(--om-line); }
+.olama-inbox-table tbody tr:nth-child(even) td { background:#e8f1e9; }
+.olama-inbox-table tbody tr:nth-child(odd) td { background:#fff; }
+.olama-inbox-table td:first-child, .olama-inbox-table th:first-child { width:34px; }
+.olama-inbox-table td:nth-child(2) { min-width:160px; max-width:280px; overflow-wrap:anywhere; }
+.olama-inbox-table td:nth-child(3) { min-width:180px; max-width:260px; }
+.olama-inbox-table td:nth-child(4) { min-width:220px; }
+.olama-inbox-table small { display:block; margin:7px 0; font-size:13px; color:var(--om-muted); overflow-wrap:anywhere; }
+.olama-inbox-table td .button { margin:3px; }
+.olama-inbox-table .workflow-lesson { width:100%; margin-bottom:8px; }
+.olama-inbox-table .workflow-part { width:155px; max-width:100%; }
+.olama-inbox-error { color:#a34d3c; font-size:14px; margin:7px 0 0; }
+.olama-inbox-confirm { padding:16px; margin-bottom:16px; border:1px solid #dec999; border-radius:10px; background:#fff8e9; }
+.olama-inbox-confirm p, .olama-inbox-confirm li { font-size:14px; margin:5px 0; }
+.olama-inbox-confirm ul { list-style:disc; padding-inline-start:22px; }
+.olama-inbox-confirm .button { margin:5px 0 0 8px; }
+.olama-inbox-pagination { display:flex; gap:12px; justify-content:center; align-items:center; margin-top:16px; font-size:14px; }
+.olama-maintenance-area { margin-top:24px; padding-top:20px; border-top:1px solid var(--om-line); }
 @media (max-width:1180px) {
     .olama-media-library-wrap .olama-media-toolbar { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .olama-media-toolbar > .button { grid-column:1/-1; }
@@ -188,6 +219,8 @@
     .olama-stat-card > .dashicons { width:34px; height:34px; font-size:19px; }
 }
 @media (max-width:900px) {
+    .olama-workflow-summary { align-items:stretch; flex-direction:column; }
+    .olama-workflow-actions { flex-basis:auto; justify-content:flex-start; }
     .olama-drive-controls { grid-template-columns:1fr; }
     .olama-drive-controls .olama-drive-sync-bar > div { flex:initial; }
     .olama-library-header { padding:24px; }
@@ -200,6 +233,12 @@
     .olama-settings-fields tr:nth-child(6) { grid-column:auto; }
 }
 @media (max-width:640px) {
+    .olama-inbox-heading { align-items:stretch; flex-direction:column; }
+    .olama-inbox-table, .olama-inbox-table tbody { display:block; min-width:0; }
+    .olama-inbox-table thead { display:none; }
+    .olama-inbox-table tbody tr { display:block; padding:14px; border-bottom:1px solid var(--om-line); background:white; }
+    .olama-inbox-table tbody tr:nth-child(even) { background:#e8f1e9; }
+    .olama-inbox-table tbody tr td { display:block; border:0; padding:7px 0; min-width:0; max-width:none; width:auto; background:transparent !important; }
     .olama-media-unit .wp-list-table { display:block; min-width:0; }
     .olama-media-unit .wp-list-table thead { display:none; }
     .olama-media-unit .wp-list-table tbody { display:block; }
