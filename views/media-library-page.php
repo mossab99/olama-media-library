@@ -477,5 +477,10 @@ $drive_connected = !empty($drive_auth_health['is_configured']) && !empty($drive_
     <p id="olama-picker-message" role="status" aria-live="polite"></p>
     <div id="olama-picker-items"></div>
     <button type="button" class="button" id="olama-picker-more" hidden><?php esc_html_e('الصفحة التالية', 'olama-media-library'); ?></button>
+    <section id="olama-picker-create-section" class="olama-picker-create-section" hidden aria-labelledby="olama-picker-create-title">
+        <div><strong id="olama-picker-create-title"></strong><p id="olama-picker-create-help"></p></div>
+        <button type="button" class="button" id="olama-picker-create-folder" disabled><?php esc_html_e('إنشاء مجلد المادة هنا', 'olama-media-library'); ?></button>
+        <button type="button" class="button" id="olama-picker-open-existing" hidden><?php esc_html_e('فتح المجلد الموجود', 'olama-media-library'); ?></button>
+    </section>
     <footer><label id="olama-picker-part-label"><?php esc_html_e('رقم الجزء (اختياري)', 'olama-media-library'); ?><input type="number" min="1" max="999" id="olama-picker-part"></label><button type="button" class="button button-primary" id="olama-picker-bind" hidden><?php esc_html_e('اعتماد هذا المجلد للمادة', 'olama-media-library'); ?></button><button type="button" class="button olama-picker-close"><?php esc_html_e('إغلاق', 'olama-media-library'); ?></button></footer>
 </dialog>

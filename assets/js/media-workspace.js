@@ -43,6 +43,7 @@ jQuery(function ($) {
         $('#olama-picker-part-label').prop('hidden', mode === 'folders');
         $('#olama-picker-part').val('');
         $('#olama-picker-bind').prop('hidden', mode !== 'folders');
+        $('#olama-picker-create-section').prop('hidden', true);
         dialog.showModal();
         browse(mode === 'folders' ? binding.root_folder_id : binding.folder_id);
     }
@@ -59,18 +60,32 @@ jQuery(function ($) {
     $('#olama-picker-more').on('click', () => { if (picker && picker.next) browse(picker.folder, picker.next); });
 
     function busy(value) {
-        $('#olama-picker-bind, #olama-picker-refresh, #olama-picker-more, #olama-picker-items button, #olama-picker-breadcrumbs button').prop('disabled', value);
+        $('#olama-picker-bind, #olama-picker-refresh, #olama-picker-more, #olama-picker-create-folder, #olama-picker-open-existing, #olama-picker-items button, #olama-picker-breadcrumbs button').prop('disabled', value);
+        if (!value) $('#olama-picker-create-folder').prop('disabled', !picker?.availability?.can_create || !picker?.folder);
     }
 
     function browse(folder, page = '') {
         const version = ++browsing, current = picker;
         current.folder = '';
+        current.availability = null;
+        $('#olama-picker-create-section').prop('hidden', true);
         busy(true); message('جاري قراءة المجلد من Drive...');
         $('#olama-picker-items').empty(); $('#olama-picker-more').prop('hidden', true);
-        request(current.mode === 'folders' ? 'browse_folders' : 'browse_videos', { folder_id: folder, page_token: page }, current.scope).done(function (r) {
+        return request(current.mode === 'folders' ? 'browse_folders' : 'browse_videos', { folder_id: folder, page_token: page }, current.scope).done(function (r) {
             if (version !== browsing || picker !== current) return;
             if (!r.success) { message(error(r)); return; }
             current.folder = r.data.folder_id; current.next = r.data.next_page_token;
+            if (current.mode === 'folders') {
+                current.availability = r.data.subject_folder || { can_create: false, reason: 'حدّث إضافة مكتبة الوسائط على الخادم لإتاحة إنشاء المجلدات.' };
+                const availability = current.availability;
+                $('#olama-picker-create-section').prop('hidden', false);
+                $('#olama-picker-create-title').text(availability.name ? `مجلد المادة: ${availability.name}` : 'إنشاء مجلد المادة');
+                $('#olama-picker-create-help').text(availability.can_create ? `سيُنشأ المجلد داخل «${availability.parent_name}»، ثم يمكنك اعتماده للمادة.` : availability.reason);
+                $('#olama-picker-create-folder').text(availability.exists ? 'المجلد موجود بالفعل' : 'إنشاء مجلد المادة هنا');
+                const ids = availability.existing_ids || [];
+                current.existingFolder = ids.length === 1 && ids[0] !== current.folder ? ids[0] : '';
+                $('#olama-picker-open-existing').prop('hidden', !current.existingFolder);
+            }
             $('#olama-picker-search').val('');
             const crumbs = $('#olama-picker-breadcrumbs').empty();
             r.data.breadcrumbs.forEach((f) => crumbs.append($('<button type="button" class="button-link">').text(f.name).on('click', () => browse(f.id))));
@@ -95,6 +110,27 @@ jQuery(function ($) {
             if (!current.folder) $('#olama-picker-bind').prop('disabled', true);
         });
     }
+
+    $('#olama-picker-open-existing').on('click', () => { if (picker?.existingFolder) browse(picker.existingFolder); });
+    $('#olama-picker-create-folder').on('click', function () {
+        const current = picker, version = browsing;
+        if (!current?.folder || current.mode !== 'folders' || !current.availability?.can_create) return;
+        const parent = current.folder;
+        busy(true); message('جاري فحص الاسم وإنشاء مجلد المادة...');
+        request('create_subject_folder', { parent_id: parent, root_hash: current.availability.root_hash }, current.scope).done(function (r) {
+            if (version !== browsing || picker !== current) return;
+            const text = r.success ? 'تم إنشاء مجلد المادة. اضغط «اعتماد هذا المجلد للمادة» لحفظ الربط.' : error(r);
+            browse(r.success ? r.data.folder_id : parent).done(function (response) {
+                if (picker === current && response.success) message(text);
+            });
+        }).fail(function (r) {
+            if (version !== browsing || picker !== current) return;
+            // A lost response may still have created the folder. Refresh before
+            // allowing another attempt; the server always rechecks all siblings.
+            const text = error(r);
+            browse(parent).done(function (response) { if (picker === current && response.success) message(text); });
+        }).always(() => { if (version === browsing) busy(false); });
+    });
 
     $('#olama-picker-bind').on('click', function () {
         const current = picker, version = browsing;

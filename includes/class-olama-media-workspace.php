@@ -23,7 +23,7 @@ class Olama_Media_Workspace
         if (!Olama_Media_Admin::can_access()) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
         $op = sanitize_key($_POST['op'] ?? 'status');
         $admin = current_user_can('manage_options') || current_user_can('olama_media_drive_settings');
-        if (in_array($op, array('bind', 'browse_folders', 'sync'), true) && !$admin) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
+        if (in_array($op, array('bind', 'browse_folders', 'create_subject_folder', 'sync'), true) && !$admin) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
         if (in_array($op, array('browse_videos', 'link'), true) && !Olama_Media_Admin::can_upload()) { wp_send_json_error(__('Unauthorized.', 'olama-media-library'), 403); }
         $scope = array_map('absint', array($_POST['academic_year_id'] ?? 0, $_POST['semester_id'] ?? 0, $_POST['grade_id'] ?? 0, $_POST['subject_id'] ?? 0));
         if (in_array(0, $scope, true) || !$this->curriculum->is_valid_scope(...$scope)) { wp_send_json_error(__('اختر نطاق المنهج الصحيح أولاً.', 'olama-media-library')); }
@@ -43,8 +43,14 @@ class Olama_Media_Workspace
         $drive = new Olama_Media_Drive();
         if ($op === 'bind') {
             $result = $this->bind($drive, $scope, sanitize_text_field(wp_unslash($_POST['folder_id'] ?? '')), sanitize_text_field($_POST['previous_folder_id'] ?? ''));
+        } elseif ($op === 'create_subject_folder') {
+            $result = $this->create_subject_folder($drive, $scope, sanitize_text_field($_POST['parent_id'] ?? ''), sanitize_text_field($_POST['root_hash'] ?? ''));
         } elseif ($op === 'browse_folders') {
             $result = $this->browse($drive, sanitize_text_field($_POST['folder_id'] ?? '') ?: (string) ($settings['root_folder_id'] ?? ''), (string) ($settings['root_folder_id'] ?? ''), sanitize_text_field($_POST['page_token'] ?? ''), true);
+            if (!is_wp_error($result)) {
+                $availability = $this->subject_folder_availability($drive, $scope, $result['folder_id']);
+                $result['subject_folder'] = is_wp_error($availability) ? array('can_create'=>false, 'reason'=>$availability->get_error_message()) : $availability;
+            }
         } else {
             if ($op === 'browse_videos') {
                 $chain = $this->mapping->validate_binding($drive, $mapping);
@@ -107,6 +113,93 @@ class Olama_Media_Workspace
         }
         return array('folder_id'=>$folder_id, 'breadcrumbs'=>array_reverse(array_map(function ($f) { return array('id'=>$f['id'], 'name'=>$f['name']); }, $chain)),
             'items'=>$items, 'next_page_token'=>$page['next_page_token']);
+    }
+
+    /** Inspect every sibling page, including Arabic-normalized equivalents. */
+    public function subject_folder_availability($drive, $scope, $parent_id)
+    {
+        if (count($scope) !== 4 || in_array(0, $scope, true) || !$this->curriculum->is_valid_scope(...$scope)) {
+            return new WP_Error('invalid_scope', __('اختر نطاق المنهج الصحيح أولاً.', 'olama-media-library'));
+        }
+        $settings = get_option('academy_media_library_settings', array());
+        $levels = array('academic_year'=>0, 'semester'=>1, 'grade'=>2, 'subject'=>3);
+        $level = $settings['root_scope_level'] ?? 'unknown';
+        if (isset($levels[$level]) && absint($settings['root_scope_id'] ?? 0) !== $scope[$levels[$level]]) {
+            return new WP_Error('binding_scope', __('نطاق المجلد الجذر مختلف عن المنهج المحدد.', 'olama-media-library'));
+        }
+        $chain = $this->mapping->folder_chain($drive, $parent_id, (string) ($settings['root_folder_id'] ?? ''));
+        if (is_wp_error($chain)) { return $chain; }
+        $names = $this->curriculum->get_names(...$scope);
+        $name = trim(sanitize_text_field($names['subject'] ?? ''));
+        $normalizer = new Olama_Media_Normalizer();
+        $normalized = $normalizer->normalize_text($name);
+        if ($normalized === '') { return new WP_Error('subject_name_missing', __('اسم المادة غير متوفر في بيانات المنهج.', 'olama-media-library')); }
+        $already_inside = $normalizer->normalize_text($chain[0]['name']) === $normalized;
+        $matches = $already_inside ? array($parent_id=>$parent_id) : array(); $seen = array(); $token = '';
+        do {
+            if (isset($seen[$token]) || count($seen) >= 100) { return new WP_Error('folder_pages_incomplete', __('لم يكتمل فحص المجلدات. حدّث المجلد قبل محاولة الإنشاء.', 'olama-media-library')); }
+            $seen[$token] = true;
+            $page = $drive->list_folder_children_page($parent_id, $token, 200);
+            if (is_wp_error($page)) { return $page; }
+            foreach ((array) ($page['items'] ?? array()) as $item) {
+                if (empty($item['trashed']) && ($item['mime_type'] ?? '') === 'application/vnd.google-apps.folder'
+                    && $normalizer->normalize_text($item['name'] ?? '') === $normalized) {
+                    $id = sanitize_text_field($item['id'] ?? '');
+                    if ($id === '') { return new WP_Error('folder_id_missing', __('تعذر التحقق من معرف المجلد الموجود.', 'olama-media-library')); }
+                    $matches[$id] = $id;
+                }
+            }
+            $token = (string) ($page['next_page_token'] ?? '');
+        } while ($token !== '');
+        $enabled = defined('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED') && OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED === true;
+        if ($already_inside) { $reason = __('المجلد المعروض يحمل اسم المادة بالفعل؛ يمكنك اعتماده مباشرة دون إنشاء مجلد داخله.', 'olama-media-library'); }
+        elseif ($matches) { $reason = __('مجلد المادة موجود هنا بالفعل؛ افتحه ثم اعتمده بدلاً من إنشاء نسخة أخرى.', 'olama-media-library'); }
+        elseif (!$enabled) { $reason = __('إنشاء المجلدات موقوف من مسؤول الموقع.', 'olama-media-library'); }
+        else { $reason = __('سيُنشأ مجلد باسم المادة داخل المجلد المعروض حالياً، ثم يمكنك اعتماده للمادة.', 'olama-media-library'); }
+        return array('name'=>$name, 'parent_name'=>$chain[0]['name'], 'existing_ids'=>array_values($matches), 'exists'=>(bool) $matches,
+            'can_create'=>$enabled && !$matches, 'root_hash'=>$this->mapping->root_config_hash(),
+            'reason'=>$reason);
+    }
+
+    public function create_subject_folder($drive, $scope, $parent_id, $expected_root_hash)
+    {
+        global $wpdb;
+        if (!defined('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED') || OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED !== true) {
+            return new WP_Error('subject_folder_creation_disabled', __('إنشاء المجلدات موقوف من مسؤول الموقع.', 'olama-media-library'));
+        }
+        $settings = get_option('academy_media_library_settings', array());
+        $root = sanitize_text_field($settings['root_folder_id'] ?? '');
+        $key = 'subject:' . implode(':', $scope);
+        // Same lock order as upload provisioning; serialize even across two subjects
+        // with the same display name inside the selected parent.
+        $locks = array('olama_upload_' . substr(hash('sha256', $root), 0, 40), 'olama_folder_' . substr(hash('sha256', $key), 0, 40));
+        $acquired = array();
+        try {
+            foreach ($locks as $lock) {
+                if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)', $lock)) !== 1) { return new WP_Error('folder_creation_busy', __('تجهيز المجلدات قيد التنفيذ. أعد المحاولة بعد لحظات.', 'olama-media-library')); }
+                $acquired[] = $lock;
+            }
+            if ($expected_root_hash === '' || !hash_equals($this->mapping->root_config_hash(), $expected_root_hash)) { return new WP_Error('binding_changed', __('تغيّرت إعدادات Drive. حدّث نافذة اختيار المجلد.', 'olama-media-library')); }
+            $availability = $this->subject_folder_availability($drive, $scope, $parent_id);
+            if (is_wp_error($availability)) { return $availability; }
+            if ($availability['exists']) { return new WP_Error('subject_folder_exists', $availability['reason']); }
+            $chain = $this->mapping->folder_chain($drive, $parent_id, $root);
+            if (is_wp_error($chain)) { return $chain; }
+            if (!hash_equals($this->mapping->root_config_hash(), $expected_root_hash)) { return new WP_Error('binding_changed', __('تغيّرت إعدادات Drive. حدّث نافذة اختيار المجلد.', 'olama-media-library')); }
+            $created = $drive->create_reviewed_folder($availability['name'], $parent_id);
+            if (is_wp_error($created)) { return $created; }
+            // The Drive helper rechecks the exact name immediately before creation.
+            if (empty($created['created'])) { return new WP_Error('subject_folder_exists', __('ظهر مجلد بالاسم نفسه أثناء التجهيز. حدّث القائمة واختر المجلد الموجود.', 'olama-media-library')); }
+            $id = sanitize_text_field($created['id'] ?? '');
+            $folder = $id !== '' ? $drive->get_file_metadata($id) : null;
+            if (is_wp_error($folder)) { return $folder; }
+            if (!$folder || ($folder['id'] ?? '') !== $id || !empty($folder['trashed']) || ($folder['mime_type'] ?? '') !== 'application/vnd.google-apps.folder'
+                || !in_array($parent_id, (array) ($folder['parents'] ?? array()), true) || ($folder['name'] ?? '') !== $availability['name']) {
+                return new WP_Error('created_folder_invalid', __('تعذر تأكيد المجلد الجديد. حدّث القائمة قبل المحاولة مجدداً.', 'olama-media-library'));
+            }
+            if (!hash_equals($this->mapping->root_config_hash(), $expected_root_hash)) { return new WP_Error('binding_changed', __('أُنشئ المجلد لكن إعدادات Drive تغيّرت. أعد فتح نافذة الاختيار للتحقق منه.', 'olama-media-library')); }
+            return array('folder_id'=>$id, 'folder_name'=>$availability['name'], 'created'=>true);
+        } finally { foreach (array_reverse($acquired) as $lock) { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); } }
     }
 
     public function link($drive, $scope, $mapping, $file_id, $lesson_id, $part)
