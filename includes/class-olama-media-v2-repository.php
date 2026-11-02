@@ -53,41 +53,6 @@ class Olama_Media_V2_Repository
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->files} WHERE drive_file_id=%s LIMIT 1", sanitize_text_field($drive_file_id)));
     }
 
-    public function get_active_drive_files()
-    {
-        global $wpdb;
-        // Deduplicate by drive_path_hash: keep only one file per unique path (the one with the highest id).
-        // This prevents duplicate Google Drive file IDs (shared/copied files) from causing
-        // multiple video links for the same lesson.
-        return $wpdb->get_results(
-            "SELECT f.*
-             FROM {$this->files} f
-             INNER JOIN (
-                 SELECT MAX(id) AS max_id
-                 FROM {$this->files}
-                 WHERE scan_status='active' AND drive_path_hash IS NOT NULL AND drive_path_hash != ''
-                 GROUP BY drive_path_hash
-             ) dedup ON dedup.max_id = f.id
-             WHERE f.scan_status='active'
-             UNION
-             SELECT f.*
-             FROM {$this->files} f
-             WHERE f.scan_status='active'
-               AND (f.drive_path_hash IS NULL OR f.drive_path_hash = '')
-             ORDER BY drive_path, filename"
-        );
-    }
-
-    /**
-     * Return all active drive files WITHOUT deduplication.
-     * Used for diagnostics and admin reporting only.
-     */
-    public function get_all_active_drive_files_raw()
-    {
-        global $wpdb;
-        return $wpdb->get_results("SELECT * FROM {$this->files} WHERE scan_status='active' ORDER BY drive_path,filename");
-    }
-
     public function create_sync_run($data)
     {
         global $wpdb;
@@ -257,18 +222,6 @@ class Olama_Media_V2_Repository
              LEFT JOIN {$this->files} f ON f.drive_file_id=l.drive_file_id
              WHERE l.academic_year_id=%d AND l.semester_id=%d AND l.grade_id=%d AND l.subject_id=%d AND l.link_status='active' ORDER BY l.id",
             ...$scope
-        ));
-    }
-
-    public function clear_pending_generated_links_for_scope($academic_year_id, $semester_id, $grade_id, $subject_id)
-    {
-        global $wpdb;
-        return (int) $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$this->links}
-             WHERE academic_year_id=%d AND semester_id=%d AND grade_id=%d AND subject_id=%d
-               AND approval_status='pending'
-               AND match_method IN ('filename_lesson_part','filename_lesson_number','folder_and_title')",
-            absint($academic_year_id), absint($semester_id), absint($grade_id), absint($subject_id)
         ));
     }
 

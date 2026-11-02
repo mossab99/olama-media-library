@@ -456,7 +456,6 @@
 .olama-v2-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .olama-v2-danger { border-inline-start: 4px solid #d63638; }
 .olama-v2-danger input, .olama-v2-danger select { margin: 4px; }
-.olama-v2-video-count { margin-top: 8px; font-weight: 700; color: #135e96; }
 .olama-v2-video { margin-top: 5px; padding: 6px; border: 1px solid #c3c4c7; background: #fff; border-radius: 3px; }
 .olama-v2-video small { display: block; overflow-wrap: anywhere; }
 .olama-v2-link-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 5px; border: 1px solid #dcdcde; }

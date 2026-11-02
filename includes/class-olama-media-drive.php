@@ -56,7 +56,6 @@ class Olama_Media_Drive
         $client->setClientId($settings['client_id']);
         $client->setClientSecret($settings['client_secret']);
         $client->addScope(Google_Service_Drive::DRIVE);
-        $client->addScope('https://www.googleapis.com/auth/userinfo.email');
         $client->setAccessType('offline');
         $client->setPrompt('consent');
         $client->setRedirectUri(admin_url('admin.php?page=academy-media-library'));
@@ -129,21 +128,6 @@ class Olama_Media_Drive
     {
         $client = $this->get_client();
         return $client ? $client->createAuthUrl() : '#';
-    }
-
-    public function get_authenticated_email()
-    {
-        if (!$this->service || !class_exists('Google_Service_Oauth2')) {
-            return '';
-        }
-
-        try {
-            $oauth2 = new Google_Service_Oauth2($this->service->getClient());
-            $userinfo = $oauth2->userinfo->get();
-            return $userinfo->email;
-        } catch (Exception $e) {
-            return '';
-        }
     }
 
     public function test_connection()
@@ -253,43 +237,6 @@ class Olama_Media_Drive
         }
     }
 
-    public function get_or_create_nested_folder($path_parts)
-    {
-        if (!$this->service) {
-            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
-        }
-        if (!$this->root_folder_id) {
-            return new WP_Error('missing_root', __('Root Folder ID is missing.', 'olama-media-library'));
-        }
-
-        return $this->get_or_create_nested_folder_from($this->root_folder_id, $path_parts);
-    }
-
-    /** Create or reuse a folder path below a server-resolved parent folder. */
-    public function get_or_create_nested_folder_from($parent_id, $path_parts)
-    {
-        if (!$this->service) {
-            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
-        }
-
-        $parent_id = sanitize_text_field($parent_id);
-        if ($parent_id === '') {
-            return new WP_Error('missing_parent', __('Google Drive parent folder ID is missing.', 'olama-media-library'));
-        }
-
-        foreach ($path_parts as $folder_name) {
-            $folder_name = trim(wp_strip_all_tags((string) $folder_name));
-            if ($folder_name === '') {
-                continue;
-            }
-            $parent_id = $this->get_or_create_single_folder($folder_name, $parent_id);
-            if (is_wp_error($parent_id)) {
-                return $parent_id;
-            }
-        }
-        return $parent_id;
-    }
-
     /** Create/reuse one reviewed folder directly below an explicit parent ID. */
     public function create_reviewed_folder($folder_name, $parent_id)
     {
@@ -304,7 +251,7 @@ class Olama_Media_Drive
         if ($folder_name === '' || $parent_id === '') {
             return new WP_Error('reviewed_folder_invalid', __('The reviewed folder name or parent Drive ID is invalid.', 'olama-media-library'));
         }
-        return $this->get_or_create_single_folder($folder_name, $parent_id, true, true);
+        return $this->get_or_create_single_folder($folder_name, $parent_id);
     }
 
     /** Create/reuse one folder after the upload resolver verifies its parent path. */
@@ -319,7 +266,7 @@ class Olama_Media_Drive
         if ($folder_name === '' || $parent_id === '') {
             return new WP_Error('safe_upload_folder_invalid', __('اسم المجلد أو معرف المجلد الأب غير صالح.', 'olama-media-library'));
         }
-        return $this->get_or_create_single_folder($folder_name, $parent_id, true, true);
+        return $this->get_or_create_single_folder($folder_name, $parent_id);
     }
 
     /** Rename one explicitly reviewed folder without moving it. */
@@ -382,50 +329,6 @@ class Olama_Media_Drive
             return $resume_uri;
         } catch (Exception $e) {
             return new WP_Error('drive_upload_init_error', $this->extract_error($e));
-        }
-    }
-
-    public function create_direct_resumable_upload_session($metadata, $mime_type, $file_size)
-    {
-        if (!Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)) {
-            return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
-        }
-        if (!$this->service) {
-            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
-        }
-
-        try {
-            $file_metadata = new Google_Service_Drive_DriveFile(array(
-                'name' => sanitize_file_name($metadata['name'] ?? ''),
-                'parents' => array(sanitize_text_field($metadata['parent_id'] ?? '')),
-                'mimeType' => sanitize_text_field($mime_type),
-            ));
-            $client = $this->service->getClient();
-            $client->setDefer(true);
-            $request = $this->service->files->create($file_metadata, array(
-                'fields' => 'id,name,mimeType,size,parents,webViewLink,webContentLink,thumbnailLink,videoMediaMetadata',
-                'supportsAllDrives' => true,
-            ));
-            $media = new Google_Http_MediaFileUpload($client, $request, $mime_type, null, true, 10485760);
-            $media->setFileSize(absint($file_size));
-            $resume_uri = $media->getResumeUri();
-            $client->setDefer(false);
-
-            if (!$resume_uri) {
-                return new WP_Error('drive_upload_init_error', __('Google Drive did not return a resumable upload URL.', 'olama-media-library'));
-            }
-
-            return array(
-                'upload_url' => esc_url_raw($resume_uri),
-                'upload_url_hash' => hash('sha256', $resume_uri),
-                'expires_hint_seconds' => 3600,
-            );
-        } catch (Exception $e) {
-            return new WP_Error('drive_upload_init_error', $this->extract_error($e));
-        } finally {
-            if (isset($client)) {
-                $client->setDefer(false);
-            }
         }
     }
 
@@ -891,56 +794,10 @@ class Olama_Media_Drive
         return $folders;
     }
 
-    /** Return all non-trashed video files directly inside a folder. */
-    public function list_video_files($folder_id)
-    {
-        if (!$this->service || !$folder_id) {
-            return new WP_Error('drive_not_ready', __('Google Drive service is not initialized.', 'olama-media-library'));
-        }
-
-        $files = array();
-        $page_token = null;
-        try {
-            do {
-                $args = array(
-                    'q' => "'" . str_replace("'", "\\'", $folder_id) . "' in parents and trashed = false and mimeType contains 'video/'",
-                    'fields' => 'nextPageToken,files(id,name,mimeType,size,parents,webViewLink,webContentLink,thumbnailLink,videoMediaMetadata)',
-                    'pageSize' => 1000,
-                    'supportsAllDrives' => true,
-                    'includeItemsFromAllDrives' => true,
-                );
-                if ($page_token) {
-                    $args['pageToken'] = $page_token;
-                }
-                $response = $this->service->files->listFiles($args);
-                $page_files = method_exists($response, 'getFiles') ? $response->getFiles() : ($response->files ?? array());
-                foreach ((array) $page_files as $file) {
-                    $files[] = array(
-                        'id' => sanitize_text_field($file->id),
-                        'name' => sanitize_text_field($file->name),
-                        'mime_type' => sanitize_text_field($file->mimeType),
-                        'size' => absint($file->size),
-                        'parents' => array_map('sanitize_text_field', (array) $file->parents),
-                        'web_view_link' => esc_url_raw($file->webViewLink),
-                        'web_content_link' => esc_url_raw($file->webContentLink),
-                        'thumbnail_link' => esc_url_raw($file->thumbnailLink),
-                        'video_media_metadata' => $file->videoMediaMetadata,
-                    );
-                }
-                $page_token = method_exists($response, 'getNextPageToken') ? $response->getNextPageToken() : ($response->nextPageToken ?? null);
-            } while ($page_token);
-        } catch (Exception $e) {
-            return new WP_Error('drive_file_list_error', $this->extract_error($e));
-        }
-
-        return $files;
-    }
-
     public function ensure_file_permissions($file_id)
     {
         $mutation_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD)
-            || Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC)
-            || Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::LEGACY_SYNC);
+            || Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_SYNC);
         if (!$mutation_enabled) {
             return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_UPLOAD);
         }
@@ -972,15 +829,7 @@ class Olama_Media_Drive
         }
     }
 
-    public function extract_id_from_url($url)
-    {
-        if ($url && preg_match('/[-\w]{25,}/', $url, $matches)) {
-            return $matches[0];
-        }
-        return '';
-    }
-
-    private function get_or_create_single_folder($folder_name, $parent_id, $reviewed_plan = false, $return_details = false)
+    private function get_or_create_single_folder($folder_name, $parent_id)
     {
         try {
             $query = "name = '" . str_replace("'", "\\'", $folder_name) . "' and '" . str_replace("'", "\\'", $parent_id) . "' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
@@ -996,11 +845,7 @@ class Olama_Media_Drive
                 return new WP_Error('drive_folder_ambiguous', sprintf(__('More than one Google Drive folder named "%s" exists at the same location. Merge or rename the duplicate folders before uploading.', 'olama-media-library'), $folder_name));
             }
             if (!empty($folders)) {
-                return $return_details ? array('id'=>(string) $folders[0]->id, 'created'=>false) : $folders[0]->id;
-            }
-
-            if (!$reviewed_plan && !Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION)) {
-                return Olama_Media_Feature_Flags::error(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION);
+                return array('id'=>(string) $folders[0]->id, 'created'=>false);
             }
 
             $folder = $this->service->files->create(new Google_Service_Drive_DriveFile(array(
@@ -1008,7 +853,7 @@ class Olama_Media_Drive
                 'mimeType' => 'application/vnd.google-apps.folder',
                 'parents' => array($parent_id),
             )), array('fields' => 'id', 'supportsAllDrives' => true));
-            return $return_details ? array('id'=>(string) $folder->id, 'created'=>true) : $folder->id;
+            return array('id'=>(string) $folder->id, 'created'=>true);
         } catch (Exception $e) {
             return new WP_Error('drive_folder_error', $this->extract_error($e));
         }

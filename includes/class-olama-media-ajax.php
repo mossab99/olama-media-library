@@ -38,9 +38,7 @@ class Olama_Media_Ajax
         add_action('wp_ajax_olama_media_get_upload_log', array($this, 'get_upload_log'));
         add_action('wp_ajax_academy_get_upload_log', array($this, 'get_upload_log'));
         add_action('wp_ajax_olama_media_migrate_legacy', array($this, 'migrate_legacy'));
-        add_action('wp_ajax_olama_media_sync_drive', array($this, 'sync_drive'));
         add_action('wp_ajax_olama_media_v2_scan_drive', array($this, 'v2_scan_drive'));
-        add_action('wp_ajax_olama_media_v2_match_subject', array($this, 'v2_match_subject'));
         add_action('wp_ajax_olama_media_v2_get_review_queue', array($this, 'v2_get_review_queue'));
         add_action('wp_ajax_olama_media_v2_approve_link', array($this, 'v2_approve_link'));
         add_action('wp_ajax_olama_media_v2_reject_link', array($this, 'v2_reject_link'));
@@ -1357,22 +1355,6 @@ class Olama_Media_Ajax
         is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
     }
 
-    public function v2_match_subject()
-    {
-        $this->verify_nonce(); $this->require_manage();
-        $this->require_drive_sync_enabled(Olama_Media_Feature_Flags::DRIVE_SYNC);
-        $ids = array_map('absint', array(
-            $_POST['academic_year_id'] ?? 0, $_POST['semester_id'] ?? 0,
-            $_POST['grade_id'] ?? 0, $_POST['subject_id'] ?? 0,
-        ));
-        if (in_array(0, $ids, true)) { wp_send_json_error(__('Select all curriculum filters.', 'olama-media-library')); }
-        $result = (new Olama_Media_Matcher())->match_subject($ids[0], $ids[1], $ids[2], $ids[3], array(
-            'dry_run'=>!empty($_POST['dry_run']), 'auto_apply'=>!empty($_POST['auto_apply']),
-            'force_relink'=>!empty($_POST['force_relink']), 'save_review'=>!empty($_POST['save_review']),
-        ));
-        is_wp_error($result) ? wp_send_json_error($result->get_error_message()) : wp_send_json_success($result);
-    }
-
     public function v2_get_review_queue()
     {
         $this->verify_nonce(); $this->require_manage();
@@ -1478,220 +1460,6 @@ class Olama_Media_Ajax
             $report['imported']++;
         }
         wp_send_json_success($report);
-    }
-
-    public function sync_drive()
-    {
-        $this->verify_nonce();
-        if (!current_user_can('manage_options') && !current_user_can('olama_media_drive_settings')) {
-            wp_send_json_error(__('Unauthorized.', 'olama-media-library'));
-        }
-        $this->require_drive_sync_enabled(Olama_Media_Feature_Flags::LEGACY_SYNC);
-
-        $year_id = absint($_POST['academic_year_id'] ?? 0);
-        $semester_id = absint($_POST['semester_id'] ?? 0);
-        $grade_id = absint($_POST['grade_id'] ?? 0);
-        $subject_id = absint($_POST['subject_id'] ?? 0);
-        $dry_run = !empty($_POST['dry_run']);
-        if (!$year_id || !$semester_id || !$grade_id || !$subject_id) {
-            wp_send_json_error(__('Select the academic year, semester, grade, and subject first.', 'olama-media-library'));
-        }
-
-        $units = $this->db->get_curriculum_with_assets($year_id, $semester_id, $grade_id, $subject_id);
-        if (is_wp_error($units)) {
-            wp_send_json_error($units->get_error_message());
-        }
-
-        $drive = new Olama_Media_Drive();
-        $names = $this->curriculum->get_names($year_id, $semester_id, $grade_id, $subject_id);
-        $base_path = array($names['academic_year'], $names['semester'], $names['grade'], $names['subject']);
-        $report = array(
-            'sync_engine' => '1.2.1-arabic-filenames',
-            'dry_run' => $dry_run,
-            'folders_checked' => 0,
-            'files_found' => 0,
-            'matched' => 0,
-            'created' => 0,
-            'updated' => 0,
-            'already_linked' => 0,
-            'unmatched' => array(),
-            'ambiguous' => array(),
-            'missing_folders' => array(),
-        );
-
-        foreach ((array) $units as $unit) {
-            $unit_name = sanitize_text_field($unit->unit_name);
-            $candidate_paths = array(
-                array_merge($base_path, array($unit_name)),
-                array($names['grade'], $names['subject'], $unit_name),
-                array($names['subject'], $unit_name),
-                array($unit_name),
-            );
-            $folder_id = '';
-            foreach ($candidate_paths as $candidate_path) {
-                $folder_id = $drive->find_nested_folder($candidate_path);
-                if (is_wp_error($folder_id)) {
-                    wp_send_json_error($folder_id->get_error_message());
-                }
-                if ($folder_id) {
-                    break;
-                }
-            }
-            if (!$folder_id) {
-                $fallback_folders = $drive->find_folders_by_name_recursive($unit_name);
-                if (is_wp_error($fallback_folders)) {
-                    wp_send_json_error($fallback_folders->get_error_message());
-                }
-                if (count($fallback_folders) === 1) {
-                    $folder_id = $fallback_folders[0];
-                } elseif (count($fallback_folders) > 1) {
-                    $report['ambiguous'][] = array(
-                        'unit' => $unit_name,
-                        'reason' => 'More than one Drive folder has this unit name.',
-                    );
-                    continue;
-                } else {
-                    $report['missing_folders'][] = $unit_name;
-                    continue;
-                }
-            }
-
-            $report['folders_checked']++;
-            $files = $drive->list_video_files($folder_id);
-            if (is_wp_error($files)) {
-                wp_send_json_error($files->get_error_message());
-            }
-            $report['files_found'] += count($files);
-
-            $lesson_file_counts = array();
-            foreach ($files as $candidate_file) {
-                foreach ((array) $unit->lessons as $candidate_lesson) {
-                    if ($this->drive_filename_matches_lesson($candidate_file['name'], $candidate_lesson)) {
-                        $lesson_key = (string) absint($candidate_lesson->id);
-                        $lesson_file_counts[$lesson_key] = isset($lesson_file_counts[$lesson_key]) ? $lesson_file_counts[$lesson_key] + 1 : 1;
-                    }
-                }
-            }
-
-            foreach ($files as $file) {
-                $matches = array();
-                foreach ((array) $unit->lessons as $lesson) {
-                    if ($this->drive_filename_matches_lesson($file['name'], $lesson)) {
-                        $matches[] = $lesson;
-                    }
-                }
-
-                if (count($matches) !== 1) {
-                    $key = count($matches) ? 'ambiguous' : 'unmatched';
-                    $report[$key][] = array('file' => $file['name'], 'unit' => $unit->unit_name);
-                    continue;
-                }
-
-                $lesson = $matches[0];
-                if (($lesson_file_counts[(string) absint($lesson->id)] ?? 0) > 1) {
-                    $report['ambiguous'][] = array('file' => $file['name'], 'unit' => $unit->unit_name, 'reason' => 'More than one Drive file matches this lesson.');
-                    continue;
-                }
-                $report['matched']++;
-                $existing_drive = $this->db->get_asset_by_drive_file_id($file['id']);
-                if ($existing_drive && absint($existing_drive->lesson_id) === absint($lesson->id)) {
-                    $report['already_linked']++;
-                    continue;
-                }
-
-                $existing_lesson = !empty($lesson->media_record_id) ? $this->db->get_asset($lesson->media_record_id) : null;
-                if ($existing_drive && absint($existing_drive->lesson_id) && absint($existing_drive->lesson_id) !== absint($lesson->id)) {
-                    $report['ambiguous'][] = array('file' => $file['name'], 'unit' => $unit->unit_name, 'reason' => 'File is already linked to another lesson.');
-                    continue;
-                }
-                if ($existing_lesson && !empty($existing_lesson->drive_file_id) && $existing_lesson->drive_file_id !== $file['id']) {
-                    $report['ambiguous'][] = array('file' => $file['name'], 'unit' => $unit->unit_name, 'reason' => 'Lesson already has another Drive video.');
-                    continue;
-                }
-
-                $existing = $existing_drive ?: $existing_lesson;
-                $existing ? $report['updated']++ : $report['created']++;
-                if ($dry_run) {
-                    continue;
-                }
-
-                $permission = $drive->ensure_file_permissions($file['id']);
-                if (is_wp_error($permission)) {
-                    $existing ? $report['updated']-- : $report['created']--;
-                    $report['unmatched'][] = array('file' => $file['name'], 'unit' => $unit->unit_name, 'reason' => $permission->get_error_message());
-                    continue;
-                }
-
-                $download_link = $file['web_content_link'] ?: 'https://drive.google.com/uc?export=download&id=' . rawurlencode($file['id']);
-                $this->db->upsert_asset(array(
-                    'id' => $existing ? absint($existing->id) : 0,
-                    'academic_year_id' => $year_id,
-                    'semester_id' => $semester_id,
-                    'grade_id' => $grade_id,
-                    'subject_id' => $subject_id,
-                    'unit_id' => absint($unit->id),
-                    'lesson_id' => absint($lesson->id),
-                    'title' => sanitize_text_field($lesson->lesson_title),
-                    'original_filename' => sanitize_file_name($file['name']),
-                    'mime_type' => sanitize_text_field($file['mime_type']),
-                    'file_size' => absint($file['size']),
-                    'drive_file_id' => sanitize_text_field($file['id']),
-                    'drive_folder_id' => sanitize_text_field($folder_id),
-                    'web_view_link' => esc_url_raw($file['web_view_link']),
-                    'web_content_link' => esc_url_raw($download_link),
-                    'thumbnail_link' => esc_url_raw($file['thumbnail_link']),
-                    'transport_method' => 'drive_sync',
-                    'upload_status' => 'uploaded_to_drive',
-                    'preview_status' => !empty($file['video_media_metadata']) ? 'ready' : 'processing',
-                    'approval_status' => $existing ? sanitize_key($existing->approval_status) : 'pending',
-                    'uploaded_by' => get_current_user_id(),
-                    'uploaded_at' => current_time('mysql'),
-                ));
-            }
-        }
-
-        $this->logger->log('drive_sync_completed', $dry_run ? 'Google Drive sync dry run completed.' : 'Google Drive sync completed.', $report);
-        wp_send_json_success($report);
-    }
-
-    private function drive_filename_matches_lesson($filename, $lesson)
-    {
-        $basename = pathinfo((string) $filename, PATHINFO_FILENAME);
-        $file_key = $this->normalize_match_text($basename);
-        $title_key = $this->normalize_match_text($lesson->lesson_title ?? '');
-        $number = trim((string) ($lesson->lesson_number ?? ''));
-        $standard_key = $this->normalize_match_text('Lesson ' . $number . ' ' . ($lesson->lesson_title ?? ''));
-        $arabic_key = $this->normalize_match_text("\u{062F}\u{0631}\u{0633} " . $number . ' ' . ($lesson->lesson_title ?? ''));
-        $without_arabic_prefix = preg_replace('/^\s*\x{062F}\x{0631}\x{0633}\s*[\p{N}]+\s*/u', '', $basename);
-        $without_english_prefix = preg_replace('/^\s*lesson\s*[\p{N}]+\s*/iu', '', $basename);
-        $prefixless_keys = array(
-            $this->normalize_match_text($without_arabic_prefix),
-            $this->normalize_match_text($without_english_prefix),
-        );
-
-        return $file_key !== '' && (
-            in_array($file_key, array($title_key, $standard_key, $arabic_key), true)
-            || in_array($title_key, $prefixless_keys, true)
-        );
-    }
-
-    private function normalize_match_text($value)
-    {
-        $value = wp_strip_all_tags((string) $value);
-        $value = preg_replace('/[\x{064B}-\x{065F}\x{0670}\x{06D6}-\x{06ED}]/u', '', $value);
-        // Normalize equivalent Arabic letters using code points to keep this source encoding-safe.
-        $value = strtr($value, array(
-            "\u{0623}" => "\u{0627}",
-            "\u{0625}" => "\u{0627}",
-            "\u{0622}" => "\u{0627}",
-            "\u{0671}" => "\u{0627}",
-            "\u{0649}" => "\u{064A}",
-            "\u{0624}" => "\u{0648}",
-            "\u{0626}" => "\u{064A}",
-            "\u{0640}" => '',
-        ));
-        $value = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
-        return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', $value));
     }
 
     private function prepare_upload_meta($filename, $total_size, $total_chunks)
@@ -2026,23 +1794,6 @@ class Olama_Media_Ajax
         }
 
         return true;
-    }
-
-    private function send_chunk_error($message, $chunk_index, $retryable, $job_id = 0, $asset_id = 0, $event_type = 'upload_error', $context = array())
-    {
-        $context['failed_chunk_index'] = absint($chunk_index);
-        if ($asset_id) {
-            $this->db->update_asset($asset_id, array('upload_status' => 'failed'));
-        }
-        if ($job_id) {
-            $this->db->update_job($job_id, array('status' => 'failed', 'error_message' => sanitize_textarea_field($message)));
-        }
-        $this->logger->log($event_type, $message, $context, $job_id, $asset_id);
-        wp_send_json_error(array(
-            'failed_chunk_index' => absint($chunk_index),
-            'retryable' => (bool) $retryable,
-            'message' => $message,
-        ));
     }
 
     private function is_retryable_upload_error($message)

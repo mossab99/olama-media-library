@@ -2,7 +2,7 @@ jQuery(function ($) {
     'use strict';
 
     const cfg = window.olamaMediaLibrary;
-    const state = { currentUploadRequest: null, logPage: 1, debugUploads: false, v2AutoSyncKey: '', loadedScope: null, loadSequence: 0 };
+    const state = { currentUploadRequest: null, debugUploads: false, loadedScope: null, loadSequence: 0 };
     const activeUploads = new Map();
 
     const esc = (value) => $('<div>').text(value == null ? '' : value).html().replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -163,8 +163,7 @@ jQuery(function ($) {
         };
     }
 
-    function loadCurriculum(options) {
-        const skipV2Sync = !!(options && options.skipV2Sync === true);
+    function loadCurriculum() {
         const data = filters();
         const sequence = ++state.loadSequence;
         if (!data.academic_year_id || !data.grade_id || !data.subject_id || !data.semester_id || $('#filter-semester').prop('disabled')) {
@@ -184,7 +183,6 @@ jQuery(function ($) {
                 state.loadedScope = { ...data };
                 renderCurriculum(response.data);
                 $(document).trigger('olama:curriculum-loaded', [data, response.data]);
-                if (cfg.autoSyncV2OnCurriculumLoad && !skipV2Sync) syncV2ScopeInBackground(data);
             } else {
                 notify(response.data || cfg.i18n.error, 'error');
             }
@@ -193,12 +191,8 @@ jQuery(function ($) {
         });
     }
 
-    function syncV2ScopeInBackground(data) {
-        $(document).trigger('olama:sync', [data]);
-    }
-
     $('#btn-v2-sync-now').on('click', function () {
-        syncV2ScopeInBackground(filters(), { button: this });
+        $(document).trigger('olama:sync', [filters()]);
     });
 
     function renderCurriculum(units) {
@@ -1603,7 +1597,6 @@ jQuery(function ($) {
     $('#btn-refresh-log').on('click', () => loadLogs(1));
 
     function loadLogs(page) {
-        state.logPage = page;
         $('#log-table-body').html(`<tr><td colspan="4">${esc(cfg.i18n.loading)}</td></tr>`);
         $.get(cfg.ajaxurl, {
             action: 'olama_media_get_upload_log',
@@ -2007,7 +2000,6 @@ jQuery(function ($) {
     $(document).on('click', '.btn-manual-drive-mapping', function () {
         if (!mappingScopeKey) return;
         const $button = $(this);
-        const expectedId = String($button.data('folder-id') || '');
         const scope = [$('#audit-year-id option:selected').text(), $('#audit-semester option:selected').text(), $('#audit-grade option:selected').text(), $('#audit-subject option:selected').text()].join(' / ');
         const enteredId = window.prompt(`تحقق يدوياً من المسار مقابل:\n${scope}\n\nأدخل Drive Folder ID الكامل للمرشح المختار:`, '');
         if (enteredId === null) return;

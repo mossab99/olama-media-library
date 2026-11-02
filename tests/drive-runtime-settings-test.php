@@ -23,5 +23,5 @@ runtime_assert($flags::settings_from_request(array('drive_features_present'=>'1'
 define('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED', true);
 $GLOBALS['runtime_settings']['drive_upload_enabled'] = 0;
 runtime_assert($flags::enabled($flags::DRIVE_UPLOAD), 'An explicit deployment enable remains authoritative.');
-runtime_assert(!$flags::enabled($flags::DRIVE_FOLDER_CREATION) && !$flags::enabled($flags::LEGACY_SYNC), 'Runtime toggles never enable legacy sync or unrestricted folder creation.');
+runtime_assert(!$flags::enabled('drive_folder_creation') && !$flags::enabled('legacy_sync'), 'Retired feature names must never enable Drive operations.');
 echo "Drive runtime settings tests passed.\n";

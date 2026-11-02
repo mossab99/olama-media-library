@@ -9,8 +9,7 @@ class Olama_Media_Safe_Upload_Folder_Resolver
     private $db;
     private $curriculum;
 
-    // The first argument is retained for compatibility. Uploads now verify Drive live.
-    public function __construct($inventory = null, $mapping = null, $normalizer = null, $db = null, $curriculum = null)
+    public function __construct($mapping = null, $normalizer = null, $db = null, $curriculum = null)
     {
         $this->mapping = $mapping ?: new Olama_Media_Drive_Mapping();
         $this->normalizer = $normalizer ?: new Olama_Media_Normalizer();

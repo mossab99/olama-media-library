@@ -20,15 +20,9 @@ define('OLAMA_MEDIA_LIBRARY_PATH', plugin_dir_path(__FILE__));
 define('OLAMA_MEDIA_LIBRARY_URL', plugin_dir_url(__FILE__));
 
 // Upload and scoped sync are controlled in Drive settings unless wp-config.php
-// explicitly overrides them. Legacy sync and unrestricted creation stay gated.
-if (!defined('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED')) {
-    define('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED', false);
-}
-if (!defined('OLAMA_MEDIA_LEGACY_SYNC_ENABLED')) {
-    define('OLAMA_MEDIA_LEGACY_SYNC_ENABLED', false);
-}
+// explicitly overrides them.
 // This gate is limited to the reviewed plan executor. It does not enable the
-// legacy folder resolver, video uploads, or Drive synchronization.
+// video uploads or Drive synchronization.
 if (!defined('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED')) {
     define('OLAMA_MEDIA_REVIEWED_FOLDER_APPLY_ENABLED', true);
 }

@@ -9,7 +9,7 @@ class WP_Error {
     public function get_error_code() { return $this->code; }
 }
 class Olama_Media_Feature_Flags {
-    const DRIVE_UPLOAD = 'upload'; const DRIVE_FOLDER_CREATION = 'legacy';
+    const DRIVE_UPLOAD = 'upload';
     public static $upload = true;
     public static function enabled($feature) { return $feature === self::DRIVE_UPLOAD && self::$upload; }
     public static function error($feature) { return new WP_Error('disabled', 'Disabled'); }

@@ -94,7 +94,7 @@ assert_safe_upload(!is_wp_error($bound) && $wpdb->mapping->confirmation_method =
 $drive->folders['grade']['name'] = 'تسمية جديدة'; $drive->add('duplicate-grade', 'الحادي عشر', 'semester');
 $drive->add('duplicate-subject', 'عنوان مختلف تماماً', 'grade');
 assert_safe_upload(!is_wp_error($mapping->validate_binding($drive, $wpdb->mapping)), 'Ancestor renames and duplicate siblings must not invalidate an exact ID chain.');
-$resolver = new Olama_Media_Safe_Upload_Folder_Resolver(null, $mapping, null, $db, new SafeUploadCurriculum());
+$resolver = new Olama_Media_Safe_Upload_Folder_Resolver($mapping, null, $db, new SafeUploadCurriculum());
 assert_safe_upload(!is_wp_error($resolver->resolve($drive, $meta)), 'Upload must use the same selected binding despite renamed ancestors.');
 $drive->folders['subject']['parents'] = array('semester');
 expect_safe_error($mapping->validate_binding($drive, $wpdb->mapping), 'binding_moved');
@@ -156,7 +156,7 @@ expect_safe_error($service->link($drive, $scope, $old_mapping, 'video', 6, 0), '
 assert_safe_upload(!$wpdb->locks, 'Binding change before linking releases the subject lock.');
 $wpdb->mapping = $old_mapping;
 $GLOBALS['safe_upload_settings']['root_folder_id'] = 'new-root';
-$resolver = new Olama_Media_Safe_Upload_Folder_Resolver(null, $mapping, null, $db, new SafeUploadCurriculum());
+$resolver = new Olama_Media_Safe_Upload_Folder_Resolver($mapping, null, $db, new SafeUploadCurriculum());
 expect_safe_error($resolver->resolve($drive, $meta), 'safe_upload_mapping_changed');
 assert_safe_upload(!$drive->created, 'An explicitly selected binding cannot be rediscovered after a root change.');
 

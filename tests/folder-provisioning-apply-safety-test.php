@@ -46,7 +46,7 @@ assert_folder_apply_safety(strpos($view, 'APPLY REVIEWED FOLDER PLAN') !== false
 assert_folder_apply_safety(strpos($script, "action: 'olama_media_folder_provisioning_readiness'") !== false, 'UI must call folder readiness first.');
 assert_folder_apply_safety(strpos($script, "action: 'olama_media_folder_provisioning_apply'") !== false, 'UI must expose the guarded apply endpoint.');
 assert_folder_apply_safety(strpos($plugin, "define('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED'") === false, 'Upload defaults must be supplied by runtime settings, not a forced constant.');
-assert_folder_apply_safety(strpos($plugin, "OLAMA_MEDIA_LEGACY_SYNC_ENABLED', false") !== false, 'Legacy synchronization must remain disabled independently of scoped sync settings.');
+assert_folder_apply_safety(strpos($ajax, 'wp_ajax_olama_media_sync_drive') === false, 'The retired legacy synchronization endpoint must not be registered.');
 assert_folder_apply_safety(strpos($plugin, "OLAMA_MEDIA_LIBRARY_VERSION', '2.11.1'") !== false, 'Plugin version must be 2.11.1.');
 
 require_once $root . '/includes/class-olama-media-normalizer.php';

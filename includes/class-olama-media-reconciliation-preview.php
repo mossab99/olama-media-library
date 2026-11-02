@@ -64,7 +64,7 @@ class Olama_Media_Reconciliation_Preview
             $wpdb->query('ROLLBACK');
             return new WP_Error('reconciliation_reset_failed', __('Could not reset the previous reconciliation preview.', 'olama-media-library'));
         }
-        $matcher = new Olama_Media_Matcher(null, $this->normalizer);
+        $matcher = new Olama_Media_Matcher($this->normalizer);
         $names = (new Olama_Media_Curriculum_Adapter())->get_names(
             $mapping->academic_year_id, $mapping->semester_id, $mapping->grade_id, $mapping->subject_id
         );

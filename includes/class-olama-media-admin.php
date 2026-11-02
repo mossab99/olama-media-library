@@ -94,7 +94,6 @@ class Olama_Media_Admin
             'ajaxurl' => admin_url('admin-ajax.php', 'relative'),
             'pluginVersion' => OLAMA_MEDIA_LIBRARY_VERSION,
             'nonce' => wp_create_nonce('olama_media_library_nonce'),
-            'legacyNonce' => wp_create_nonce('olama_admin_nonce'),
             'canManage' => current_user_can('manage_options') || current_user_can('olama_media_drive_settings'),
             'canApprove' => self::can_approve(),
             'canUpload' => self::can_upload(),
@@ -107,16 +106,12 @@ class Olama_Media_Admin
             'driveFeatures' => array(
                 'uploadEnabled' => $drive_upload_enabled,
                 'syncEnabled' => $drive_sync_enabled,
-                'folderCreationEnabled' => Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION),
-                'legacySyncEnabled' => Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::LEGACY_SYNC),
-                'phaseZeroActive' => Olama_Media_Feature_Flags::phase_zero_active(),
             ),
             'driveAuth' => array(
                 'drive_authenticated' => $drive_auth_health['is_configured'] && $drive_auth_health['has_refresh_token'] && $drive_auth_health['can_refresh'],
                 'has_refresh_token' => (bool) $drive_auth_health['has_refresh_token'],
                 'auth_warning' => (!$drive_auth_health['is_configured'] || !$drive_auth_health['has_refresh_token'] || !$drive_auth_health['can_refresh']) ? __('تنبيه: اتصال Google Drive غير مكتمل. لن تنجح عملية رفع الفيديوهات حتى تتم إعادة المصادقة.', 'olama-media-library') : '',
             ),
-            'autoSyncV2OnCurriculumLoad' => false,
             // WordPress uploads (including direct-upload fallback) must keep each chunk within PHP limits.
             'chunkSize' => min(5 * 1024 * 1024, max(1024 * 1024, (int) floor($server_limit * 0.7))),
             'i18n' => $this->i18n(),
@@ -174,17 +169,6 @@ class Olama_Media_Admin
         include OLAMA_MEDIA_LIBRARY_PATH . 'views/media-library-page.php';
     }
 
-    private function has_parent_menu($slug)
-    {
-        global $menu;
-        foreach ((array) $menu as $item) {
-            if (!empty($item[2]) && $item[2] === $slug) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private function server_upload_limit()
     {
         $limits = array($this->to_bytes(ini_get('upload_max_filesize')), $this->to_bytes(ini_get('post_max_size')));
@@ -232,7 +216,6 @@ class Olama_Media_Admin
             'check_status' => __('فحص الحالة', 'olama-media-library'),
             'approve' => __('اعتماد', 'olama-media-library'),
             'reject' => __('رفض', 'olama-media-library'),
-            'save' => __('حفظ', 'olama-media-library'),
             'notes' => __('ملاحظات', 'olama-media-library'),
             'error' => __('حدث خطأ.', 'olama-media-library'),
             'phase_zero_upload_disabled' => __('الرفع معطل. يمكن للمسؤول تفعيله من إعدادات Drive.', 'olama-media-library'),
@@ -250,16 +233,13 @@ class Olama_Media_Admin
             'file_too_large' => __('حجم الملف أكبر من المسموح: %s', 'olama-media-library'),
             'invalid_file' => __('يسمح حاليا برفع ملفات MP4 فقط.', 'olama-media-library'),
             'retrying_chunk' => __('إعادة محاولة رفع الجزء %1$s من %2$s - المحاولة %3$s من 3', 'olama-media-library'),
-            'chunk_failed_final' => __('فشل رفع هذا الجزء بعد 3 محاولات. يرجى التحقق من الاتصال والمحاولة مرة أخرى.', 'olama-media-library'),
             'finalizing_upload' => __('تم رفع الملف، جاري تثبيت بيانات الفيديو...', 'olama-media-library'),
             'finalize_failed' => __('فشل تثبيت بيانات الفيديو، يمكنك إعادة المحاولة بدون رفع الملف من جديد.', 'olama-media-library'),
             'retry_finalize' => __('إعادة تثبيت بيانات الفيديو', 'olama-media-library'),
             'session_or_permission_expired' => __('انتهت جلسة الدخول أو صلاحية الرفع. يرجى تحديث الصفحة وتسجيل الدخول ثم المحاولة مرة أخرى.', 'olama-media-library'),
-            'google_auth_upload_failed' => __('فشل رفع الفيديو لأن اتصال Google Drive غير صالح. يرجى إعادة المصادقة مع Google من إعدادات Drive ثم إعادة المحاولة.', 'olama-media-library'),
             'retryable_network_error' => __('تعذر رفع هذا الجزء مؤقتا. سيتم إعادة المحاولة تلقائيا.', 'olama-media-library'),
             'transport_wordpress' => __('طريقة الرفع: عبر WordPress', 'olama-media-library'),
             'transport_direct' => __('طريقة الرفع: مباشر إلى Google Drive', 'olama-media-library'),
-            'transport_auto' => __('طريقة الرفع: تلقائي', 'olama-media-library'),
             'direct_session_creating' => __('جاري التحقق من مجلدات Drive وإنشاء الناقص وتجهيز الرفع...', 'olama-media-library'),
             'direct_uploading' => __('جاري رفع الفيديو مباشرة إلى Google Drive...', 'olama-media-library'),
             'direct_probe_checking' => __('حدث انقطاع مؤقت أثناء الرفع المباشر. يتم التحقق من آخر جزء تم رفعه...', 'olama-media-library'),

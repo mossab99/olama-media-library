@@ -2,8 +2,6 @@
 define('ABSPATH', __DIR__ . '/');
 define('OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED', true);
 define('OLAMA_MEDIA_DRIVE_SYNC_ENABLED', false);
-define('OLAMA_MEDIA_DRIVE_FOLDER_CREATION_ENABLED', false);
-define('OLAMA_MEDIA_LEGACY_SYNC_ENABLED', false);
 
 function __($message, $domain = null) { return $message; }
 function sanitize_key($value) { return strtolower(preg_replace('/[^a-z0-9_\-]/', '', (string) $value)); }
@@ -38,8 +36,6 @@ require_once dirname(__DIR__) . '/includes/class-olama-media-feature-flags.php';
 
 $disabled_features = array(
     Olama_Media_Feature_Flags::DRIVE_SYNC,
-    Olama_Media_Feature_Flags::DRIVE_FOLDER_CREATION,
-    Olama_Media_Feature_Flags::LEGACY_SYNC,
 );
 
 assert_true(Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Flags::DRIVE_UPLOAD), 'Reviewed-path Drive uploads must be enabled.');
@@ -54,5 +50,8 @@ assert_true(!Olama_Media_Feature_Flags::phase_zero_active(), 'The full mutation 
 
 $ajax_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-ajax.php');
 assert_true(strpos($ajax_source, 'wp_ajax_nopriv_') === false, 'Unauthenticated AJAX routes must not be registered.');
+foreach (array('wp_ajax_olama_media_sync_drive', 'wp_ajax_olama_media_v2_match_subject') as $retired_route) {
+    assert_true(strpos($ajax_source, $retired_route) === false, 'Retired synchronization routes must not be registered.');
+}
 
 echo "Phase 0 feature flag tests passed.\n";

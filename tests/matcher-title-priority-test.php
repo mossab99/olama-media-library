@@ -10,7 +10,7 @@ require_once dirname(__DIR__) . '/includes/class-olama-media-matcher.php';
 function assert_matcher($condition, $message) { if (!$condition) { fwrite(STDERR, "FAIL: {$message}\n"); exit(1); } }
 
 $normalizer = new Olama_Media_Normalizer();
-$matcher = new Olama_Media_Matcher(new stdClass(), $normalizer, new stdClass());
+$matcher = new Olama_Media_Matcher($normalizer);
 $unit = (object) array('id'=>4, 'unit_name'=>'الوحدة الرابعة رسومي المتحركة');
 $context = array('names'=>array('subject'=>'اللغة العربية'), 'units'=>array($unit));
 $file = (object) array(
@@ -29,9 +29,9 @@ assert_matcher(!in_array('lesson_title_match', $wrong['evidence'], true), 'Numbe
 assert_matcher($correct['confidence'] >= 90, 'A strong unique title match may outrank a stale filename lesson number.');
 assert_matcher($correct['confidence'] > $wrong['confidence'], 'Title identity must outrank filename numbering.');
 assert_matcher(in_array('lesson_number_mismatch', $correct['evidence'], true), 'Number disagreement must remain visible as evidence.');
-assert_matcher(count($matcher->auto_link_high_confidence(array($correct), 0, true)) === 0, 'A title match with a number mismatch must require human review.');
 
 $preview_source = file_get_contents(dirname(__DIR__) . '/includes/class-olama-media-reconciliation-preview.php');
+assert_matcher(strpos($preview_source, "!in_array('lesson_number_mismatch', (array) \$top['evidence'], true)") !== false, 'A title match with a number mismatch must require human review.');
 assert_matcher(strpos($preview_source, "elseif (!\$has_title_evidence) { \$status = 'unmatched'; }") !== false, 'Preview must classify number-only candidates as unmatched.');
 assert_matcher(strpos($preview_source, '$proposed_lesson = $has_title_evidence ? $top : null;') !== false, 'Preview must not stage a proposed lesson without title evidence.');
 

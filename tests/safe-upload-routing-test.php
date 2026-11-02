@@ -104,7 +104,7 @@ function fixture_safe_upload() {
     $wpdb = new SafeUploadWpdb(); $curriculum = new SafeUploadCurriculum(); $drive = new SafeUploadDrive();
     $normalizer = new Olama_Media_Normalizer();
     $mapping = new Olama_Media_Drive_Mapping(new stdClass(), $curriculum, $normalizer);
-    $resolver = new Olama_Media_Safe_Upload_Folder_Resolver(null, $mapping, $normalizer, new SafeUploadCurriculumDB(), $curriculum);
+    $resolver = new Olama_Media_Safe_Upload_Folder_Resolver($mapping, $normalizer, new SafeUploadCurriculumDB(), $curriculum);
     return array($resolver, $drive, $curriculum);
 }
 function bind_safe_subject($id = 'subject', $status = 'confirmed') {

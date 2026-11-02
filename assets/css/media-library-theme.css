@@ -33,7 +33,6 @@
 .olama-media-library-wrap .nav-tab .dashicons { font-size:18px; width:18px; height:18px; }
 .olama-media-library-wrap .nav-tab:hover { background:#f4f7f4; color:var(--om-green); }
 .olama-media-library-wrap .nav-tab-active { background:white; color:var(--om-green-dark); box-shadow:0 2px 5px #1b403510; }
-.olama-media-library-wrap .olama-repair-tab { margin-inline-start:auto; font-size:15px; }
 .olama-media-tab { padding:14px 0; }
 .olama-media-library-wrap h2, .olama-drive-picker h2 { color:var(--om-ink); }
 .olama-media-library-wrap .button, .olama-drive-picker .button { display:inline-flex; justify-content:center; align-items:center; gap:6px; min-height:36px; padding:5px 13px; border:1px solid #ccdcd2; border-radius:8px; color:var(--om-green-dark); background:white; box-shadow:none; font-family:inherit; font-weight:600; font-size:15px; line-height:1.8; white-space:normal; text-align:center; transition:background .15s,border-color .15s; }
@@ -228,7 +227,6 @@
     .olama-library-header h1 { font-size:25px; }
     .olama-header-connection { padding:10px; }
     .olama-curriculum-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .olama-media-library-wrap .olama-repair-tab { margin-inline-start:0; }
     .olama-settings-fields tbody { grid-template-columns:1fr; }
     .olama-settings-fields tr:nth-child(6) { grid-column:auto; }
 }

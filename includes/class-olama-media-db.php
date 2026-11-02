@@ -783,7 +783,7 @@ class Olama_Media_DB
                 continue;
             }
 
-            $asset_id = $this->upsert_asset(array(
+            $this->upsert_asset(array(
                 'id' => $existing ? $existing->id : 0,
                 'unit_id' => absint($row->unit_id),
                 'lesson_id' => absint($row->lesson_id),
