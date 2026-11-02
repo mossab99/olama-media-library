@@ -85,6 +85,7 @@ jQuery(function ($) {
     $('#filter-year-id, #filter-semester, #filter-grade, #filter-subject').on('change', function () {
         state.loadSequence++;
         state.loadedScope = null;
+        $('#olama-curriculum-stats').prop('hidden', true);
         $('#curriculum-container .btn-upload, #curriculum-container .btn-choose-drive').prop('disabled', true);
         $(document).trigger('olama:scope-changed');
     });
@@ -201,6 +202,25 @@ jQuery(function ($) {
 
     function renderCurriculum(units) {
         const $container = $('#curriculum-container');
+        const counts = { lessons: 0, covered: 0, pending: 0, approved: 0 };
+        const seenLessons = new Set();
+        (units || []).forEach((unit) => (unit.lessons || []).forEach((lesson) => {
+            if (seenLessons.has(lesson.id)) return;
+            seenLessons.add(lesson.id);
+            counts.lessons++;
+            const links = lesson.video_links || [];
+            const legacyUploaded = lesson.upload_status === 'uploaded_to_drive';
+            if (links.length || legacyUploaded) counts.covered++;
+            if (links.length) {
+                counts.pending += links.filter((link) => link.approval_status === 'pending').length;
+                counts.approved += links.filter((link) => link.approval_status === 'approved').length;
+            } else if (legacyUploaded) {
+                if (lesson.approval_status === 'approved') counts.approved++;
+                else if (!lesson.approval_status || lesson.approval_status === 'pending') counts.pending++;
+            }
+        }));
+        Object.entries(counts).forEach(([name, value]) => $(`[data-library-stat="${name}"]`).text(value.toLocaleString('ar-JO')));
+        $('#olama-curriculum-stats').prop('hidden', false);
         if (!units || !units.length) {
             $container.html(`<div class="notice notice-warning inline"><p>${esc(cfg.i18n.no_curriculum)}</p></div>`);
             return;
@@ -209,8 +229,8 @@ jQuery(function ($) {
         let html = '';
         units.forEach((unit) => {
             html += `<div class="olama-media-unit">
-                <h2>${esc(unit.unit_number)}. ${esc(unit.unit_name)}</h2>
-                <table class="wp-list-table widefat striped">
+                <div class="olama-unit-heading"><span class="olama-unit-number">${esc(unit.unit_number)}</span><div><h2>${esc(unit.unit_name)}</h2><small>${esc((unit.lessons || []).length)} درس</small></div></div>
+                <div class="olama-lesson-table-wrap"><table class="wp-list-table widefat striped">
                     <thead><tr>
                         <th style="width:60px">#</th>
                         <th>${esc('الدرس')}</th>
@@ -246,11 +266,11 @@ jQuery(function ($) {
 
 
                 html += `<tr data-asset-id="${esc(lesson.media_record_id || '')}" data-lesson-id="${esc(lesson.id)}">
-                    <td>${esc(lesson.lesson_number)}</td>
-                    <td>${esc(lesson.lesson_title)}</td>
+                    <td class="olama-lesson-index">${esc(lesson.lesson_number)}</td>
+                    <td class="olama-lesson-title">${esc(lesson.lesson_title)}</td>
                     <td>${videoLinks.length ? linksSummary : badge(primaryStatus) + processingNote}</td>
-                    <td><textarea class="olama-note" rows="2" ${lesson.media_record_id ? '' : 'disabled'}>${esc(lesson.comments || '')}</textarea></td>
-                    <td>${lesson.uploaded_at ? esc(lesson.uploaded_at) : '-'}</td>
+                    <td class="olama-lesson-notes${lesson.media_record_id ? '' : ' is-empty'}">${lesson.media_record_id ? `<details class="olama-note-editor"><summary>${lesson.comments ? 'عرض الملاحظة' : 'إضافة ملاحظة'}</summary><textarea class="olama-note" aria-label="ملاحظات الدرس" rows="2">${esc(lesson.comments || '')}</textarea></details>` : '<span aria-label="لا توجد ملاحظات">—</span>'}</td>
+                    <td class="olama-lesson-date${lesson.uploaded_at ? '' : ' is-empty'}">${lesson.uploaded_at ? esc(lesson.uploaded_at) : '-'}</td>
                     <td>
                         <div class="olama-actions">
                             ${linkActions}
@@ -277,7 +297,7 @@ jQuery(function ($) {
                 </tr>`;
             });
 
-            html += '</tbody></table></div>';
+            html += '</tbody></table></div></div>';
         });
 
         $container.html(html);
@@ -439,6 +459,7 @@ jQuery(function ($) {
         if (panel && panel.length) {
             const percent = Math.max(0, Math.min(100, Math.round(uploadState.percent || 0)));
             panel
+                .addClass('has-upload')
                 .removeClass('is-active is-completed is-failed is-probing is-finalizing')
                 .addClass(uploadPanelClass(uploadState.status));
             panel.find('[data-upload-summary]').text(uploadSummary(uploadState));
@@ -527,6 +548,9 @@ jQuery(function ($) {
             return;
         }
         const uploads = Array.from(activeUploads.values());
+        const activeCount = uploads.filter((upload) => !['completed', 'failed'].includes(upload.status)).length;
+        $('#olama-upload-monitor-caption').text(activeCount ? `${activeCount} عملية جارية` : uploads.length ? 'عرض عمليات الرفع' : 'لا توجد عمليات جارية');
+        if (activeCount) $('#olama-upload-monitor').prop('open', true);
         if (!uploads.length) {
             $list.html('<p class="description">لا توجد عمليات رفع نشطة حالياً.</p>');
             return;

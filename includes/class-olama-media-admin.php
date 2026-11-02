@@ -68,6 +68,8 @@ class Olama_Media_Admin
         $style_version = OLAMA_MEDIA_LIBRARY_VERSION . '-' . (file_exists($style_path) ? (string) filemtime($style_path) : '0');
         $script_version = OLAMA_MEDIA_LIBRARY_VERSION . '-' . (file_exists($script_path) ? (string) filemtime($script_path) : '0');
         wp_enqueue_style('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/css/media-library-admin.css', array(), $style_version);
+        $theme_path = OLAMA_MEDIA_LIBRARY_PATH . 'assets/css/media-library-theme.css';
+        wp_enqueue_style('olama-media-library-theme', OLAMA_MEDIA_LIBRARY_URL . 'assets/css/media-library-theme.css', array('olama-media-library-admin'), OLAMA_MEDIA_LIBRARY_VERSION . '-' . filemtime($theme_path));
         wp_enqueue_script('olama-media-library-admin', OLAMA_MEDIA_LIBRARY_URL . 'assets/js/media-library-admin.js', array('jquery'), $script_version, true);
         $workspace_path = OLAMA_MEDIA_LIBRARY_PATH . 'assets/js/media-workspace.js';
         wp_enqueue_script('olama-media-workspace', OLAMA_MEDIA_LIBRARY_URL . 'assets/js/media-workspace.js', array('olama-media-library-admin'), OLAMA_MEDIA_LIBRARY_VERSION . '-' . filemtime($workspace_path), true);
@@ -279,18 +281,18 @@ class Olama_Media_Admin
             'status_pending' => __('بانتظار الاعتماد', 'olama-media-library'),
             'status_approved' => __('معتمد', 'olama-media-library'),
             'status_rejected' => __('مرفوض', 'olama-media-library'),
-            'coverage_all_subjects' => __('All subjects', 'olama-media-library'),
-            'coverage_select_semester' => __('Select a semester first.', 'olama-media-library'),
-            'coverage_lessons' => __('lessons', 'olama-media-library'),
-            'coverage_full_set' => __('Full curriculum set', 'olama-media-library'),
-            'coverage_by_grade' => __('Coverage by grade', 'olama-media-library'),
-            'coverage_by_subject' => __('Coverage by subject', 'olama-media-library'),
-            'coverage_curriculum' => __('Curriculum coverage', 'olama-media-library'),
-            'coverage_unit' => __('Unit', 'olama-media-library'),
-            'coverage_lesson' => __('Lesson', 'olama-media-library'),
-            'coverage_video' => __('Video coverage', 'olama-media-library'),
-            'coverage_uploaded' => __('Video uploaded', 'olama-media-library'),
-            'coverage_missing' => __('Video missing', 'olama-media-library'),
+            'coverage_all_subjects' => __('جميع المواد', 'olama-media-library'),
+            'coverage_select_semester' => __('اختر الفصل الدراسي أولاً.', 'olama-media-library'),
+            'coverage_lessons' => __('درس', 'olama-media-library'),
+            'coverage_full_set' => __('إجمالي المنهج المحدد', 'olama-media-library'),
+            'coverage_by_grade' => __('التغطية حسب الصف', 'olama-media-library'),
+            'coverage_by_subject' => __('التغطية حسب المادة', 'olama-media-library'),
+            'coverage_curriculum' => __('تغطية المنهج', 'olama-media-library'),
+            'coverage_unit' => __('الوحدة', 'olama-media-library'),
+            'coverage_lesson' => __('الدرس', 'olama-media-library'),
+            'coverage_video' => __('توفر الفيديو', 'olama-media-library'),
+            'coverage_uploaded' => __('يوجد فيديو', 'olama-media-library'),
+            'coverage_missing' => __('بدون فيديو', 'olama-media-library'),
         );
     }
 
