@@ -29,6 +29,7 @@ class Olama_Media_Library_Plugin
         add_action('olama_users_register_modules', array($this, 'register_access_module'));
 
         if (is_admin()) {
+            add_action('wp_ajax_olama_media_workspace', array(new Olama_Media_Workspace(), 'handle'));
             new Olama_Media_Admin($this->db, $this->curriculum);
             new Olama_Media_Ajax($this->db, $this->curriculum, $this->logger);
         }

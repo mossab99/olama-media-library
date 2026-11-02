@@ -726,7 +726,11 @@ class Olama_Media_Ajax
                 'preview_status' => 'processing',
                 'uploaded_at' => current_time('mysql'),
             ));
-            $this->register_v2_uploaded_file($asset, $drive_file_id, $metadata, $download_link);
+            $registered = $this->register_v2_uploaded_file($asset, $drive_file_id, $metadata, $download_link);
+            if (is_wp_error($registered)) {
+                if ($job_id) { $this->db->update_job($job_id, array('status'=>'finalize_failed', 'error_message'=>$registered->get_error_message())); }
+                $this->send_wp_upload_error($registered, 'finalize_upload', array('job_uuid'=>$job_uuid, 'asset_id'=>$asset_id));
+            }
 
             if ($job_id) {
                 $this->db->update_job($job_id, array(
@@ -897,7 +901,11 @@ class Olama_Media_Ajax
             'transport_method' => 'direct_google',
             'uploaded_at' => current_time('mysql'),
         ));
-        $this->register_v2_uploaded_file($asset, $drive_file_id, $metadata, $download_link);
+        $registered = $this->register_v2_uploaded_file($asset, $drive_file_id, $metadata, $download_link);
+        if (is_wp_error($registered)) {
+            $this->db->update_job($job->id, array('status'=>'finalize_failed', 'error_message'=>$registered->get_error_message()));
+            $this->send_wp_upload_error($registered, 'direct_finalize', array('job_uuid'=>$job_uuid, 'asset_id'=>$asset_id));
+        }
         $this->db->update_job($job->id, array(
             'drive_file_id' => $drive_file_id,
             'status' => 'completed',
@@ -2307,14 +2315,17 @@ class Olama_Media_Ajax
             'video_metadata'=>wp_json_encode($metadata['video_media_metadata'] ?? array()),'scan_status'=>'active','last_seen_at'=>current_time('mysql'),
         ));
         $part = $normalizer->extract_part_number($filename);
-        $repo->upsert_lesson_video_link(array(
+        if (!$row_id) { return new WP_Error('video_save_failed', __('تعذر حفظ بيانات الفيديو. أعد تثبيت البيانات دون إعادة الرفع.', 'olama-media-library'), array('retryable'=>true)); }
+        $attached = $repo->attach_video(array(
             'drive_file_id'=>sanitize_text_field($drive_file_id),'drive_file_row_id'=>$row_id,
             'academic_year_id'=>absint($asset->academic_year_id),'semester_id'=>absint($asset->semester_id),
             'grade_id'=>absint($asset->grade_id),'subject_id'=>absint($asset->subject_id),'unit_id'=>absint($asset->unit_id),
             'lesson_id'=>absint($asset->lesson_id),'part_number'=>$part,'sequence_order'=>$part ?: $repo->next_sequence_order($asset->lesson_id),
             'match_method'=>'manual_upload','match_confidence'=>100,'approval_status'=>sanitize_key($asset->approval_status ?: 'pending'),
             'link_status'=>'active','linked_by'=>get_current_user_id(),
-        ));
+        ), true);
+        if (is_wp_error($attached)) { $this->logger->log('video_link_registration_failed', $attached->get_error_message(), array('drive_file_id'=>$drive_file_id)); }
+        return $attached;
     }
 
     private function verify_nonce()

@@ -136,6 +136,12 @@ assert_safe_upload($wpdb->mapping->confirmation_method === 'manual_verified', 'D
 // Confirmed renamed subject remains authoritative within the verified grade.
 $drive->folders['subject']['name'] = 'رياضيات معتمدة';
 assert_safe_upload($resolver->resolve($drive, $meta) === 'unit', 'Reuse the reviewed subject by ID under the correct parent.');
+$drive->add('other-subject', 'الرياضيات', 'grade');
+$drive->add('duplicate-subject', 'الرياضيات', 'grade');
+assert_safe_upload($resolver->resolve($drive, $meta) === 'unit' && !$drive->created, 'Confirmed renamed binding must ignore duplicate siblings without creating folders.');
+$drive->folders['subject']['parents'] = array('root');
+expect_safe_error($resolver->resolve($drive, $meta), 'safe_upload_mapping_changed');
+assert_safe_upload(!$drive->created && !$wpdb->locks, 'Binding must still reject a moved destination and release locks.');
 
 // Reject invalid curriculum before any Drive mutation.
 list($resolver, $drive, $curriculum) = fixture_safe_upload(); $curriculum->valid = false;

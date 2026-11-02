@@ -191,6 +191,10 @@ class Olama_Media_Drive_Mapping
         $maps = $wpdb->prefix . 'olama_curriculum_drive_map';
         $existing = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$maps} WHERE scope_key=%s LIMIT 1", $scope_key));
         if (!$existing || $existing->mapping_status !== 'confirmed') { return false; }
+        // A name-based inventory cannot revoke an ID binding. Its live ID chain
+        // is checked by upload/refresh before any operation uses it.
+        if ($this->binding_chain_ids($existing)
+            && hash_equals($this->current_root_config_hash(), (string) $existing->root_config_hash)) { return true; }
         $eligible_ids = array_map(function ($match) { return (string) $match['folder']->drive_item_id; }, $eligible);
         if (count($eligible_ids) === 1 && $eligible_ids[0] === (string) $existing->drive_folder_id) { return true; }
         if (($existing->confirmation_method ?? '') === 'manual_verified') {
@@ -216,6 +220,58 @@ class Olama_Media_Drive_Mapping
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}olama_curriculum_drive_map WHERE scope_key=%s LIMIT 1", sanitize_text_field($scope_key)));
     }
+
+    /** Verify folder ancestry by IDs. Names never establish or invalidate a binding. */
+    public function folder_chain($drive, $folder_id, $root_id)
+    {
+        $chain = array();
+        $seen = array();
+        while ($folder_id !== '' && count($chain) < 30) {
+            if (isset($seen[$folder_id])) { break; }
+            $seen[$folder_id] = true;
+            $folder = $drive->get_file_metadata($folder_id);
+            if (is_wp_error($folder)) { return $folder; }
+            if (($folder['id'] ?? '') !== $folder_id || !empty($folder['trashed'])
+                || ($folder['mime_type'] ?? '') !== 'application/vnd.google-apps.folder') { break; }
+            $chain[] = $folder;
+            if ($folder_id === $root_id) { return $chain; }
+            $parents = (array) ($folder['parents'] ?? array());
+            if (count($parents) !== 1) { break; }
+            $folder_id = (string) $parents[0];
+        }
+        return new WP_Error('binding_outside_root', __('المجلد خارج النطاق المسموح أو لم يعد متاحاً. اختر مجلد المادة من جديد.', 'olama-media-library'));
+    }
+
+    public function binding_chain_ids($mapping)
+    {
+        $evidence = json_decode((string) ($mapping->confirmation_evidence ?? ''), true);
+        if (!is_array($evidence)) { return array(); }
+        if (!empty($evidence['bound_ancestor_ids'])) { return (array) $evidence['bound_ancestor_ids']; }
+        $ids = array();
+        foreach (array('subject', 'grade', 'semester', 'academic_year') as $type) {
+            if (!empty($evidence[$type]['id'])) { $ids[] = (string) $evidence[$type]['id']; }
+        }
+        if (!empty($evidence['root_folder_id'])) { $ids[] = (string) $evidence['root_folder_id']; }
+        return array_values(array_unique($ids));
+    }
+
+    public function validate_binding($drive, $mapping)
+    {
+        if (!$mapping || $mapping->mapping_status !== 'confirmed'
+            || !hash_equals($this->current_root_config_hash(), (string) $mapping->root_config_hash)) {
+            return new WP_Error('binding_review_required', __('اختر مجلد المادة أو أعد تأكيده بعد تغيير إعدادات Drive.', 'olama-media-library'));
+        }
+        $settings = get_option('academy_media_library_settings', array());
+        $chain = $this->folder_chain($drive, (string) $mapping->drive_folder_id, (string) ($settings['root_folder_id'] ?? ''));
+        if (is_wp_error($chain)) { return $chain; }
+        $ids = array_column($chain, 'id');
+        if ($ids !== $this->binding_chain_ids($mapping)) {
+            return new WP_Error('binding_moved', __('تغيّر موقع مجلد المادة. أعد اختياره لتأكيد المسار الجديد.', 'olama-media-library'));
+        }
+        return $chain;
+    }
+
+    public function root_config_hash() { return $this->current_root_config_hash(); }
 
     /** Persist a live-verified path, or renew exactly the mapping inspected by the resolver. */
     public function confirm_upload_subject($scope_key, $drive_folder_id, $root_config_hash, array $evidence, $previous_mapping = null)

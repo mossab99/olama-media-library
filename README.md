@@ -1,5 +1,21 @@
 # Olama Media Library
 
+## Binding-first curriculum workspace
+
+Load a curriculum, then use **اختيار / تغيير المجلد** to select its existing subject folder inside the configured Drive root. This saves an explicit folder ID and ancestor-ID chain for that year, semester, grade, and subject. Labels may differ from curriculum labels. Renaming folders or adding duplicate siblings does not invalidate the binding; moving the bound branch or changing the root requires review. Binding a folder does not rename, create, move, delete, or share anything in Drive.
+
+Both upload transports use a verified binding directly, while retaining the existing safe automatic preparation path for older/unbound scopes. Unit destinations still require an unambiguous existing unit name or safe creation beneath the subject. Dedicated unit selection and historical data cutover are deferred.
+
+Each lesson has **اختر من Drive**. The picker browses live, paginated results within the bound subject subtree, previews videos, accepts an optional part number, and revalidates the selected file server-side. A video already active on another lesson cannot be silently reassigned. Upload finalization and picker linking share an idempotent attachment method that preserves existing approvals on retry. Explicit unlinking marks the association dismissed so refresh does not recreate it.
+
+The main **فحص ومزامنة Google Drive** action uses the same binding. It runs one Drive page per AJAX request and applies only unique exact normalized title matches after a complete traversal. Number disagreements, duplicate target candidates, occupied lesson/part slots, and repeated titles require manual selection. New links remain pending approval. Refresh is additive: it does not infer deletion or mark unseen files missing, including after an interrupted scan. This deliberately favors keeping existing links over automatic removal. Server-side refresh sessions expire after 30 minutes; a new refresh can safely be started. Subject/file limits produce explicit errors rather than partial-removal conclusions.
+
+Loading lessons reads local data only and never triggers a scan. Secondary video actions use a compact menu; the original multi-stage tools remain collapsed under **إصلاح الربط (متقدم)** for administrators.
+
+Deployment constants remain authoritative. `OLAMA_MEDIA_DRIVE_SYNC_ENABLED` controls refresh and choosing existing videos; `OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED` controls uploads. The workspace explains disabled features. Folder selection remains available to Drive administrators without enabling either feature. This release adds no tables, performs no bulk migration, and preserves the existing guardian publication policy. The broader migration specification is in [docs/module-redesign.md](docs/module-redesign.md).
+
+Validation: run each `tests/*-test.php` script with PHP, plus `node --check assets/js/media-library-admin.js` and `node --check assets/js/media-workspace.js`. `workspace-workflow-test.php` covers explicit bindings, ancestor renames, duplicate siblings, picker boundaries, attachment retries, conflicting candidates, and interrupted/repeated refreshes. Live OAuth, sharing, playback processing, and browser upload recovery still require a running WordPress site and a connected Drive account.
+
 ## Guardian video library service (2.1.0)
 
 `Olama_Media_Guardian_Library::for_curriculum()` exposes a minimal read model for family/student portals. It returns only active, approved curriculum video links (plus approved, ready legacy assets) for an explicit academic year, semester, grade, and subject list. It excludes pending matches, Drive identifiers, uploader data, notes, jobs, and diagnostics.

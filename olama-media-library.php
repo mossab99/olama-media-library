@@ -65,6 +65,7 @@ require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-reconciliati
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-rollout-readiness.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-matcher.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-ajax.php';
+require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-workspace.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-admin.php';
 require_once OLAMA_MEDIA_LIBRARY_PATH . 'includes/class-olama-media-library-plugin.php';
 

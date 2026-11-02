@@ -536,3 +536,24 @@
 .olama-upload-only .nav-tab-jump[data-tab="settings"] {
     display: none;
 }
+.olama-binding-bar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px; margin:16px 0; background:#fff; border:1px solid #dcdcde; border-radius:8px; }
+.olama-binding-bar p { margin:6px 0 0; }
+.olama-drive-picker { width:min(760px,calc(100vw - 48px)); max-height:85vh; padding:24px; border:1px solid #c3c4c7; border-radius:12px; color:#1d2327; }
+.olama-drive-picker::backdrop { background:rgba(0,0,0,.45); }
+.olama-drive-picker header,.olama-drive-picker footer,.olama-picker-toolbar { display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.olama-drive-picker h2 { margin:0; }
+.olama-drive-picker footer { border-top:1px solid #dcdcde; padding-top:16px; margin-top:16px; }
+.olama-drive-picker input { margin-inline-start:8px; max-width:100%; }
+#olama-picker-part { width:80px; }
+#olama-picker-breadcrumbs { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0; }
+#olama-picker-breadcrumbs button:not(:last-child)::after { content:' /'; }
+#olama-picker-items { max-height:42vh; overflow:auto; }
+.olama-picker-item { display:flex; align-items:center; gap:8px; border-bottom:1px solid #eee; padding:12px 0; }
+.olama-picker-item strong { flex:1; overflow-wrap:anywhere; }
+.olama-picker-item[hidden],.olama-drive-picker [hidden] { display:none !important; }
+.olama-action-menu { position:relative; display:inline-block; }
+.olama-action-menu summary { cursor:pointer; font-size:24px; padding:0 10px; list-style:none; }
+.olama-action-menu > div { position:absolute; z-index:5; inset-inline-end:0; min-width:140px; padding:8px; background:white; border:1px solid #c3c4c7; box-shadow:0 2px 6px #0002; }
+.olama-action-menu > div .button { display:block; width:100%; margin:4px 0; }
+.olama-v2-video small { display:block; max-width:300px; overflow-wrap:anywhere; }
+@media(max-width:600px) { .olama-binding-bar { align-items:stretch; flex-direction:column; } .olama-drive-picker { padding:16px; } .olama-picker-item { flex-wrap:wrap; } .olama-picker-item strong { flex-basis:100%; } }

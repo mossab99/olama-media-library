@@ -28,13 +28,11 @@ class Olama_Media_V2_Repository
         $data['last_seen_at'] = $data['last_seen_at'] ?? $now;
         if ($existing) {
             unset($data['first_seen_at'], $data['created_at']);
-            $wpdb->update($this->files, $data, array('id' => $existing->id));
-            return (int) $existing->id;
+            return false === $wpdb->update($this->files, $data, array('id' => $existing->id)) ? 0 : (int) $existing->id;
         }
         $data['first_seen_at'] = $data['first_seen_at'] ?? $now;
         $data['created_at'] = $data['created_at'] ?? $now;
-        $wpdb->insert($this->files, $data);
-        return (int) $wpdb->insert_id;
+        return $wpdb->insert($this->files, $data) ? (int) $wpdb->insert_id : 0;
     }
 
     public function mark_missing_drive_files_not_seen_since($run_started_at, $path_prefix = '')
@@ -153,6 +151,44 @@ class Olama_Media_V2_Repository
     {
         global $wpdb;
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->links} WHERE drive_file_id=%s LIMIT 1", sanitize_text_field($drive_file_id)));
+    }
+
+    /** Shared upload/picker/refresh attachment. Retrying never resets review decisions. */
+    public function attach_video($data, $explicit = false)
+    {
+        global $wpdb;
+        $locks = array('olama_video_' . substr(hash('sha256', $data['drive_file_id']), 0, 40), 'olama_lesson_' . absint($data['lesson_id']));
+        $acquired = array();
+        try {
+            foreach ($locks as $lock) {
+                if ((int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)', $lock)) !== 1) { return new WP_Error('video_busy', __('الفيديو قيد التحديث. أعد المحاولة.', 'olama-media-library')); }
+                $acquired[] = $lock;
+            }
+            $existing = $this->get_link_by_drive_file_id($data['drive_file_id']);
+            if ($existing && $existing->link_status === 'active') {
+                foreach (array('academic_year_id', 'semester_id', 'grade_id', 'subject_id', 'unit_id', 'lesson_id') as $field) {
+                    if (absint($existing->$field) !== absint($data[$field])) { return new WP_Error('video_already_linked', __('الفيديو مرتبط بدرس آخر. راجع الربط الحالي قبل تغييره.', 'olama-media-library')); }
+                }
+                return array('link_id'=>absint($existing->id), 'already_linked'=>true);
+            }
+            if ($existing && !$explicit && ($existing->link_status === 'ignored' || $existing->approval_status === 'rejected')) { return new WP_Error('video_dismissed', __('تم استبعاد هذا الفيديو سابقاً.', 'olama-media-library')); }
+            if (!$explicit) {
+                foreach ($this->get_links_for_lesson($data['lesson_id']) as $link) {
+                    if (empty($data['part_number']) || empty($link->part_number) || (int) $link->part_number === (int) $data['part_number']) { return new WP_Error('lesson_occupied', __('يوجد فيديو لهذا الدرس أو الجزء. راجع الربط يدوياً.', 'olama-media-library')); }
+                }
+            }
+            $data['updated_at'] = current_time('mysql');
+            if ($existing) {
+                $data['approved_by'] = null; $data['approved_at'] = null;
+                $ok = $wpdb->update($this->links, $data, array('id'=>$existing->id));
+                $id = absint($existing->id);
+            } else {
+                $data['created_at'] = current_time('mysql');
+                $ok = $wpdb->insert($this->links, $data);
+                $id = absint($wpdb->insert_id);
+            }
+            return false !== $ok && $id ? array('link_id'=>$id, 'already_linked'=>false) : new WP_Error('video_save_failed', __('تعذر حفظ ربط الفيديو. أعد المحاولة.', 'olama-media-library'));
+        } finally { foreach (array_reverse($acquired) as $lock) { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock)); } }
     }
 
     /** Uploaded through this plugin and already linked explicitly to a curriculum lesson. */
@@ -280,7 +316,7 @@ class Olama_Media_V2_Repository
     public function unlink_drive_file($link_id)
     {
         global $wpdb;
-        return false !== $wpdb->update($this->links, array('link_status'=>'unlinked','updated_at'=>current_time('mysql')), array('id'=>absint($link_id)));
+        return false !== $wpdb->update($this->links, array('link_status'=>'ignored','updated_at'=>current_time('mysql')), array('id'=>absint($link_id)));
     }
 
     public function next_sequence_order($lesson_id)

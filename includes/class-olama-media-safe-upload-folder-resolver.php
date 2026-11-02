@@ -81,8 +81,40 @@ class Olama_Media_Safe_Upload_Folder_Resolver
         $root_hash = $this->root_hash($settings);
         $mapping = $this->mapping->get_mapping_for_scope($scope_key);
         if ($mapping) { $mapping = clone $mapping; }
+        if ($mapping && ($mapping->confirmation_method ?? '') === 'workspace_selected'
+            && ($mapping->mapping_status !== 'confirmed' || !hash_equals((string) $mapping->root_config_hash, $root_hash))) {
+            return $this->mapping_changed(__('تغيّرت إعدادات Drive بعد اختيار المجلد. أعد تأكيد مجلد المادة من شاشة الرفع.', 'olama-media-library'));
+        }
         if ($mapping && !in_array($mapping->mapping_status, array('confirmed', 'proposed_for_revalidation'), true)) {
             return $this->mapping_changed(__('حالة ربط المادة لا تسمح باستخدامه أثناء الرفع. راجع فحص الربط.', 'olama-media-library'));
+        }
+        // A saved ID chain is authoritative. Do not rediscover its ancestors by label.
+        if ($mapping && $mapping->mapping_status === 'confirmed'
+            && hash_equals((string) $mapping->root_config_hash, $root_hash)
+            && $this->mapping->binding_chain_ids($mapping)) {
+            $chain = $this->mapping->validate_binding($drive, $mapping);
+            if (is_wp_error($chain)) { return $this->mapping_changed($chain->get_error_message()); }
+            $unit_spec = $specs[4];
+            $unit_id = $this->find_child($drive, $mapping->drive_folder_id, $unit_spec);
+            if (is_wp_error($unit_id)) { return $unit_id; }
+            if (!$this->root_unchanged($root_hash)) { return $this->root_changed(); }
+            if ($unit_id === '') {
+                $created = $drive->create_upload_folder($unit_spec['name'], $mapping->drive_folder_id);
+                if (is_wp_error($created)) { return $this->drive_error($created); }
+                $unit_id = sanitize_text_field($created['id'] ?? '');
+            }
+            $checked = $this->find_child($drive, $mapping->drive_folder_id, $unit_spec, $unit_id);
+            if (is_wp_error($checked)) { return $checked; }
+            $live = $drive->get_file_metadata($unit_id);
+            if (is_wp_error($live)) { return $this->drive_error($live); }
+            if (!$this->valid_folder($live, $unit_id) || !in_array($mapping->drive_folder_id, (array) ($live['parents'] ?? array()), true)) { return $this->mapping_changed(); }
+            $chain = $this->mapping->validate_binding($drive, $mapping);
+            if (is_wp_error($chain)) { return $this->mapping_changed($chain->get_error_message()); }
+            $current = $this->mapping->get_mapping_for_scope($scope_key);
+            if (!$current || $current->id != $mapping->id || $current->drive_folder_id !== $mapping->drive_folder_id
+                || $current->mapping_status !== 'confirmed' || $current->confirmation_evidence !== $mapping->confirmation_evidence) { return $this->mapping_changed(); }
+            if (!$this->root_unchanged($root_hash)) { return $this->root_changed(); }
+            return $unit_id;
         }
         $root = $drive->get_file_metadata($root_id);
         if (is_wp_error($root)) { return $this->drive_error($root); }
@@ -217,6 +249,18 @@ class Olama_Media_Safe_Upload_Folder_Resolver
 
     private function find_child($drive, $parent_id, $spec, $bound_id = '', $allow_renamed = false)
     {
+        // A confirmed subject binding identifies the destination independently
+        // of its label or siblings. Keep live access/type/parent validation.
+        // IDs observed during initial provisioning still use ambiguity checks.
+        if ($bound_id !== '' && $allow_renamed) {
+            $folder = $drive->get_file_metadata($bound_id);
+            if (is_wp_error($folder)) { return $this->mapping_changed($folder->get_error_message()); }
+            if (!$this->valid_folder($folder, $bound_id)
+                || !in_array($parent_id, (array) ($folder['parents'] ?? array()), true)) {
+                return $this->mapping_changed();
+            }
+            return $bound_id;
+        }
         $exact = array(); $similar = array(); $bound = null; $token = ''; $seen = array();
         do {
             if (count($seen) >= 100 || isset($seen[$token])) {

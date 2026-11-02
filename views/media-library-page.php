@@ -16,7 +16,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
     <h2 class="nav-tab-wrapper">
         <?php if ($can_administer) : ?><a href="#coverage" class="nav-tab" data-tab="coverage"><?php esc_html_e('Curriculum Video Coverage Report', 'olama-media-library'); ?></a><?php endif; ?>
         <a href="#library" class="nav-tab nav-tab-active" data-tab="library"><?php esc_html_e('رفع الفيديوهات', 'olama-media-library'); ?></a>
-        <?php if ($can_administer) : ?><a href="#link-check" class="nav-tab" data-tab="link-check"><?php esc_html_e('فحص الربط', 'olama-media-library'); ?></a><?php endif; ?>
+        <?php if ($can_administer) : ?><a href="#link-check" class="nav-tab" data-tab="link-check"><?php esc_html_e('إصلاح الربط (متقدم)', 'olama-media-library'); ?></a><?php endif; ?>
         <?php if ($can_administer) : ?><a href="#settings" class="nav-tab" data-tab="settings"><?php esc_html_e('إعدادات Drive', 'olama-media-library'); ?></a><?php endif; ?>
     </h2>
 
@@ -27,7 +27,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
             </div>
         <?php elseif ($drive_upload_enabled) : ?>
             <div class="notice notice-success inline">
-                <p><strong><?php esc_html_e('الرفع الآمن مفعّل:', 'olama-media-library'); ?></strong> <?php esc_html_e('يتحقق النظام من مسار المنهج في Drive، ويعيد استخدام المجلدات الموجودة وينشئ الناقص تلقائياً قبل رفع الفيديو. عند وجود مجلدات متكررة أو مسار غير واضح، يتوقف الرفع ويطلب مراجعة الربط.', 'olama-media-library'); ?></p>
+                <p><?php esc_html_e('ارفع فيديو من صف الدرس أو اختر فيديو موجوداً من Drive. يستخدم النظام مجلد المادة المرتبط ويتحقق من توفره قبل الرفع.', 'olama-media-library'); ?></p>
             </div>
         <?php endif; ?>
         <?php if (empty($drive_auth_health['is_configured']) || empty($drive_auth_health['has_refresh_token']) || empty($drive_auth_health['can_refresh'])) : ?>
@@ -83,11 +83,23 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
             <button type="button" id="btn-load-curriculum" class="button button-primary"><?php esc_html_e('تحميل المنهاج', 'olama-media-library'); ?></button>
         </div>
 
+        <div class="olama-binding-bar" aria-live="polite">
+            <div><strong><?php esc_html_e('مجلد المادة في Drive', 'olama-media-library'); ?></strong><p id="olama-binding-label"><?php esc_html_e('اختر المنهج ثم حمّل الدروس لعرض الربط.', 'olama-media-library'); ?></p></div>
+            <?php if ($can_administer) : ?><button type="button" class="button" id="btn-select-drive-folder" disabled><?php esc_html_e('اختيار / تغيير المجلد', 'olama-media-library'); ?></button><?php endif; ?>
+        </div>
+        <?php if (!$drive_sync_enabled) : ?>
+            <div class="notice notice-warning inline"><p><?php esc_html_e('المزامنة واختيار الفيديوهات من Drive معطلان في إعدادات التشغيل.', 'olama-media-library'); ?>
+            <?php if ($can_administer) : ?><?php esc_html_e('على مسؤول الموقع تفعيل OLAMA_MEDIA_DRIVE_SYNC_ENABLED في إعدادات الموقع. اختيار المجلد لا يفعّل المزامنة تلقائياً.', 'olama-media-library'); ?><?php endif; ?></p></div>
+        <?php endif; ?>
+        <?php if (!$drive_upload_enabled) : ?>
+            <div class="notice notice-warning inline"><p><?php esc_html_e('رفع الفيديوهات معطل حالياً. راجع مسؤول الموقع لتفعيل الرفع.', 'olama-media-library'); ?>
+            <?php if ($can_administer) : ?><code>OLAMA_MEDIA_DRIVE_UPLOAD_ENABLED</code><?php endif; ?></p></div>
+        <?php endif; ?>
         <?php if ($can_administer) : ?>
             <div class="olama-drive-sync-bar">
                 <div>
                     <strong><?php esc_html_e('مزامنة Google Drive', 'olama-media-library'); ?></strong>
-                    <span><?php esc_html_e('يفحص مجلد المادة المحددة ويربط الفيديوهات بالدروس تلقائياً.', 'olama-media-library'); ?></span>
+                    <span><?php esc_html_e('يفحص المجلد المرتبط ويضيف المطابقات المؤكدة بانتظار الاعتماد. استخدم «اختر من Drive» لبقية الفيديوهات.', 'olama-media-library'); ?></span>
                 </div>
                 <button type="button" id="btn-v2-sync-now" class="button button-primary" <?php disabled(!$drive_sync_enabled); ?>><?php esc_html_e('فحص ومزامنة Google Drive', 'olama-media-library'); ?></button>
             </div>
@@ -235,6 +247,8 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
     </section>
 
     <section id="tab-link-check" class="olama-media-tab olama-link-check-tab">
+        <p><?php esc_html_e('للعمل اليومي استخدم الرفع واختيار الفيديوهات من شاشة المنهج. هذه الأدوات مخصصة لإصلاح الربط والترحيل بواسطة المسؤول.', 'olama-media-library'); ?></p>
+        <details class="olama-repair-tools"><summary><?php esc_html_e('فتح أدوات الإصلاح والترحيل المتقدمة', 'olama-media-library'); ?></summary>
         <div class="olama-link-check-hero">
             <div>
                 <span class="olama-eyebrow"><?php esc_html_e('مراجعة آمنة خطوة بخطوة', 'olama-media-library'); ?></span>
@@ -411,6 +425,7 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
                 <pre id="v2-reset-result" class="olama-media-result" hidden></pre>
             </details>
         </details>
+        </details>
     </section>
     <?php endif; ?>
 </div>
@@ -426,3 +441,14 @@ $drive_sync_enabled = Olama_Media_Feature_Flags::enabled(Olama_Media_Feature_Fla
 </div>
 
 <input type="file" id="media-video-input" accept="video/mp4,.mp4" hidden>
+
+<dialog id="olama-drive-picker" class="olama-drive-picker" dir="rtl" aria-labelledby="olama-picker-title">
+    <header><h2 id="olama-picker-title"></h2><button type="button" class="button olama-picker-close" aria-label="<?php esc_attr_e('إغلاق', 'olama-media-library'); ?>">&times;</button></header>
+    <p id="olama-picker-context"></p>
+    <nav id="olama-picker-breadcrumbs" aria-label="<?php esc_attr_e('مسار المجلد', 'olama-media-library'); ?>"></nav>
+    <div class="olama-picker-toolbar"><label><?php esc_html_e('تصفية الصفحة الحالية', 'olama-media-library'); ?><input type="search" id="olama-picker-search"></label><button type="button" class="button" id="olama-picker-refresh"><?php esc_html_e('تحديث المجلد', 'olama-media-library'); ?></button></div>
+    <p id="olama-picker-message" role="status" aria-live="polite"></p>
+    <div id="olama-picker-items"></div>
+    <button type="button" class="button" id="olama-picker-more" hidden><?php esc_html_e('الصفحة التالية', 'olama-media-library'); ?></button>
+    <footer><label id="olama-picker-part-label"><?php esc_html_e('رقم الجزء (اختياري)', 'olama-media-library'); ?><input type="number" min="1" max="999" id="olama-picker-part"></label><button type="button" class="button button-primary" id="olama-picker-bind" hidden><?php esc_html_e('اعتماد هذا المجلد للمادة', 'olama-media-library'); ?></button><button type="button" class="button olama-picker-close"><?php esc_html_e('إغلاق', 'olama-media-library'); ?></button></footer>
+</dialog>
