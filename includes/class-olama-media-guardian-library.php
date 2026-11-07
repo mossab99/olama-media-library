@@ -11,7 +11,8 @@ if (!defined('ABSPATH')) {
  * Drive identifiers, uploader details, notes, jobs, and diagnostic fields.
  */
 class Olama_Media_Guardian_Library {
-    public static function for_curriculum($academic_year_id, $semester_id, $grade_id, array $subject_ids) {
+    public static function for_curriculum($academic_year_id, $semester_id, $grade_id, array $subject_ids, $lesson_id = 0) {
+        $lesson_id = absint($lesson_id);
         $academic_year_id = absint($academic_year_id);
         $semester_id = absint($semester_id);
         $grade_id = absint($grade_id);
@@ -35,7 +36,7 @@ class Olama_Media_Guardian_Library {
                 continue;
             }
 
-            $units = $db->get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id);
+            $units = $db->get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id, $lesson_id);
             if (is_wp_error($units)) {
                 return $units;
             }
@@ -44,7 +45,21 @@ class Olama_Media_Guardian_Library {
             foreach ((array) $units as $unit) {
                 $published_lessons = array();
                 foreach ((array) (isset($unit->lessons) ? $unit->lessons : array()) as $lesson) {
-                    $videos = self::approved_v2_links($repository->get_links_for_lesson($lesson->id));
+                    if ($lesson_id && $lesson_id !== (int) $lesson->id) {
+                        continue;
+                    }
+                    $links = $repository->get_links_for_lesson($lesson->id);
+                    if ($lesson_id) {
+                        $links = array_filter((array) $links, static function ($link) use ($academic_year_id, $semester_id, $grade_id, $subject_id) {
+                            foreach (compact('academic_year_id', 'semester_id', 'grade_id', 'subject_id') as $field => $value) {
+                                if (!empty($link->$field) && (int) $link->$field !== $value) {
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+                    }
+                    $videos = self::approved_v2_links($links);
                     if (!$videos) {
                         $videos = self::approved_legacy_asset($lesson, $repository);
                     }

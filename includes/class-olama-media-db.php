@@ -517,7 +517,7 @@ class Olama_Media_DB
         ) ENGINE=InnoDB $charset_collate;");
     }
 
-    public function get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id)
+    public function get_curriculum_with_assets($academic_year_id, $semester_id, $grade_id, $subject_id, $lesson_id = 0)
     {
         global $wpdb;
         $units_table = $wpdb->prefix . 'olama_curriculum_units';
@@ -544,6 +544,8 @@ class Olama_Media_DB
 
         $unit_ids = wp_list_pluck($units, 'id');
         $placeholders = implode(',', array_fill(0, count($unit_ids), '%d'));
+        $lesson_filter = $lesson_id ? $wpdb->prepare(' AND l.id = %d', $lesson_id) : '';
+        $asset_year_filter = $lesson_id ? $wpdb->prepare(' AND (a2.academic_year_id IS NULL OR a2.academic_year_id = 0 OR a2.academic_year_id = %d)', $academic_year_id) : '';
         $lessons = $wpdb->get_results($wpdb->prepare(
             "SELECT l.id, l.unit_id, l.lesson_number, l.lesson_title,
                     a.id AS media_record_id, a.upload_status, a.preview_status, a.approval_status,
@@ -555,7 +557,7 @@ class Olama_Media_DB
              LEFT JOIN {$this->assets_table} a ON a.id = (
                  SELECT a2.id
                  FROM {$this->assets_table} a2
-                 WHERE a2.lesson_id = l.id
+                 WHERE a2.lesson_id = l.id{$asset_year_filter}
                  ORDER BY
                      CASE
                          WHEN a2.drive_file_id IS NOT NULL AND a2.drive_file_id <> '' THEN 0
@@ -569,7 +571,7 @@ class Olama_Media_DB
                  SELECT MAX(j2.id) FROM {$this->jobs_table} j2 WHERE j2.asset_id = a.id
              )
              LEFT JOIN {$users_table} u ON a.uploaded_by = u.ID
-             WHERE l.unit_id IN ({$placeholders})
+             WHERE l.unit_id IN ({$placeholders}){$lesson_filter}
              ORDER BY l.unit_id ASC, CAST(l.lesson_number AS UNSIGNED) ASC, l.lesson_number ASC",
             $unit_ids
         ));

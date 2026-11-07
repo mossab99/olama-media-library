@@ -35,13 +35,14 @@ class Olama_Media_DB {
 }
 
 class Olama_Media_V2_Repository {
+    public static $additional_links = array();
     public function get_link_by_drive_file_id($id) { return $GLOBALS['canonical_file_links'][$id] ?? null; }
     public function get_links_for_lesson($lesson_id) {
         if (10 === (int) $lesson_id) {
-            return array(
+            return array_merge(array(
                 (object) array('link_id' => 70, 'approval_status' => 'approved', 'part_number' => 1, 'web_view_link' => 'https://video.example/approved'),
                 (object) array('link_id' => 71, 'approval_status' => 'pending', 'part_number' => 2, 'web_view_link' => 'https://video.example/pending'),
-            );
+            ), self::$additional_links);
         }
         return array();
     }
@@ -73,5 +74,14 @@ foreach (array(
 }
 $GLOBALS['canonical_file_links']['legacy-11'] = (object) array('lesson_id'=>99,'link_status'=>'unlinked','approval_status'=>'pending');
 assert_true(Olama_Media_Guardian_Library::for_curriculum(1,2,3,array(4))['video_count'] === 2, 'An unapplied migration suggestion must not hide an approved legacy video.');
+
+Olama_Media_V2_Repository::$additional_links = array(
+    (object) array('link_id' => 72, 'approval_status' => 'approved', 'part_number' => 2, 'academic_year_id' => 1, 'web_view_link' => 'https://video.example/part-2'),
+    (object) array('link_id' => 73, 'approval_status' => 'approved', 'part_number' => 3, 'academic_year_id' => 9, 'web_view_link' => 'https://video.example/other-year'),
+);
+$lesson_library = Olama_Media_Guardian_Library::for_curriculum(1, 2, 3, array(4), 10);
+$lessons = $lesson_library['subjects'][0]['units'][0]['lessons'];
+assert_true(count($lessons) === 1 && $lessons[0]['id'] === 10, 'A weekly plan should only receive the requested lesson.');
+assert_true(array_column($lessons[0]['videos'], 'url') === array('https://video.example/approved', 'https://video.example/part-2'), 'Return every approved part in scope and exclude pending or other-year videos.');
 
 echo "Guardian video library tests passed.\n";
